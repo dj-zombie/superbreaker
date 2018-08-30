@@ -1,0 +1,19 @@
+{
+    "prepare_queue": {
+        "installed": [],
+        "uninstalled": []
+    },
+    "config_munge": {
+        "files": {}
+    },
+    "installed_plugins": {
+        "cordova-plugin-whitelist": {
+            "PACKAGE_NAME": "com.zombieheadstudios.superbreaker"
+        },
+        "cc.fovea.cordova.purchase": {
+            "BILLING_KEY": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt9s8pttHRM51wy77ZUrO6MRhJNZZOjQHzU24KIR8VsUycaHkqr4QFZATjK/o3v4JwSgBUoLjFmL66CkxRGVV6G/Tb3ur9YN8DX8gOUbPPpD3wYHlLO/7UCYujmckGoSWCbr7ZYJbe2i/yhq8b5NuSK+eHfhdR5AArG2Nor/jJWpkl4IWcfeAFvo+BY6dx6dzATo6jIQCTenMXcOOXNM84B30tVyQMWx/TF/g2w0wBetXQr+TTkJZZchC/bukPyE/mmWZ0I/p8t8CiMri/HkABENy6HL7p97ZM1QbfBcZDSUzGwdvzsMShu9hNGB5YdqNbMQH6vDT2ludDv/crqJeLwIDAQAB",
+            "PACKAGE_NAME": "com.zombieheadstudios.superbreaker"
+        }
+    },
+    "dependent_plugins": {}
+}

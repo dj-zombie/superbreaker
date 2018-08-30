@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+	<meta name="viewport" content="width=device-width; initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, target-densityDpi=device-dpi" />
+  <title>Super Breaker - Zombie Head Studios</title>
+	<script src="js/jquery-2.2.0.min.js"></script>
+  <script src="js/jquery.easing.1.3.js"></script>
+	<script type="text/javascript" src="cordova.js"></script>
+	<script type="text/javascript" src="js/index.js"></script>
+	<script type="text/javascript">
+		app.initialize();
+	</script>
+  <link rel="stylesheet" href="css/main.css">
+	<link rel="stylesheet" href="css/animate.css">
+</head>
+<body>
+	<div id="game-container">
+	  <div id="yophaser-game">
+
+			<!-- Level Select Screen -->
+			<div id="level-select">
+				<div class="level-row">
+
+				</div><!-- end .level-row -->
+			</div><!-- end #level-select-->
+
+			<!-- Player Win Screen -->
+	  	<div id="win" class="animated">
+				<div class="stars">
+					<img class="star-left animated" src="assets/menu/star-big.png">
+					<img class="star-middle animated" src="assets/menu/star-big.png">
+					<img class="star-right animated" src="assets/menu/star-big.png">
+				</div>
+				<div class="results">
+					<ul>
+						<li class="coins"><span>COINS: </span><span id="coins">0</span></li>
+						<li class="score"><span>YOUR SCORE: </span><span id="score">0</span></li>
+						<li class="best-score"><span><!--BEST SCORE:--> </span><span id="best-score"></span></li>
+				</ul>
+				</div>
+				<div class="upgrades">
+					<img id="upgrades-btn" src="assets/menu/upgrades.png">
+				</div>
+				<div class="bottom-buttons">
+					<img id="menu-btn" src="assets/menu/menu-button.png">
+					<img id="replay-btn" src="assets/menu/replay-button.png">
+					<img id="play-btn" src="assets/menu/play-button.png">
+				</div>
+			</div>
+
+			<!-- Pause Menu -->
+			<img id="pause-btn" src="assets/menu/pause-button.png">
+			<div id="pause-container" class="animated">
+				<div class="audio-controls">
+					<img id="no-music-btn" src="assets/menu/music.png">
+					<img id="no-audio-btn" src="assets/menu/audio.png">
+				</div>
+				<div class="pause-upgrades">
+					<img id="pause-upgrades-btn" src="assets/menu/upgrades.png">
+				</div>
+				<div class="bottom-buttons">
+					<img id="pause-menu-btn" src="assets/menu/menu-button.png">
+					<img id="pause-replay-btn" src="assets/menu/replay-button.png">
+					<img id="pause-pause-btn" src="assets/menu/pause-button.png">
+				</div>
+			</div>
+
+			<!-- Upgrades Menu -->
+			<div id="upgrades-container">
+				<div class="upgrades-logo"></div>
+				<div id="magnet" class="item">
+					<img src="assets/menu/magnet-row.png">
+					<img id="magnetCount" class="purchased" src="assets/menu/row-purchased-1.png">
+				</div>
+				<div id="fireball" class="item">
+					<img src="assets/menu/fireball-row.png">
+					<img id="fireballCount" class="purchased" src="assets/menu/row-purchased-1.png">
+				</div>
+				<div id="laser" class="item">
+					<img src="assets/menu/machine-gun-row.png">
+					<img id="laserCount" class="purchased" src="assets/menu/row-purchased-3.png">
+				</div>
+				<div id="bag-coins" class="item">
+					<img src="assets/menu/bag-coins-row.png">
+				</div>
+				<div id="no-ads" class="item">
+					<img src="assets/menu/no-ads-row.png">
+				</div>
+
+
+				<div class="upgrades-back">
+					<img id="upgrades-back-btn" src="assets/menu/back.png">
+				</div>
+
+				<div class="coins-inventory">
+					<span style="color:#fff">My Coins: </span><span id="coins-inv">243</span><img src="assets/menu/coin-icon.png">
+				</div>
+			</div><!-- end #upgrades-container -->
+
+			<div id="coins-dialog" onclick="$('#coins-dialog').fadeOut()">
+				<img src="assets/menu/coins-dialog.png">
+			</div>
+			<div id="locked-dialog" onclick="$('#locked-dialog').fadeOut()">
+				<img src="assets/menu/locked-dialog.png">
+			</div>
+			<div id="ads-dialog" onclick="$('#ads-dialog').fadeOut()">
+				<img src="assets/menu/ads-dialog.png">
+			</div>
+			<div id="complete-dialog" onclick="$('#complete-dialog').fadeOut()">
+				<img src="assets/menu/complete-dialog.png">
+			</div>
+			<div id="rich-dialog" onclick="$('#rich-dialog').fadeOut()">
+				<img src="assets/menu/rich-dialog.png">
+			</div>
+
+      <div id="credits-dialog" onclick="$('#credits-dialog').fadeOut()">
+			</div>
+
+      <div id="instructions-dialog" onclick="$('#instructions-dialog').fadeOut()">
+			</div>
+
+			<div id="startappContainer"><img id="close-ad" src="assets/menu/close-button.png"></div>
+
+	  </div><!-- End yophaser-game -->
+	</div><!-- End game-container -->
+
+
+  <script src="js/phaser.min.js"></script>
+  <script src="js/boot.js"></script>
+  <script src="js/preloader.js"></script>
+  <script src="js/menu.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+	<script src="js/phaser-arcade-physics.min.js"></script>
+	<script src="js/cycle.js"></script>
+
+  <script type="text/javascript">
+
+		// Required parameters.
+		var publisherId = '101223543';
+		var productId ='201142266';
+		var width = 320;
+		var height = 480;
+		// Optional parameters.
+		var userId = "";
+		var packageName = "";
+		var isp = "";
+		var contentRating = "";
+		var gender = "";
+		var age = "";
+		var category = "";
+		var networkType = "";
+		var geoLongitude = "";
+		var geoLatitude = "";
+		var subPublisherId = "";
+		var subProductId = "";
+		var domain = "";
+		var deviceManufacturer = "";
+		var deviceModel = "";
+		var userAdvertisingId="";
+		var noAdUrl= "";
+
+</script>
+<script type="text/javascript" src="http://www.startappexchange.com/js/startapp-tag.js"></script>
+
+
+</body>
+</html>
