@@ -1,0 +1,7 @@
+dist
+dev-dist
+legacy
+ios
+android
+pnpm-lock.yaml
+public/assets

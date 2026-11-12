@@ -1,0 +1,299 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "tiledversion": "1.11.2",
+ "name": "bricks",
+ "tilewidth": 30,
+ "tileheight": 16,
+ "tilecount": 20,
+ "columns": 0,
+ "margin": 0,
+ "spacing": 0,
+ "grid": {
+  "orientation": "orthogonal",
+  "width": 1,
+  "height": 1
+ },
+ "tiles": [
+  {
+   "id": 0,
+   "image": "../images/bricks/brick_blue.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "image": "../images/bricks/brick_blue2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "image": "../images/bricks/brick_green.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "image": "../images/bricks/brick_green2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "image": "../images/bricks/brick_orange.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "image": "../images/bricks/brick_orange2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "image": "../images/bricks/brick_pink.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "image": "../images/bricks/brick_purple2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "image": "../images/bricks/brick_red.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "image": "../images/bricks/brick_red2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "image": "../images/bricks/brick_teal.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "image": "../images/bricks/brick_teal2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "image": "../images/bricks/brick_white.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "image": "../images/bricks/brick_white2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 14,
+   "image": "../images/bricks/brick_yellow.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "image": "../images/bricks/brick_yellow2.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "normal"
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "image": "../images/bricks/brick_steel.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "steel"
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "image": "../images/bricks/brick_explosive.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "explosive"
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "image": "../images/bricks/brick_armored.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "armored"
+    }
+   ]
+  },
+  {
+   "id": 19,
+   "image": "../images/bricks/brick_regen.png",
+   "imagewidth": 30,
+   "imageheight": 16,
+   "properties": [
+    {
+     "name": "kind",
+     "type": "string",
+     "propertytype": "BrickKind",
+     "value": "regen"
+    }
+   ]
+  }
+ ]
+}

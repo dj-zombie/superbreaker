@@ -1,0 +1,55 @@
+{
+  "automappingRulesFile": "",
+  "commands": [],
+  "compatibilityVersion": 1100,
+  "extensionsPath": "extensions",
+  "folders": ["public/assets/levels", "public/assets/tilesets"],
+  "properties": [],
+  "propertyTypes": [
+    {
+      "id": 1,
+      "name": "BrickKind",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["normal", "steel", "explosive", "armored", "regen"],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 2,
+      "name": "Powerup",
+      "type": "enum",
+      "storageType": "string",
+      "values": [
+        "magnet",
+        "fireball",
+        "laser",
+        "balls",
+        "bigger",
+        "smaller",
+        "coin",
+        "shield",
+        "hyper",
+        "extraLife",
+        "pierce",
+        "mystery"
+      ],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 3,
+      "name": "Brick",
+      "type": "class",
+      "useAs": ["object", "tile"],
+      "color": "#ff7a4dff",
+      "drawFill": true,
+      "members": [
+        { "name": "kind", "type": "string", "propertyType": "BrickKind", "value": "normal" },
+        { "name": "powerup", "type": "string", "propertyType": "Powerup", "value": "magnet" },
+        { "name": "armor", "type": "int", "value": 2 },
+        { "name": "moveX", "type": "float", "value": 0 },
+        { "name": "moveSpeed", "type": "float", "value": 60 },
+        { "name": "regenDelay", "type": "float", "value": 4 }
+      ]
+    }
+  ]
+}

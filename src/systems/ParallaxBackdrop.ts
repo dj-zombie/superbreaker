@@ -1,0 +1,295 @@
+import Phaser from 'phaser';
+import {
+  WORLD_IDS,
+  WORLD_LOOKS,
+  partKey,
+  worldAssets,
+  worldLayers,
+  type GlowLook,
+  type MoteLook,
+  type TileLook,
+  type WorldId,
+} from '../art/backdrops';
+import { HEIGHT, WIDTH } from '../config';
+import { save } from '../services';
+import type { Tintable } from './Backdrop';
+import { particleDensity } from './Quality';
+
+const DEPTH = -100;
+/** Rows drawn above and below the view so camera shake never exposes an edge. */
+const BLEED = 12;
+const GLOW_KEY = 'bd_glow';
+const BIT_KEY = 'bd_bit';
+
+interface TileLayer {
+  look: TileLook;
+  parts: { sprite: Phaser.GameObjects.TileSprite; x: number }[];
+  /** Playfield units per source pixel. */
+  scale: number;
+  /** Height of one repeat in playfield units. */
+  period: number;
+  offset: number;
+}
+
+interface GlowLayer {
+  look: GlowLook;
+  image: Phaser.GameObjects.Image;
+}
+
+interface MoteLayer {
+  look: MoteLook;
+  emitter: Phaser.GameObjects.Particles.ParticleEmitter;
+  zone: Phaser.Geom.Rectangle;
+}
+
+function multiply(a: number, b: number): number {
+  const ch = (s: number) => Math.round((((a >> s) & 255) * ((b >> s) & 255)) / 255);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+function luminance(c: number): number {
+  return (((c >> 16) & 255) * 0.3 + ((c >> 8) & 255) * 0.59 + (c & 255) * 0.11) / 255;
+}
+
+function ensureGlowTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists(GLOW_KEY)) return;
+  const tex = scene.textures.createCanvas(GLOW_KEY, 256, 256);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  tex.refresh();
+}
+
+function ensureBitTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists(BIT_KEY)) return;
+  const tex = scene.textures.createCanvas(BIT_KEY, 8, 8);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillRect(0, 0, 8, 8);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(2, 2, 4, 4);
+  tex.refresh();
+}
+
+/**
+ * Shmup-style parallax: a static sky plate behind painted layers that scroll upward at
+ * different speeds (the view sinks through the world), with fog, light and drifting sparks
+ * between them. Nearer layers scroll faster and sway more against the paddle.
+ */
+export class ParallaxBackdrop implements Tintable {
+  /**
+   * Call from a scene's preload(). A world's layers take about 18 MB of GPU memory, so only
+   * one world stays resident: the others are released when a scene asks for a different one.
+   */
+  static preload(scene: Phaser.Scene, world: WorldId): void {
+    for (const other of WORLD_IDS) {
+      if (other === world) continue;
+      for (const a of worldAssets(other)) {
+        if (scene.textures.exists(a.key)) scene.textures.remove(a.key);
+      }
+    }
+    for (const a of worldAssets(world)) {
+      if (!scene.textures.exists(a.key)) scene.load.image(a.key, `assets/${a.path}`);
+    }
+  }
+
+  private sky: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  private skyTint: number;
+  private tiles: TileLayer[] = [];
+  private glows: GlowLayer[] = [];
+  private motes: MoteLayer[] = [];
+  private pace: number;
+  private paceTarget: number;
+  private sway = 0;
+  private swayTarget = 0;
+  private flare = 0;
+  private clock = 0;
+  private tint = 0xffffff;
+  private readonly still: boolean;
+
+  /** `pace` scales every scroll speed; menus drift slower than play. */
+  constructor(
+    private scene: Phaser.Scene,
+    readonly world: WorldId,
+    pace = 1,
+  ) {
+    this.still = save.state.settings.reducedMotion;
+    this.pace = this.paceTarget = this.still ? 0 : pace;
+    const look = WORLD_LOOKS[world];
+    const art = worldLayers(world);
+    const skyKey = art ? partKey(art.sky) : '';
+    this.skyTint = look.skyTint;
+    this.sky = scene.textures.exists(skyKey)
+      ? scene.add.image(WIDTH / 2, HEIGHT / 2, skyKey)
+      : scene.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, look.base);
+    this.sky.setDepth(DEPTH);
+
+    const saver = save.state.settings.batterySaver;
+    look.layers.forEach((layer, i) => {
+      const depth = DEPTH + 1 + i;
+      if (layer.kind === 'tiles') {
+        const src = art?.layers[layer.name];
+        if (!src || (layer.optional && saver)) return;
+        const scale = (WIDTH + 2 * (layer.sway ?? 0)) / src.width;
+        const parts = src.parts
+          .filter((p) => scene.textures.exists(partKey(p.path)))
+          .map((p) => {
+            const sprite = scene.add
+              .tileSprite(0, -BLEED, p.width * scale, HEIGHT + 2 * BLEED, partKey(p.path))
+              .setOrigin(0, 0)
+              .setTileScale(scale)
+              .setAlpha(layer.alpha ?? 1)
+              .setDepth(depth);
+            return { sprite, x: p.x };
+          });
+        // Start each layer at a different point of its loop so the repeats never line up.
+        const period = src.height * scale;
+        this.tiles.push({
+          look: layer,
+          parts,
+          scale,
+          period,
+          offset: (i * 0.37 * period) % period,
+        });
+      } else if (layer.kind === 'glow') {
+        ensureGlowTexture(scene);
+        const image = scene.add
+          .image(WIDTH / 2, 0, GLOW_KEY)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setTint(layer.color)
+          .setAlpha(layer.alpha)
+          .setDepth(depth);
+        this.glows.push({ look: layer, image });
+      } else if (!this.still) {
+        this.motes.push(this.addMotes(layer, depth));
+      }
+    });
+
+    this.layout();
+    this.applyTint();
+    scene.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
+    scene.events.on(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      scene.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      scene.events.off(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
+    });
+  }
+
+  /** Multiply tint from Backdrop (dim, Fever hue, Black Hole dark) over each layer's own grade. */
+  setTint(color: number): this {
+    this.tint = color;
+    this.applyTint();
+    return this;
+  }
+
+  /** Scroll speed multiplier, eased so Fever feels like the floor dropping away. */
+  setPace(multiplier: number): void {
+    if (!this.still) this.paceTarget = multiplier;
+  }
+
+  /** Horizontal focus, usually the paddle: nearer layers slide the other way. */
+  setFocus(x: number): void {
+    if (!this.still) this.swayTarget = Phaser.Math.Clamp((x - WIDTH / 2) / (WIDTH / 2), -1, 1);
+  }
+
+  /** Briefly brightens the light sources, e.g. for explosions. */
+  flash(amount: number): void {
+    this.flare = Math.min(0.6, this.flare + amount);
+  }
+
+  private addMotes(look: MoteLook, depth: number): MoteLayer {
+    const zone = new Phaser.Geom.Rectangle(0, 0, WIDTH, HEIGHT);
+    const lifespan = 7000;
+    const count = Math.max(1, Math.round(look.count * particleDensity()));
+    if (look.shape === 'bit') ensureBitTexture(this.scene);
+    const emitter = this.scene.add
+      .particles(0, 0, look.shape === 'bit' ? BIT_KEY : 'spark', {
+        lifespan: { min: lifespan * 0.6, max: lifespan * 1.2 },
+        speedY: { min: -look.rise[1], max: -look.rise[0] },
+        speedX: { min: -8, max: 8 },
+        accelerationX: { min: -5, max: 5 },
+        scale: { min: look.scale[0], max: look.scale[1] },
+        alpha: {
+          onEmit: () => 0,
+          onUpdate: (_p: Phaser.GameObjects.Particles.Particle, _k: string, t: number) =>
+            Math.sin(Math.PI * t) * look.alpha,
+        },
+        tint: look.colors,
+        blendMode: Phaser.BlendModes.ADD,
+        frequency: lifespan / count,
+        maxAliveParticles: count,
+        emitZone: {
+          type: 'random',
+          source: zone,
+          quantity: 1,
+        } as Phaser.Types.GameObjects.Particles.EmitZoneData,
+      })
+      .setDepth(depth);
+    emitter.fastForward(lifespan);
+    return { look, emitter, zone };
+  }
+
+  private applyTint(): void {
+    if (this.sky instanceof Phaser.GameObjects.Image)
+      this.sky.setTint(multiply(this.skyTint, this.tint));
+    else this.sky.setFillStyle(multiply(WORLD_LOOKS[this.world].base, this.tint));
+    for (const t of this.tiles) {
+      const color = multiply(t.look.tint ?? 0xffffff, this.tint);
+      for (const p of t.parts) p.sprite.setTint(color);
+    }
+    for (const g of this.glows) g.image.setTint(multiply(g.look.color, this.tint));
+    const light = luminance(this.tint);
+    for (const m of this.motes) m.emitter.setAlpha(light);
+  }
+
+  private layout(): void {
+    if (this.sky instanceof Phaser.GameObjects.Image) {
+      const cover = Math.max(WIDTH / this.sky.frame.width, HEIGHT / this.sky.frame.height);
+      this.sky.setPosition(WIDTH / 2, HEIGHT / 2).setScale(cover);
+    } else {
+      this.sky.setPosition(WIDTH / 2, HEIGHT / 2).setSize(WIDTH, HEIGHT);
+    }
+    for (const t of this.tiles) {
+      for (const p of t.parts) p.sprite.setSize(p.sprite.width, HEIGHT + 2 * BLEED);
+    }
+    for (const g of this.glows) {
+      const size = HEIGHT * g.look.size;
+      g.image.setPosition(WIDTH / 2, HEIGHT * g.look.y).setDisplaySize(size * 1.3, size);
+    }
+    for (const m of this.motes) m.zone.setTo(0, HEIGHT * 0.1, WIDTH, HEIGHT * 0.95);
+    this.place();
+  }
+
+  private place(): void {
+    for (const t of this.tiles) {
+      const reach = t.look.sway ?? 0;
+      const left = -reach - this.sway * reach;
+      for (const p of t.parts) {
+        p.sprite.x = left + p.x * t.scale;
+        p.sprite.tilePositionY = t.offset / t.scale;
+      }
+    }
+  }
+
+  private onUpdate(_time: number, delta: number): void {
+    const dt = Math.min(delta, 50) / 1000;
+    this.clock += dt;
+    this.pace += (this.paceTarget - this.pace) * Math.min(1, dt * 2.2);
+    this.sway += (this.swayTarget - this.sway) * Math.min(1, dt * 3);
+    for (const t of this.tiles) t.offset = (t.offset + t.look.speed * this.pace * dt) % t.period;
+    this.place();
+
+    this.flare *= Math.exp(-dt * 3.5);
+    const flicker = this.still
+      ? 1
+      : 1 + 0.1 * Math.sin(this.clock * 1.7) + 0.06 * Math.sin(this.clock * 4.3 + 1.3);
+    for (const g of this.glows) g.image.setAlpha(Math.min(1, g.look.alpha * flicker + this.flare));
+    for (const m of this.motes) m.emitter.timeScale = Math.max(0.2, this.pace);
+  }
+}

@@ -1,0 +1,159 @@
+import Phaser from 'phaser';
+import { registerSW } from 'virtual:pwa-register';
+import {
+  applyViewport,
+  COLORS,
+  HEIGHT,
+  IS_TOUCH,
+  RENDER_ZOOM,
+  coverScreen,
+  setRenderZoom,
+  viewportOffsetTop,
+  viewportPixels,
+  WIDTH,
+} from './config';
+import { mountDebugOverlay } from './platform/debugOverlay';
+import { legacyLocalStorageGet } from './platform/storage';
+import { setupNativeChrome } from './platform/lifecycle';
+import { save } from './services';
+import { audio } from './systems/AudioSystem';
+import { targetZoom } from './systems/Quality';
+import { Boot } from './scenes/Boot';
+import { Preload } from './scenes/Preload';
+import { Title } from './scenes/Title';
+import { LevelSelect } from './scenes/LevelSelect';
+import { Play } from './scenes/Play';
+import { Hud } from './scenes/Hud';
+import { Pause } from './scenes/Pause';
+import { Results } from './scenes/Results';
+import { Upgrades } from './scenes/Upgrades';
+import { Settings } from './scenes/Settings';
+
+let framedW = 0;
+let framedH = 0;
+
+function stretchCanvas(game: Phaser.Game): void {
+  const canvas = game.canvas;
+  if (coverScreen) {
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.margin = '0';
+    return;
+  }
+  if (canvas.style.width === '100%') {
+    canvas.style.width = '';
+    canvas.style.height = '';
+    game.scale.refresh();
+  }
+}
+
+/** Pin the stage to the visible viewport and grow the playfield so FIT has nothing to letterbox. */
+function syncStage(game?: Phaser.Game): void {
+  const { w, h } = viewportPixels();
+  if (w <= 0 || h <= 0) return;
+  const top = viewportOffsetTop();
+  const stage = document.getElementById('game');
+  if (stage) {
+    stage.style.top = `${top}px`;
+    stage.style.left = '0';
+    stage.style.width = `${w}px`;
+    stage.style.height = `${h}px`;
+  }
+  // Ignore 1px visual-viewport jitter so the paddle doesn't jump while the page scrolls.
+  const relayout = framedW === 0 || Math.abs(w - framedW) >= 8 || Math.abs(h - framedH) >= 32;
+  if (relayout) {
+    framedW = w;
+    framedH = h;
+    applyViewport(w, h);
+    if (game) game.scale.resize(WIDTH * RENDER_ZOOM, HEIGHT * RENDER_ZOOM);
+  }
+  if (game) stretchCanvas(game);
+}
+
+function requestCoverFullscreen(): void {
+  if (!window.matchMedia('(pointer: coarse)').matches) return;
+  const el = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void;
+  };
+  const go = () => {
+    if (document.fullscreenElement) return;
+    const req = el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
+    if (!req) return;
+    void Promise.resolve(req()).catch(() => {});
+  };
+  document.addEventListener('pointerdown', go, { once: true });
+}
+
+/** Median requestAnimationFrame interval over a few frames, to spot 120Hz screens. */
+function measureFrameMs(frames = 8): Promise<number> {
+  return new Promise((resolve) => {
+    const deltas: number[] = [];
+    let last = 0;
+    const tick = (t: number) => {
+      if (last) deltas.push(t - last);
+      last = t;
+      if (deltas.length < frames) requestAnimationFrame(tick);
+      else resolve(deltas.sort((a, b) => a - b)[deltas.length >> 1]!);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+async function start(): Promise<void> {
+  await save.load(legacyLocalStorageGet);
+  const frameMs = await measureFrameMs();
+  setRenderZoom(targetZoom());
+  syncStage();
+  // A 120Hz phone would otherwise draw every frame twice as often for the same game. The limit
+  // sits above 60 because Phaser's limiter skips a frame whenever rAF jitter lands under it.
+  const fpsLimit = IS_TOUCH && frameMs < 10 ? 65 : 0;
+
+  const game = new Phaser.Game({
+    type: Phaser.AUTO,
+    parent: 'game',
+    width: WIDTH * RENDER_ZOOM,
+    height: HEIGHT * RENDER_ZOOM,
+    backgroundColor: COLORS.bg,
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    input: { activePointers: 2 },
+    fps: { limit: fpsLimit },
+    physics: {
+      default: 'arcade',
+      // Rebuilding the RTree every step costs more than brute force at a few hundred bodies.
+      arcade: { fps: 120, gravity: { x: 0, y: 0 }, debug: false, useTree: false },
+    },
+    render: {
+      antialias: true,
+      // Multisampling buys nothing for sprites at 2x and costs fill rate on phones.
+      antialiasGL: false,
+      roundPixels: false,
+      powerPreference: 'high-performance',
+      // Phaser drops to one texture per batch on phones by default, which turned every brick
+      // colour change into its own draw call (~95 per frame instead of ~14).
+      autoMobileTextures: false,
+      maxTextures: IS_TOUCH ? 8 : -1,
+    },
+    scene: [Boot, Preload, Title, LevelSelect, Play, Hud, Pause, Results, Upgrades, Settings],
+  });
+  audio.init(game);
+  syncStage(game);
+  game.scale.on(Phaser.Scale.Events.RESIZE, () => stretchCanvas(game));
+  window.visualViewport?.addEventListener('resize', () => syncStage(game));
+  window.addEventListener('resize', () => syncStage(game));
+  requestCoverFullscreen();
+  void setupNativeChrome();
+  mountDebugOverlay(game);
+
+  if (import.meta.env.DEV) {
+    (window as unknown as { game: Phaser.Game }).game = game;
+  }
+}
+
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  registerSW({ immediate: true });
+}
+
+void start();
