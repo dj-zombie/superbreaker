@@ -160,6 +160,7 @@ export class Play extends BaseScene {
     fadeIn(this, 300);
     this.input.enabled = true;
     this.level = this.levels[this.levelIndex - 1]!;
+    const world = worldForLevel(this.levelIndex);
     this.diff = DIFFICULTY[save.state.difficulty];
     this.hud = {
       index: this.levelIndex,
@@ -186,29 +187,34 @@ export class Play extends BaseScene {
     this.juice.particleScale = particleDensity();
     this.ballFx = new BallFx(this);
     this.frameMonitor = new FrameMonitor(this.game);
-    this.paddle = new Paddle(this);
+    this.paddle = new Paddle(this, world);
     this.balls = this.physics.add.group();
     this.lasers = this.physics.add.group({ allowGravity: false });
     this.arrow = this.add.image(0, 0, 'arrow').setOrigin(0, 0.5).setDepth(4).setAlpha(0.9);
     this.arrow.setScale(56 / this.arrow.width);
 
-    this.bricks = new BrickSystem(this, this.level, {
-      onDestroyed: (b, cause, chain) => this.onBrickDestroyed(b, cause, chain),
-      onExplosion: (x, y, chain) => this.onExplosion(x, y, chain),
-      onRegrow: (b) => this.juice.sparkle(b.x, b.y, COLORS.good, 8),
-      onCollapseStart: () => {
-        this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'COLLAPSE!', '#ffc93c', 30);
-        this.juice.shake(400, 0.006);
-        haptic('medium');
+    this.bricks = new BrickSystem(
+      this,
+      this.level,
+      {
+        onDestroyed: (b, cause, chain) => this.onBrickDestroyed(b, cause, chain),
+        onExplosion: (x, y, chain) => this.onExplosion(x, y, chain),
+        onRegrow: (b) => this.juice.sparkle(b.x, b.y, COLORS.good, 8),
+        onCollapseStart: () => {
+          this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'COLLAPSE!', '#ffc93c', 30);
+          this.juice.shake(400, 0.006);
+          haptic('medium');
+        },
+        regrowBlocked: (b) => {
+          const reachX = b.displayWidth / 2 + 12 + BALL_SIZE / 2;
+          const reachY = b.displayHeight / 2 + 12 + BALL_SIZE / 2;
+          return this.ballList.some(
+            (ball) => Math.abs(ball.x - b.x) < reachX && Math.abs(ball.y - b.y) < reachY,
+          );
+        },
       },
-      regrowBlocked: (b) => {
-        const reachX = b.displayWidth / 2 + 12 + BALL_SIZE / 2;
-        const reachY = b.displayHeight / 2 + 12 + BALL_SIZE / 2;
-        return this.ballList.some(
-          (ball) => Math.abs(ball.x - b.x) < reachX && Math.abs(ball.y - b.y) < reachY,
-        );
-      },
-    });
+      world,
+    );
     this.hud.remaining = this.bricks.remaining;
     this.initialBreakables = Math.max(1, this.bricks.remaining);
     this.pacing = new PacingDirector();
@@ -402,7 +408,7 @@ export class Play extends BaseScene {
   // ---------------------------------------------------------------- balls
 
   private makeBall(x: number, y: number): Ball {
-    const ball = new Ball(this, x, y);
+    const ball = new Ball(this, x, y, worldForLevel(this.levelIndex));
     ball.setName('ball');
     this.balls.add(ball);
     ball.body.setAllowGravity(false);
@@ -892,7 +898,7 @@ export class Play extends BaseScene {
     const prevBest = save.state.levels[this.level.id]?.bestScore ?? 0;
     const isBest = save.recordWin(this.levelIndex, stars, this.hud.score, this.levels.length);
     audio.stopMusic();
-    audio.sfx('win_jingle', 0.5);
+    audio.sfx('fanfare', 0.5);
     haptic('heavy');
     this.juice.flash(250, 255, 240, 200);
     for (const b of this.ballList) b.body.setVelocity(0, 0);

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { AUDIO_ASSETS, COLORS, HEIGHT, IMAGE_ASSETS, SCENES, WIDTH } from '../config';
 import { buildUiFonts } from '../art/fonts';
+import { aliasMissingForeground, foregroundImages, parseFgKey } from '../art/foreground';
 import { ensureProceduralTextures } from '../art/procedural';
 import { parseLevel, validateLevel, type TiledMap, type TiledTileset } from '../core/LevelParser';
 import type { LevelSpec } from '../core/types';
@@ -27,6 +28,7 @@ export class Preload extends BaseScene {
     for (const a of IMAGE_ASSETS) {
       if (a.key !== 'logo' || !this.textures.exists('logo')) this.load.image(a.key, a.path);
     }
+    for (const a of foregroundImages()) this.load.image(a.key, a.path);
     this.load.spritesheet('coin', 'images/powerups/coins.png', { frameWidth: 25, frameHeight: 25 });
     for (const a of AUDIO_ASSETS) this.load.audio(a.key, a.path);
     this.load.json(TILESET, 'tilesets/bricks.tsj');
@@ -43,7 +45,9 @@ export class Preload extends BaseScene {
     for (const key of this.failed) {
       if (this.textures.exists(key)) this.textures.remove(key);
     }
-    ensureProceduralTextures(this, [...this.failed, ...this.missingImages()]);
+    const shared = [...this.failed].filter((key) => !parseFgKey(key));
+    ensureProceduralTextures(this, [...shared, ...this.missingImages()]);
+    aliasMissingForeground(this);
     buildUiFonts(this);
     if (!this.anims.exists('coin-spin') && this.textures.exists('coin')) {
       this.anims.create({

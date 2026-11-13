@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { fgKey } from '../art/foreground';
+import type { WorldId } from '../art/backdrops';
 import { BRICK_TINT, LEVEL_OFFSET_Y } from '../config';
 import type { BrickSpec } from '../core/types';
 
@@ -26,8 +28,14 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   constructor(
     scene: Phaser.Scene,
     readonly spec: BrickSpec,
+    world: WorldId,
   ) {
-    super(scene, spec.x + spec.width / 2, spec.y + LEVEL_OFFSET_Y + spec.height / 2, spec.texture);
+    super(
+      scene,
+      spec.x + spec.width / 2,
+      spec.y + LEVEL_OFFSET_Y + spec.height / 2,
+      fgKey(world, spec.texture),
+    );
     this.homeX = this.x;
     this.homeY = this.y;
     this.health = this.maxHealth = spec.health;

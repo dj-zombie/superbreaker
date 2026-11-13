@@ -289,6 +289,7 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'ui_select', path: 'audio/ui/select.mp3' },
   { key: 'ui_toggle', path: 'audio/ui/toggle.mp3' },
   { key: 'win_jingle', path: 'audio/ui/win-jingle.mp3' },
+  { key: 'fanfare', path: 'audio/ui/fanfare.mp3' },
   { key: 'menu_music', path: 'audio/ui/music-beat.mp3' },
   { key: 'music', path: 'audio/song0.mp3' },
   { key: 'death', path: 'audio/death.mp3' },

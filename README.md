@@ -51,6 +51,7 @@ src/
 public/assets/       Images, audio, fonts, tileset and levels
 art-src/             Source sheets for the generated art, and the painted backdrop layers
 scripts/process-art.py  Cuts the art sheets into game sprites and app icons
+scripts/build-foreground.py  Cuts the per-world brick, paddle and ball renders
 scripts/build-backdrops.py  Keys, loops and splits the backdrop layers
 archive/             Retired levels and the old static backgrounds
 tests/               Vitest suites
@@ -100,6 +101,18 @@ Generated art lives in `art-src/` as sheets on a white background. `scripts/proc
 pip install pillow
 python3 scripts/process-art.py
 ```
+
+### Foreground skins
+
+Bricks, the paddle and the ball have a skin for each world: molten glass in forged iron for Hell, stained glass in carved stone for the Crypt, and lit acrylic in a gunmetal bezel for the Mainframe. The renders live in `art-src/foreground/<world>/` on flat white: one color brick master, the steel, explosive, armored and regen bricks, the paddle, and the ball.
+
+```sh
+python3 scripts/build-foreground.py
+```
+
+The script removes the white, gradient-maps the master's glass to each of the 16 tile hues so a red brick stays red in every world, and writes `public/assets/images/foreground/<world>/`. Level files still name textures `brick_red` and so on; the world is chosen when the sprite is drawn. The original bricks in `public/assets/images/bricks/` stay as the Tiled tileset.
+
+The title logo (`public/assets/images/ui/logo.png`), the stars, coin, lock, heart and powerup icons are the original artwork and are shared by every world.
 
 ### Parallax backdrops
 

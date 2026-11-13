@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import type { WorldId } from '../art/backdrops';
+import { fgKey } from '../art/foreground';
 import { PADDLE_Y, WIDTH } from '../config';
 
 export const PADDLE_BASE_WIDTH = 104;
@@ -12,8 +14,8 @@ export class Paddle extends Phaser.Physics.Arcade.Image {
   targetX = WIDTH / 2;
   private factor = 1;
 
-  constructor(scene: Phaser.Scene) {
-    super(scene, WIDTH / 2, PADDLE_Y, 'paddle');
+  constructor(scene: Phaser.Scene, world: WorldId) {
+    super(scene, WIDTH / 2, PADDLE_Y, fgKey(world, 'paddle'));
     scene.add.existing(this);
     scene.physics.add.existing(this);
     this.setImmovable(true);

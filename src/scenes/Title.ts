@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { worldForLevel, type WorldId } from '../art/backdrops';
+import { fgKey } from '../art/foreground';
 import { COLORS, HEIGHT, SAFE_BOTTOM, SCENES, WIDTH, designY } from '../config';
 import { DIFFICULTY } from '../core/Difficulty';
 import { DIFFICULTIES, type DifficultyId } from '../core/types';
@@ -140,7 +141,7 @@ export class Title extends BaseScene {
         .image(
           Phaser.Math.Between(0, WIDTH),
           Phaser.Math.Between(0, HEIGHT),
-          keys[i % keys.length]!,
+          fgKey(this.world, keys[i % keys.length]!),
         )
         .setDisplaySize(60, 32)
         .setAlpha(0.25)

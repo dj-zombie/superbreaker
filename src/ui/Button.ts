@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS, RENDER_ZOOM, UI_FONT } from '../config';
 import { audio } from '../systems/AudioSystem';
 import { haptic } from '../platform/haptics';
-import { roundBox, roundOutline } from './shapes';
+import { buttonFace, roundBox, roundOutline } from './shapes';
 
 export interface ButtonOptions {
   width?: number;
@@ -14,11 +14,10 @@ export interface ButtonOptions {
   disabled?: boolean;
 }
 
-/** Rounded, tweened button built from tinted shapes; pressing slides the face down onto its side. */
+/** Glossy capsule. Pressing slides the face down onto its darker side. */
 export class Button extends Phaser.GameObjects.Container {
   private side: Phaser.GameObjects.NineSlice;
   private face: Phaser.GameObjects.NineSlice;
-  private shine: Phaser.GameObjects.NineSlice;
   readonly label: Phaser.GameObjects.Text;
   private opts: Required<Omit<ButtonOptions, 'icon'>> & { icon?: string };
   private enabled = true;
@@ -42,11 +41,14 @@ export class Button extends Phaser.GameObjects.Container {
       ...options,
     };
     const { width, height } = this.opts;
-    const r = Math.min(18, height / 2);
-    this.side = roundBox(scene, 0, 0, width, height, r, 0);
-    this.face = roundBox(scene, 0, 0, width, height - 4, r, 0);
-    this.shine = roundBox(scene, 0, 0, width - 16, height * 0.32, r * 0.6, 0xffffff, 0.22);
-    this.add([roundBox(scene, 0, 6, width, height, r, 0x000000, 0.35), this.side, this.face, this.shine]);
+    const r = height / 2;
+    this.side = buttonFace(scene, 0, 0, width, height, 0);
+    this.face = buttonFace(scene, 0, 0, width, height - 4, 0);
+    this.add([
+      roundBox(scene, 0, 8, width, height, r, 0x000000, 0.45),
+      this.side,
+      this.face,
+    ]);
 
     let textX = 0;
     if (this.opts.icon) {
@@ -113,11 +115,10 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   private draw(pressed: boolean): void {
-    const { height: h, fill } = this.opts;
+    const { fill } = this.opts;
     const drop = pressed ? 4 : 0;
-    this.side.setTint(Phaser.Display.Color.ValueToColor(fill).darken(30).color).setY(pressed ? -2 : 2);
+    this.side.setTint(Phaser.Display.Color.ValueToColor(fill).darken(35).color).setY(pressed ? -2 : 2);
     this.face.setTint(fill).setY(drop - 4);
-    this.shine.setY(-h / 2 + 2 + drop + h * 0.16);
     this.label.setY(pressed ? 0 : -2);
   }
 

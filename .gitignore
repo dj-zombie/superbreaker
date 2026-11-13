@@ -6,3 +6,14 @@ dev-dist
 ._*
 .vite
 coverage
+
+# Local Xcode derived data. ios/.gitignore covers App/build, not this path.
+ios/build/
+
+# Python art scripts
+__pycache__/
+*.py[cod]
+
+# Signing leftovers
+*.xcuserstate
+*.mobileprovision

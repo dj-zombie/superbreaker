@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { WorldId } from '../art/backdrops';
 import { EXPLOSION_RADIUS, FALL_SHATTER_Y } from '../config';
 import { collapseThreshold } from '../core/Difficulty';
 import type { LevelSpec } from '../core/types';
@@ -29,10 +30,11 @@ export class BrickSystem {
     private scene: Phaser.Scene,
     level: LevelSpec,
     private events: BrickEvents,
+    world: WorldId,
   ) {
     this.group = scene.physics.add.group({ allowGravity: false, immovable: true });
     for (const spec of level.bricks) {
-      const b = new Brick(scene, spec);
+      const b = new Brick(scene, spec, world);
       this.group.add(b);
       b.body.pushable = false;
       if (spec.moveX !== 0) b.body.setVelocityX(Math.sign(spec.moveX) * spec.moveSpeed);
