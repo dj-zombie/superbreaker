@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { HEIGHT, SAFE_TOP, SCENES, WIDTH } from '../config';
 import type { Settings as SettingsData } from '../core/SaveStore';
+import { IS_DESKTOP, setFullscreen } from '../platform/desktop';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
 import { applyQuality } from '../systems/Quality';
@@ -31,7 +32,7 @@ const SECTIONS: Array<{ title: string; rows: Row[] }> = [
   {
     title: 'Feel',
     rows: [
-      { key: 'haptics', label: 'Vibration', hint: 'On supported phones' },
+      { key: 'haptics', label: 'Vibration', hint: 'Phones and controllers' },
       { key: 'screenShake', label: 'Screen shake' },
     ],
   },
@@ -48,6 +49,12 @@ const SECTIONS: Array<{ title: string; rows: Row[] }> = [
   },
 ];
 
+/** Desktop app only. */
+const DISPLAY: { title: string; rows: Row[] } = {
+  title: 'Display',
+  rows: [{ key: 'fullscreen', label: 'Fullscreen', hint: 'F11 or Alt+Enter' }],
+};
+
 const ROW_H = 54;
 const HEAD_H = 40;
 
@@ -63,8 +70,14 @@ export class Settings extends Overlay {
     this.setupCamera();
     this.input.enabled = true;
     const t = theme();
-    const rows = SECTIONS.reduce((n, s) => n + s.rows.length, 0);
-    const height = Math.min(HEIGHT - SAFE_TOP - 24, 120 + SECTIONS.length * HEAD_H + rows * ROW_H + 160);
+    const sections = IS_DESKTOP ? [DISPLAY, ...SECTIONS] : SECTIONS;
+    const rows = sections.reduce((n, s) => n + s.rows.length, 0);
+    const height = Math.min(HEIGHT - SAFE_TOP - 24, 120 + sections.length * HEAD_H + rows * ROW_H + 160);
+    // On a short sheet (the desktop app's 800-unit stage plus its Display row) the rows close up
+    // so the last ones stay clear of the unlock and Done buttons.
+    const room = height - 242;
+    const rowH = Phaser.Math.Clamp((room - sections.length * HEAD_H) / rows, 44, ROW_H);
+    const headH = Phaser.Math.Clamp((room - rows * rowH) / sections.length, 30, HEAD_H);
     this.sheet = new Sheet(this, { height, blur: this.scene.get(this.from), onDismiss: () => this.close() });
     onBack(this, () => this.done());
     const root = this.sheet.root;
@@ -74,7 +87,7 @@ export class Settings extends Overlay {
 
     root.add(heading(this, 0, this.sheet.top + 54, 'Settings', 36));
     let y = this.sheet.top + 104;
-    for (const section of SECTIONS) {
+    for (const section of sections) {
       const head = this.add.container(0, y);
       head.add(label(this, left, 0, section.title, 12, { originX: 0, color: t.palette.textDim }));
       head.add(
@@ -86,7 +99,7 @@ export class Settings extends Overlay {
       );
       root.add(head);
       items.push(head);
-      y += HEAD_H;
+      y += headH;
       for (const row of section.rows) {
         const c = this.add.container(0, y);
         c.add(body(this, left, row.hint ? -9 : 0, row.label, 19, { originX: 0, align: 'left' }));
@@ -96,11 +109,12 @@ export class Settings extends Overlay {
             save.update((d) => (d.settings[row.key] = on));
             audio.refresh();
             if (row.key === 'batterySaver') applyQuality(this.game);
+            if (row.key === 'fullscreen') setFullscreen(on);
           }),
         );
         root.add(c);
         items.push(c);
-        y += ROW_H;
+        y += rowH;
       }
     }
 

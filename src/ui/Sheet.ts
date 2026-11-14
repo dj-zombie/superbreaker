@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HEIGHT, WIDTH } from '../config';
+import { HEIGHT, STAGE_W, WIDTH } from '../config';
 import { audio } from '../systems/AudioSystem';
 import { framePanel } from './frames';
 import { calm, richFx, theme, type UiTheme } from './theme';
@@ -35,7 +35,7 @@ export class Sheet {
     const h = opts.height + TUCK;
     this.top = -h / 2;
     this.shade = scene.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, t.palette.base, opts.dim ?? 0.55)
+      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, t.palette.base, opts.dim ?? 0.55)
       .setInteractive()
       .setAlpha(0)
       .setDepth(SHEET_DEPTH);

@@ -1,0 +1,55 @@
+# Desktop packaging for the Electron shell in desktop/. Run `pnpm desktop:dist` on each OS;
+# electron-builder builds for the machine it runs on. Builds are unsigned for now.
+appId: com.zombieheadstudios.superbreaker
+productName: Super Breaker
+copyright: Copyright © 2026 Zombie Head Studios
+icon: public/icons/icon-1024.png
+
+directories:
+  output: release
+
+# The game is already bundled into dist/, so no node_modules ship with the app.
+files:
+  - dist/**/*
+  - desktop/dist/**/*
+  - package.json
+  - '!node_modules/**/*'
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+    - target: portable
+      arch: x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Super-Breaker-Setup-${version}.${ext}
+
+portable:
+  artifactName: Super-Breaker-Portable-${version}.${ext}
+
+mac:
+  target:
+    - target: dmg
+      arch: universal
+  category: public.app-category.arcade-games
+  # Ad-hoc signed, not Developer ID: Apple Silicon won't run arm64 code with no signature at all.
+  # Gatekeeper still blocks the first launch; open it with right-click, then Open.
+  identity: '-'
+  # Hardened runtime's library validation rejects ad-hoc signed frameworks.
+  hardenedRuntime: false
+
+dmg:
+  artifactName: Super-Breaker-${version}.${ext}
+
+linux:
+  target:
+    - target: AppImage
+      arch: x64
+  category: Game
+  # Names the .desktop file after package.json's desktopName, which Electron uses as the
+  # window's app id, so the dock and taskbar match the running window to its icon.
+  syncDesktopName: true
+  artifactName: Super-Breaker-${version}.${ext}

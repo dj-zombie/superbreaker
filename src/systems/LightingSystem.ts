@@ -9,7 +9,7 @@ import {
   cookieKey,
   ensureLightTextures,
 } from '../art/lightTextures';
-import { HEIGHT, LEVEL_OFFSET_Y, WIDTH } from '../config';
+import { HEIGHT, LEVEL_OFFSET_Y, STAGE_W, WIDTH, WING } from '../config';
 import {
   accumulate,
   blue,
@@ -281,7 +281,10 @@ export class LightingSystem {
   private composite?: Phaser.GameObjects.Image;
   private sx = 0.25;
   private sy = 0.25;
+  /** Map x origin in playfield units: the pad plus the left wing, so the map spans the stage. */
+  private ox = PAD;
   private height = HEIGHT;
+  private stageW = STAGE_W;
   private clock = 0;
   private frame = 0;
   private bricks: readonly Brick[] = [];
@@ -503,9 +506,11 @@ export class LightingSystem {
   private createMaps(): void {
     const tex = this.scene.textures;
     for (const key of [MAP_KEY, STATIC_KEY, SHADOW_KEY]) if (tex.exists(key)) tex.remove(key);
-    const w = WIDTH + PAD * 2;
+    const w = STAGE_W + PAD * 2;
     const h = HEIGHT + PAD * 2;
     const k = this.budget.mapScale;
+    this.ox = PAD + WING;
+    this.stageW = STAGE_W;
     const mw = Math.max(8, Math.ceil(w * k));
     const mh = Math.max(8, Math.ceil(h * k));
     this.map = tex.addDynamicTexture(MAP_KEY, mw, mh) ?? undefined;
@@ -519,11 +524,12 @@ export class LightingSystem {
     this.shadowSig = -1;
     const renderer = this.scene.sys.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
     if (!this.composite) {
-      this.composite = this.scene.add.image(-PAD, -PAD, MAP_KEY).setOrigin(0, 0).setDepth(DEPTH);
+      this.composite = this.scene.add.image(0, 0, MAP_KEY).setOrigin(0, 0).setDepth(DEPTH);
       this.composite.setBlendMode(modulate2x(renderer));
     } else {
       this.composite.setTexture(MAP_KEY);
     }
+    this.composite.setPosition(-this.ox, -PAD);
     this.composite.setDisplaySize(w, h);
     this.stats.map = `${this.map.width}x${this.map.height}`;
   }
@@ -595,7 +601,7 @@ export class LightingSystem {
     this.frame++;
 
     const tier = lightingTier();
-    if (tier !== this.tier || HEIGHT !== this.height) {
+    if (tier !== this.tier || HEIGHT !== this.height || STAGE_W !== this.stageW) {
       this.tier = tier;
       this.budget = LIGHTING_BUDGETS[tier];
       this.createMaps();
@@ -606,7 +612,7 @@ export class LightingSystem {
     this.updateAmbient(dt);
     this.stepLights(dt);
 
-    const view = { x: -PAD, y: -PAD, width: WIDTH + PAD * 2, height: HEIGHT + PAD * 2 };
+    const view = { x: -this.ox, y: -PAD, width: STAGE_W + PAD * 2, height: HEIGHT + PAD * 2 };
     const cap = this.budget.maxLights;
     const staticOk = this.bakeStatic();
     this.backLights = selectLights(
@@ -761,7 +767,7 @@ export class LightingSystem {
   }
 
   private stampLight(target: Phaser.Textures.DynamicTexture, l: Light, level: number): void {
-    const x = (l.x + PAD) * this.sx;
+    const x = (l.x + this.ox) * this.sx;
     const y = (l.y + PAD) * this.sy;
     const k = level * this.look.backdropStrength * 0.5;
     const blendMode = l.negative ? Phaser.BlendModes.NORMAL : Phaser.BlendModes.ADD;
@@ -873,13 +879,19 @@ export class LightingSystem {
     dy: number,
     alpha: number,
   ): void {
-    target.stamp(LIGHT_TEX.px, undefined, (b.x + dx + PAD) * this.sx, (b.y + dy + PAD) * this.sy, {
-      scaleX: (b.displayWidth * this.sx) / PX_SIZE,
-      scaleY: (b.displayHeight * this.sy) / PX_SIZE,
-      rotation: b.rotation,
-      tint: 0x000000,
-      alpha,
-    });
+    target.stamp(
+      LIGHT_TEX.px,
+      undefined,
+      (b.x + dx + this.ox) * this.sx,
+      (b.y + dy + PAD) * this.sy,
+      {
+        scaleX: (b.displayWidth * this.sx) / PX_SIZE,
+        scaleY: (b.displayHeight * this.sy) / PX_SIZE,
+        rotation: b.rotation,
+        tint: 0x000000,
+        alpha,
+      },
+    );
   }
 
   // ------------------------------------------------------------------ foreground

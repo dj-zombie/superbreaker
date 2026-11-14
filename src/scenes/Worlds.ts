@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { WORLD_IDS, availableWorlds, type WorldId } from '../art/backdrops';
-import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, WIDTH } from '../config';
+import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, STAGE_W, WIDTH } from '../config';
 import { levelId } from '../core/SaveStore';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
@@ -76,7 +76,7 @@ export class Worlds extends BaseScene {
     worlds.forEach((w, i) => this.bgs.push(this.background(w, i === this.index)));
     const shade = fadeTexture(this);
     this.add.image(WIDTH / 2, HEIGHT, shade).setOrigin(0.5, 1).setFlipY(true)
-      .setDisplaySize(WIDTH, SAFE_BOTTOM + 320).setTint(0x000000).setAlpha(0.85);
+      .setDisplaySize(STAGE_W, SAFE_BOTTOM + 320).setTint(0x000000).setAlpha(0.85);
 
     this.sizeCards();
     const cy = this.cardY();
@@ -135,7 +135,7 @@ export class Worlds extends BaseScene {
   /** Key art filling the screen behind the cards, drifting slowly. */
   private background(world: WorldId, on: boolean): Phaser.GameObjects.Image {
     const img = this.add.image(WIDTH / 2, HEIGHT / 2, `world_${world}`);
-    const cover = Math.max(WIDTH / img.width, HEIGHT / img.height) * 1.06;
+    const cover = Math.max(STAGE_W / img.width, HEIGHT / img.height) * 1.06;
     img.setScale(cover).setTint(0x6c6c6c).setAlpha(on ? 1 : 0);
     if (!calm()) {
       this.tweens.add({

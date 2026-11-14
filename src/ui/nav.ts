@@ -15,7 +15,7 @@ let busy: (() => boolean) | undefined;
  * Pops one screen: calls the newest handler whose scene is running. Paused scenes under an
  * overlay are skipped, so the overlay closes first. Returns false when nothing handled it.
  */
-function back(): boolean {
+export function back(): boolean {
   if (busy?.()) return true;
   for (let i = stack.length - 1; i >= 0; i--) {
     const e = stack[i]!;

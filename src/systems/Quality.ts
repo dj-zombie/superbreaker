@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { HEIGHT, IS_TOUCH, MAX_RENDER_ZOOM, RENDER_ZOOM, WIDTH, setRenderZoom } from '../config';
+import { IS_TOUCH, MAX_RENDER_ZOOM, RENDER_ZOOM, canvasSize, setRenderZoom } from '../config';
 import { save } from '../services';
 
 /** Resolutions the frame monitor walks down through. Fill cost scales with the square. */
@@ -62,7 +62,7 @@ export function lightingTier(): LightingTier {
 export function applyQuality(game: Phaser.Game): void {
   const before = RENDER_ZOOM;
   setRenderZoom(targetZoom());
-  if (RENDER_ZOOM !== before) game.scale.resize(WIDTH * RENDER_ZOOM, HEIGHT * RENDER_ZOOM);
+  if (RENDER_ZOOM !== before) game.scale.setGameSize(canvasSize().w, canvasSize().h);
 }
 
 /**

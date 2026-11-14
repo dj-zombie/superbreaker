@@ -42,6 +42,7 @@ import type { LevelSpec, PowerupId } from '../core/types';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
+import { onPadButton, PadButton } from '../platform/gamepad';
 import { haptic } from '../platform/haptics';
 import { onAppBackground } from '../platform/lifecycle';
 import { save } from '../services';
@@ -200,6 +201,7 @@ export class Play extends BaseScene {
   /** Stocked abilities sitting in slots. Refunded if the level is abandoned. */
   private stockOrigin: Array<AbilityId | null> = Array.from({ length: SLOT_COUNT }, () => null);
   private unsubscribeBackground?: () => void;
+  private unsubscribePad?: () => void;
 
   constructor() {
     super(SCENES.play);
@@ -401,6 +403,13 @@ export class Play extends BaseScene {
     ];
     digits.forEach((code, i) => kb?.addKey(code).on('down', () => this.useStock(i)));
     pads.forEach((code, i) => kb?.addKey(code).on('down', () => this.useStock(i)));
+    const stockButtons: number[] = [PadButton.lb, PadButton.rb, PadButton.lt, PadButton.rt];
+    this.unsubscribePad = onPadButton((button, down) => {
+      if (!down) return;
+      if (button === PadButton.west) this.fireSlot(0);
+      else if (button === PadButton.north) this.fireSlot(1);
+      else if (stockButtons.includes(button)) this.useStock(stockButtons.indexOf(button));
+    });
 
     this.resetBall();
     this.showHint();
@@ -457,7 +466,7 @@ export class Play extends BaseScene {
     else this.win();
   }
 
-  /** Fires an ability slot (HUD tap or Q/E). */
+  /** Fires an ability slot (HUD tap, Q/E or pad X/Y). */
   fireSlot(i: number): void {
     if (this.finished || !this.scene.isActive()) return;
     if (!this.abilities.activate(i)) return;
@@ -466,7 +475,7 @@ export class Play extends BaseScene {
     this.hud.slots = this.abilities.slots;
   }
 
-  /** Uses a bought powerup (HUD tap or number key). */
+  /** Uses a bought powerup (HUD tap, number key, or pad bumper/trigger). */
   useStock(i: number): void {
     if (this.finished || !this.scene.isActive()) return;
     const id = save.useStockPowerup(i);
@@ -1569,6 +1578,8 @@ export class Play extends BaseScene {
     if (!this.cleared) this.refundStockedAbilities();
     this.unsubscribeBackground?.();
     this.unsubscribeBackground = undefined;
+    this.unsubscribePad?.();
+    this.unsubscribePad = undefined;
     audio.setMusicRate(1);
     this.events.off(Phaser.Scenes.Events.RESUME);
     this.input.keyboard?.removeAllKeys(true);

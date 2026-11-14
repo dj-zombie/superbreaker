@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HEIGHT, WIDTH } from '../../config';
+import { WIDTH, stageRect } from '../../config';
 import { audio } from '../../systems/AudioSystem';
 import { particleDensity } from '../../systems/Quality';
 import { bitTexture, softDiscTexture } from '../frames';
@@ -22,8 +22,11 @@ export function ambient(
   opts: AmbientOptions = {},
 ): Emitter | undefined {
   if (calm()) return undefined;
-  const area = opts.area ?? new Phaser.Geom.Rectangle(0, 0, WIDTH, HEIGHT);
-  const count = Math.max(4, Math.round(26 * particleDensity() * (opts.amount ?? 1)));
+  const stage = stageRect();
+  const area = opts.area ?? new Phaser.Geom.Rectangle(stage.x, stage.y, stage.width, stage.height);
+  // The same density across the wings as over the board.
+  const spread = opts.area ? 1 : stage.width / WIDTH;
+  const count = Math.max(4, Math.round(26 * particleDensity() * (opts.amount ?? 1) * spread));
   const p = t.palette;
   let emitter: Emitter;
   if (t.ambient === 'embers') {

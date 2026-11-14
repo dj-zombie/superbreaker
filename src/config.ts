@@ -1,5 +1,5 @@
 import type { AbilityId } from './core/Abilities';
-import { computeLayout } from './core/Layout';
+import { computeLayout, computeStage } from './core/Layout';
 import { FIELD_HEIGHT, FIELD_WIDTH, type PowerupId } from './core/types';
 
 export const WIDTH = FIELD_WIDTH;
@@ -49,6 +49,12 @@ export let DECK_BOTTOM = initial.deckBottom;
 export let LOSE_Y = initial.loseY;
 /** True when the viewport is taller than 3:4 and the field grows to meet it. */
 export let coverScreen = false;
+/** Desktop wide stage: the play HUD moves out of the board into glass plates on the wings. */
+export let WIDE = false;
+/** Visible width in playfield units. WIDTH, or wider on the wide stage. */
+export let STAGE_W: number = WIDTH;
+/** Each side wing on the wide stage (x < 0 and x > WIDTH), 0 otherwise. */
+export let WING = 0;
 
 const SYSTEM_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 /** Body copy and labels. */
@@ -244,6 +250,20 @@ export function applyViewport(w?: number, h?: number): void {
   DECK_TOP = l.deckTop;
   DECK_BOTTOM = l.deckBottom;
   LOSE_Y = l.loseY;
+  const stage = computeStage({ vpW: vp.w, vpH: vp.h, touch: IS_TOUCH });
+  WIDE = stage.wide;
+  STAGE_W = stage.width;
+  WING = stage.wing;
+}
+
+/** The whole visible stage in playfield coordinates, for full-screen fills and emit zones. */
+export function stageRect(): { x: number; y: number; width: number; height: number } {
+  return { x: -WING, y: 0, width: STAGE_W, height: HEIGHT };
+}
+
+/** Canvas size in device pixels for the current stage and render zoom. */
+export function canvasSize(): { w: number; h: number } {
+  return { w: Math.round(STAGE_W * RENDER_ZOOM), h: Math.round(HEIGHT * RENDER_ZOOM) };
 }
 
 /**

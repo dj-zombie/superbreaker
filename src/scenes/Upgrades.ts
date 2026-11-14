@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ABILITY_INFO, HEIGHT, POWERUP_INFO, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
+import { ABILITY_INFO, HEIGHT, POWERUP_INFO, SAFE_BOTTOM, SCENES, STAGE_W, WIDTH } from '../config';
 import {
   ABILITY_IDS,
   ABILITY_SHOP,
@@ -77,7 +77,7 @@ export class Upgrades extends Overlay {
     const t = (this.t = theme());
     new BehindFx(this).blur([this.scene.get(this.from)], 1);
     const shade = this.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, t.palette.base, 0.9)
+      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, t.palette.base, 0.9)
       .setInteractive()
       .setAlpha(0);
     this.tweens.add({ targets: shade, alpha: 1, duration: 220 });

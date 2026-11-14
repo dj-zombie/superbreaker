@@ -1,5 +1,5 @@
 import { worldForLevel } from '../art/backdrops';
-import { HEIGHT, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
+import { HEIGHT, SAFE_BOTTOM, SCENES, STAGE_W, WIDTH } from '../config';
 import { randomSeed } from '../core/Rng';
 import { runCarry } from '../core/Session';
 import { save } from '../services';
@@ -33,7 +33,7 @@ export class Pause extends Overlay {
     new BehindFx(this).blur([play, this.scene.get(SCENES.hud)], 1.2);
 
     const shade = this.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, t.palette.base, 0.55)
+      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, t.palette.base, 0.55)
       .setInteractive()
       .setAlpha(0);
     this.tweens.add({ targets: shade, alpha: 1, duration: 180 });

@@ -8,18 +8,19 @@ import '@fontsource/cinzel/latin-700.css';
 import '@fontsource/orbitron/latin-700.css';
 import {
   applyViewport,
+  canvasSize,
   COLORS,
   FONT_FACES,
-  HEIGHT,
   IS_TOUCH,
-  RENDER_ZOOM,
   coverScreen,
   setRenderZoom,
   viewportOffsetTop,
   viewportPixels,
-  WIDTH,
 } from './config';
 import { mountDebugOverlay } from './platform/debugOverlay';
+import { desktopReady, IS_DESKTOP, onFullscreenChange } from './platform/desktop';
+import { installGamepad } from './platform/gamepad';
+import { installPadCursor } from './platform/padCursor';
 import { legacyLocalStorageGet } from './platform/storage';
 import { setupNativeChrome } from './platform/lifecycle';
 import { save } from './services';
@@ -78,7 +79,12 @@ function syncStage(game?: Phaser.Game): void {
     framedW = w;
     framedH = h;
     applyViewport(w, h);
-    if (game) game.scale.resize(WIDTH * RENDER_ZOOM, HEIGHT * RENDER_ZOOM);
+    // setGameSize, not resize: under FIT only it updates the aspect ratio the canvas is fitted to.
+    // Phaser fits to its cached parent size, which still holds the old viewport at this point.
+    if (game) {
+      game.scale.getParentBounds();
+      game.scale.setGameSize(canvasSize().w, canvasSize().h);
+    }
   }
   if (game) stretchCanvas(game);
 }
@@ -122,6 +128,11 @@ function loadFonts(timeoutMs = 2500): Promise<void> {
 
 async function start(): Promise<void> {
   await Promise.all([save.load(legacyLocalStorageGet), loadFonts()]);
+  if (IS_DESKTOP) {
+    // Before measuring frames: the shell keeps the window hidden until this call.
+    desktopReady(save.state.settings.fullscreen);
+    onFullscreenChange((on) => save.update((d) => (d.settings.fullscreen = on)));
+  }
   const frameMs = await measureFrameMs();
   setRenderZoom(targetZoom());
   syncStage();
@@ -129,11 +140,12 @@ async function start(): Promise<void> {
   // sits above 60 because Phaser's limiter skips a frame whenever rAF jitter lands under it.
   const fpsLimit = IS_TOUCH && frameMs < 10 ? 65 : 0;
 
+  const size = canvasSize();
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
-    width: WIDTH * RENDER_ZOOM,
-    height: HEIGHT * RENDER_ZOOM,
+    width: size.w,
+    height: size.h,
     backgroundColor: COLORS.bg,
     scale: {
       mode: Phaser.Scale.FIT,
@@ -178,6 +190,9 @@ async function start(): Promise<void> {
     ],
   });
   audio.init(game);
+  // The cursor reads the pad state each step, so the poller must hook PRE_STEP first.
+  installGamepad(game);
+  installPadCursor(game);
   syncStage(game);
   game.scale.on(Phaser.Scale.Events.RESIZE, () => stretchCanvas(game));
   window.visualViewport?.addEventListener('resize', () => syncStage(game));
@@ -191,7 +206,8 @@ async function start(): Promise<void> {
   }
 }
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+// The desktop app serves its files from disk, so it has nothing to cache.
+if ('serviceWorker' in navigator && import.meta.env.PROD && import.meta.env.MODE !== 'desktop') {
   registerSW({ immediate: true });
 }
 

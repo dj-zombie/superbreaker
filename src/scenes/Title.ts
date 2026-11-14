@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { worldForLevel } from '../art/backdrops';
-import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, WIDTH, designY } from '../config';
+import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, STAGE_W, WIDTH, designY } from '../config';
 import { ABILITY_IDS, abilityCost } from '../core/Abilities';
 import { canPurchase } from '../core/Economy';
 import { levelId } from '../core/SaveStore';
 import { runCarry } from '../core/Session';
 import { UPGRADE_IDS } from '../core/types';
+import { IS_DESKTOP, quitApp } from '../platform/desktop';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
 import { backdropTint } from '../systems/Backdrop';
@@ -95,13 +96,13 @@ export class Title extends BaseScene {
     this.add
       .image(WIDTH / 2, 0, key)
       .setOrigin(0.5, 0)
-      .setDisplaySize(WIDTH, SAFE_TOP + 200)
+      .setDisplaySize(STAGE_W, SAFE_TOP + 200)
       .setTint(this.t.palette.base)
       .setAlpha(0.85);
     this.add
       .image(WIDTH / 2, HEIGHT, key)
       .setOrigin(0.5, 1)
-      .setDisplaySize(WIDTH, SAFE_BOTTOM + 260)
+      .setDisplaySize(STAGE_W, SAFE_BOTTOM + 260)
       .setTint(this.t.palette.base)
       .setFlipY(true)
       .setAlpha(0.9);
@@ -182,6 +183,18 @@ export class Title extends BaseScene {
         this.scene.launch(SCENES.settings, { from: SCENES.title }).pause(),
       44),
     );
+    // A controller-only player has no other way out of a fullscreen window.
+    if (IS_DESKTOP) {
+      add(
+        new Button(this, 122, barY, 'Quit', quitApp, {
+          width: 104,
+          height: 44,
+          icon: 'close',
+          fontSize: 16,
+          variant: 'secondary',
+        }),
+      );
+    }
     const coins = (this.coins = add(new CurrencyPill(this, WIDTH - 16, barY)));
     const { stars, max } = this.starTotals();
     add(

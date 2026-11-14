@@ -7,7 +7,9 @@ import {
   DECK_MIN_TOUCH,
   DECK_MOUSE,
   HUD_STRIP,
+  WING_MIN,
   computeLayout,
+  computeStage,
   type LayoutInput,
 } from '../src/core/Layout';
 
@@ -77,5 +79,41 @@ describe('pacing across screens', () => {
     });
     expect(gaps[0]).toBeCloseTo(ARENA_MAX - BELOW_HUD);
     expect(gaps[1]).toBeCloseTo(ARENA_MAX - BELOW_HUD);
+  });
+});
+
+describe('wide stage', () => {
+  it('fills a 1920x1080 window with the field centered between two wings', () => {
+    const s = computeStage({ vpW: 1920, vpH: 1080, touch: false });
+    expect(s.wide).toBe(true);
+    expect(s.width).toBeCloseTo(1422.22, 2);
+    expect(s.wing).toBeCloseTo(411.11, 2);
+  });
+
+  it('keeps the board HUD when a wing would be under the minimum', () => {
+    const s = computeStage({ vpW: 960, vpH: 800, touch: false });
+    expect((960 / 800) * 800 - 600).toBeLessThan(WING_MIN * 2);
+    expect(s).toEqual({ wide: false, width: 600, wing: 0 });
+  });
+
+  it('turns on right at the minimum wing', () => {
+    expect(computeStage({ vpW: 1000, vpH: 800, touch: false }).wide).toBe(true);
+  });
+
+  it('leaves portrait windows and touch screens alone', () => {
+    expect(computeStage({ vpW: 600, vpH: 1000, touch: false }).wide).toBe(false);
+    expect(computeStage({ vpW: 1180, vpH: 820, touch: true }).wide).toBe(false);
+    expect(computeStage({ vpW: 0, vpH: 0, touch: false }).wide).toBe(false);
+  });
+
+  it('caps ultrawide windows at 16:9', () => {
+    const s = computeStage({ vpW: 2560, vpH: 1080, touch: false });
+    expect(s.width).toBeCloseTo(1422.22, 2);
+  });
+
+  it('gives a Steam Deck screen the wide stage', () => {
+    const s = computeStage({ vpW: 1280, vpH: 800, touch: false });
+    expect(s.wide).toBe(true);
+    expect(s.wing).toBeCloseTo(340);
   });
 });

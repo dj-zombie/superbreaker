@@ -49,6 +49,8 @@ export interface Settings {
   batterySaver: boolean;
   /** Balls bounce off the floor and no lives are lost. */
   godMode: boolean;
+  /** Desktop app only: start fullscreen rather than windowed. */
+  fullscreen: boolean;
 }
 
 export interface SaveData {
@@ -91,6 +93,7 @@ export function defaultSave(): SaveData {
       screenShake: true,
       batterySaver: false,
       godMode: false,
+      fullscreen: true,
     },
     seenInstructions: false,
   };

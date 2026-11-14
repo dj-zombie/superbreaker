@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { SAFE_TOP, WIDTH } from '../config';
+import { SAFE_TOP, STAGE_W, WIDTH } from '../config';
 import { iconButton, type Button } from './Button';
 import { fadeTexture, glowLineTexture } from './frames';
 import { theme, type UiTheme } from './theme';
@@ -35,7 +35,7 @@ export function screenHeader(scene: Phaser.Scene, text: string, opts: HeaderOpti
   const shade = scene.add
     .image(WIDTH / 2, 0, fadeTexture(scene))
     .setOrigin(0.5, 0)
-    .setDisplaySize(WIDTH + 4, top + HEADER_HEIGHT + 40)
+    .setDisplaySize(STAGE_W + 4, top + HEADER_HEIGHT + 40)
     .setTint(t.palette.base)
     .setAlpha(0.92);
   const rule = scene.add

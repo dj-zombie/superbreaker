@@ -85,6 +85,39 @@ export function computeLayout(input: LayoutInput): Layout {
   };
 }
 
+/** Narrower wings keep the in-board HUD rather than crushing a plate into the margin. */
+export const WING_MIN = 200;
+/** Wider windows keep side bars instead of stretching the backdrop any further. */
+export const STAGE_MAX_ASPECT = 16 / 9;
+
+export interface StageInput {
+  vpW: number;
+  vpH: number;
+  touch: boolean;
+}
+
+/** Visible stage in playfield units. The field stays FIELD_WIDTH wide, centered, at x 0..600. */
+export interface Stage {
+  /** Desktop wide stage: the play HUD moves out of the board into the wings. */
+  wide: boolean;
+  width: number;
+  /** Each side wing, so the stage spans x = -wing .. FIELD_WIDTH + wing. 0 unless wide. */
+  wing: number;
+}
+
+/**
+ * On a landscape desktop window FIT would letterbox the 600x800 field. The wide stage fills
+ * that width instead. Phones and tablets keep the portrait field.
+ */
+export function computeStage(input: StageInput): Stage {
+  const { vpW, vpH, touch } = input;
+  const narrow: Stage = { wide: false, width: FIELD_WIDTH, wing: 0 };
+  if (touch || vpW <= 0 || vpH <= 0 || vpW / vpH <= FIELD_WIDTH / FIELD_HEIGHT) return narrow;
+  const width = FIELD_HEIGHT * Math.min(vpW / vpH, STAGE_MAX_ASPECT);
+  const wing = (width - FIELD_WIDTH) / 2;
+  return wing >= WING_MIN ? { wide: true, width, wing } : narrow;
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }

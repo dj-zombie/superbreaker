@@ -74,6 +74,44 @@
           transform: rotate(0deg);
         }
       }
+      #pad-cursor {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: 5;
+        width: 30px;
+        height: 30px;
+        margin: -15px 0 0 -15px;
+        box-sizing: border-box;
+        border: 3px solid #fff;
+        border-radius: 50%;
+        box-shadow:
+          0 0 0 2px rgba(11, 8, 32, 0.6),
+          0 0 14px rgba(255, 255, 255, 0.55);
+        pointer-events: none;
+        opacity: 0;
+        transition:
+          opacity 120ms,
+          scale 80ms;
+      }
+      #pad-cursor::after {
+        content: '';
+        position: absolute;
+        inset: 9px;
+        border-radius: 50%;
+        background: #fff;
+      }
+      #pad-cursor.on {
+        opacity: 1;
+      }
+      #pad-cursor.down {
+        scale: 0.8;
+      }
+      /* Phaser sets the canvas cursor inline for hand-cursor buttons. */
+      body.pad-input,
+      body.pad-input canvas {
+        cursor: none !important;
+      }
       @media (orientation: landscape) and (pointer: coarse) and (max-height: 600px) {
         #rotate {
           display: flex;
@@ -84,6 +122,7 @@
   <body>
     <div id="game"></div>
     <div id="safe-probe" aria-hidden="true"></div>
+    <div id="pad-cursor" aria-hidden="true"></div>
     <div id="rotate">
       <div class="phone"></div>
       Rotate your device to portrait

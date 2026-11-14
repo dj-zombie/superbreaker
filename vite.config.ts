@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './',
   build: {
     target: 'es2022',
@@ -9,6 +9,8 @@ export default defineConfig({
   },
   plugins: [
     VitePWA({
+      // `vite build --mode desktop` feeds the Electron app, which loads from disk and needs no service worker.
+      disable: mode === 'desktop',
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png', 'favicon.png'],
       manifest: {
@@ -54,4 +56,4 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'node',
   },
-});
+}));

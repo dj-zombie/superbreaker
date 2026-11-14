@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { worldForLevel } from '../art/backdrops';
-import { HEIGHT, SAFE_TOP, SCENES, WIDTH } from '../config';
+import { HEIGHT, SAFE_TOP, SCENES, STAGE_W, WIDTH } from '../config';
 import { randomSeed } from '../core/Rng';
 import { GOAL_LABELS, LOOP_LABELS, reachLabel } from '../core/Run';
 import { runCarry } from '../core/Session';
@@ -60,7 +60,7 @@ export class Results extends Overlay {
     if (lost) fx.desaturate(behind).vignette([play], 0x5a0008);
 
     const shade = this.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, t.palette.base, lost ? 0.45 : 0.55)
+      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, t.palette.base, lost ? 0.45 : 0.55)
       .setInteractive()
       .setAlpha(0);
     this.tweens.add({ targets: shade, alpha: 1, duration: 260 });

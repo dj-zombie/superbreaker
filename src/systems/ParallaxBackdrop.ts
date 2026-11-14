@@ -10,7 +10,7 @@ import {
   type TileLook,
   type WorldId,
 } from '../art/backdrops';
-import { HEIGHT, WIDTH } from '../config';
+import { HEIGHT, STAGE_W, WIDTH, WING } from '../config';
 import { save } from '../services';
 import type { Tintable } from './Backdrop';
 import { particleDensity } from './Quality';
@@ -23,8 +23,11 @@ const BIT_KEY = 'bd_bit';
 
 interface TileLayer {
   look: TileLook;
-  parts: { sprite: Phaser.GameObjects.TileSprite; x: number }[];
-  /** Playfield units per source pixel. */
+  parts: { sprite: Phaser.GameObjects.TileSprite; x: number; width: number }[];
+  /** Source sheet size in pixels. */
+  srcWidth: number;
+  srcHeight: number;
+  /** Playfield units per source pixel. The sheet spans the whole stage. */
   scale: number;
   /** Height of one repeat in playfield units. */
   period: number;
@@ -128,7 +131,7 @@ export class ParallaxBackdrop implements Tintable {
     this.skyTint = look.skyTint;
     this.sky = scene.textures.exists(skyKey)
       ? scene.add.image(WIDTH / 2, HEIGHT / 2, skyKey)
-      : scene.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, look.base);
+      : scene.add.rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W, HEIGHT, look.base);
     this.sky.setDepth(DEPTH);
 
     const saver = save.state.settings.batterySaver;
@@ -137,27 +140,29 @@ export class ParallaxBackdrop implements Tintable {
       if (layer.kind === 'tiles') {
         const src = art?.layers[layer.name];
         if (!src || (layer.optional && saver)) return;
-        const scale = (WIDTH + 2 * (layer.sway ?? 0)) / src.width;
         const parts = src.parts
           .filter((p) => scene.textures.exists(partKey(p.path)))
           .map((p) => {
             const sprite = scene.add
-              .tileSprite(0, -BLEED, p.width * scale, HEIGHT + 2 * BLEED, partKey(p.path))
+              .tileSprite(0, -BLEED, p.width, HEIGHT + 2 * BLEED, partKey(p.path))
               .setOrigin(0, 0)
-              .setTileScale(scale)
               .setAlpha(layer.alpha ?? 1)
               .setDepth(depth);
-            return { sprite, x: p.x };
+            return { sprite, x: p.x, width: p.width };
           });
-        // Start each layer at a different point of its loop so the repeats never line up.
-        const period = src.height * scale;
-        this.tiles.push({
+        const tile: TileLayer = {
           look: layer,
           parts,
-          scale,
-          period,
-          offset: (i * 0.37 * period) % period,
-        });
+          srcWidth: src.width,
+          srcHeight: src.height,
+          scale: 1,
+          period: src.height,
+          offset: 0,
+        };
+        this.fitTiles(tile);
+        // Start each layer at a different point of its loop so the repeats never line up.
+        tile.offset = (i * 0.37 * tile.period) % tile.period;
+        this.tiles.push(tile);
       } else if (layer.kind === 'glow') {
         ensureGlowTexture(scene);
         const image = scene.add
@@ -267,16 +272,30 @@ export class ParallaxBackdrop implements Tintable {
     for (const m of this.motes) m.emitter.setAlpha(light);
   }
 
+  /**
+   * Fits a painted layer across the whole stage. On the wide stage the same sheet just gets
+   * bigger, so the near cliffs that framed the portrait board fill the wings instead.
+   */
+  private fitTiles(t: TileLayer): void {
+    const scale = (STAGE_W + 2 * (t.look.sway ?? 0)) / t.srcWidth;
+    const loop = t.period > 0 ? t.offset / t.period : 0;
+    t.scale = scale;
+    t.period = t.srcHeight * scale;
+    t.offset = loop * t.period;
+    for (const p of t.parts) {
+      p.sprite.setSize(p.width * scale, HEIGHT + 2 * BLEED).setTileScale(scale);
+    }
+  }
+
   private layout(): void {
+    // The stage is symmetric about the board, so its center is the board's.
     if (this.sky instanceof Phaser.GameObjects.Image) {
-      const cover = Math.max(WIDTH / this.sky.frame.width, HEIGHT / this.sky.frame.height);
+      const cover = Math.max(STAGE_W / this.sky.frame.width, HEIGHT / this.sky.frame.height);
       this.sky.setPosition(WIDTH / 2, HEIGHT / 2).setScale(cover);
     } else {
-      this.sky.setPosition(WIDTH / 2, HEIGHT / 2).setSize(WIDTH, HEIGHT);
+      this.sky.setPosition(WIDTH / 2, HEIGHT / 2).setSize(STAGE_W, HEIGHT);
     }
-    for (const t of this.tiles) {
-      for (const p of t.parts) p.sprite.setSize(p.sprite.width, HEIGHT + 2 * BLEED);
-    }
+    for (const t of this.tiles) this.fitTiles(t);
     for (const g of this.glows) {
       const size = HEIGHT * g.look.size;
       g.image.setPosition(WIDTH / 2, HEIGHT * g.look.y).setDisplaySize(size * 1.3, size);
@@ -288,7 +307,7 @@ export class ParallaxBackdrop implements Tintable {
   private place(): void {
     for (const t of this.tiles) {
       const reach = t.look.sway ?? 0;
-      const left = -reach - this.sway * reach;
+      const left = -WING - reach - this.sway * reach;
       for (const p of t.parts) {
         p.sprite.x = left + p.x * t.scale;
         p.sprite.tilePositionY = t.offset / t.scale;

@@ -11,6 +11,7 @@ import {
   SCENES,
   SLOT_RADIUS,
   STOCK_RADIUS,
+  WIDE,
   WIDTH,
   slotPositions,
   stockPositions,
@@ -24,6 +25,7 @@ import { deckKnobTexture, deckPanelTexture, glowLineTexture, hudStripTexture, ri
 import { disc, ring } from '../ui/shapes';
 import { calm, theme, type UiTheme } from '../ui/theme';
 import { RingTimer } from '../ui/widgets';
+import { WingPlates } from '../ui/WingPlates';
 import { BaseScene } from './BaseScene';
 import type { HudState, Play } from './Play';
 
@@ -90,6 +92,9 @@ export class Hud extends BaseScene {
   private stockKey = '';
   private stockIcons: Phaser.GameObjects.Container[] = [];
   private deck?: DeckView;
+  /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
+  private plates?: WingPlates;
+  private wide = false;
 
   constructor() {
     super(SCENES.hud);
@@ -100,6 +105,16 @@ export class Hud extends BaseScene {
     this.play = this.scene.get(SCENES.play) as Play;
     const t = (this.t = theme());
     const p = t.palette;
+    this.wide = WIDE;
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
+    });
+    if (WIDE) {
+      this.plates = new WingPlates(this, this.play, t);
+      return;
+    }
+    this.plates = undefined;
     this.shownScore = 0;
     this.last = { lives: -1, score: -1, shownScore: -1 };
     this.label = NO_LABEL;
@@ -135,14 +150,15 @@ export class Hud extends BaseScene {
       .setVisible(false);
     this.feverView = this.makeFever();
     this.slotViews = slotPositions().map((pos, i) => this.makeSlot(pos.x, pos.y, i));
-    this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
-    });
   }
 
   /** Keep the deck and its buttons under the paddle when the phone viewport changes. */
   private onViewport(): void {
+    if (WIDE !== this.wide) {
+      this.scene.restart();
+      return;
+    }
+    if (this.plates) return;
     slotPositions().forEach((p, i) => this.slotViews[i]?.root.setPosition(p.x, p.y));
     this.stockKey = '';
     this.layoutDeck();
@@ -271,6 +287,10 @@ export class Hud extends BaseScene {
   override update(_t: number, delta: number): void {
     const s = this.play.hud as HudState | undefined;
     if (!s) return;
+    if (this.plates) {
+      this.plates.update(s, delta);
+      return;
+    }
     if (s.lives !== this.last.lives) this.updateLives(s.lives);
     if (s.score !== this.last.score) {
       this.last.score = s.score;

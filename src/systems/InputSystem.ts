@@ -1,10 +1,21 @@
 import Phaser from 'phaser';
-import { HUD_HEIGHT, SLOT_RADIUS, STOCK_RADIUS, slotPositions, stockPositions } from '../config';
+import {
+  HUD_HEIGHT,
+  SLOT_RADIUS,
+  STOCK_RADIUS,
+  WIDE,
+  WIDTH,
+  slotPositions,
+  stockPositions,
+} from '../config';
+import { PadButton, onPadButton, padHeld, padStick } from '../platform/gamepad';
 import { save } from '../services';
 import type { Paddle } from '../entities/Paddle';
 
 /** Pointers that start on the pause button or an ability slot belong to the HUD, not the paddle. */
 function onHudControl(x: number, y: number): boolean {
+  // The wide stage keeps its HUD in the wing plates, off the board.
+  if (WIDE) return x < 0 || x > WIDTH;
   if (y < HUD_HEIGHT + 6 && x < 56) return true;
   if (slotPositions().some((p) => Math.hypot(p.x - x, p.y - y) < SLOT_RADIUS + 8)) return true;
   return stockPositions(save.state.stock.powerups.length).some(
@@ -20,7 +31,8 @@ const TOUCH_GAIN = 1.6;
 
 /**
  * Mouse: paddle follows the cursor. Touch: relative drag anywhere on screen, so the finger
- * never covers the ball. A short tap (or Space/Up) launches.
+ * never covers the ball. A short tap (or Space/Up) launches. Gamepad: stick or d-pad steers,
+ * south launches, Start pauses.
  */
 export class InputSystem {
   private keys: {
@@ -52,6 +64,13 @@ export class InputSystem {
     for (const k of this.keys.launch) k.on('down', () => this.enabled && this.onLaunch());
     kb.addKey(K.P).on('down', onPause);
 
+    const offPad = onPadButton((button, down) => {
+      if (!down || !scene.scene.isActive()) return;
+      if (button === PadButton.south && this.enabled) this.onLaunch();
+      else if (button === PadButton.start) onPause();
+    });
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, offPad);
+
     scene.input.on(Phaser.Input.Events.POINTER_DOWN, this.handleDown, this);
     scene.input.on(Phaser.Input.Events.POINTER_MOVE, this.handleMove, this);
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.handleUp, this);
@@ -59,9 +78,11 @@ export class InputSystem {
 
   update(dtMs: number): void {
     if (!this.enabled) return;
-    const dir =
-      (this.keys.right.some((k) => k.isDown) ? 1 : 0) -
-      (this.keys.left.some((k) => k.isDown) ? 1 : 0);
+    const digital =
+      (this.keys.right.some((k) => k.isDown) || padHeld(PadButton.right) ? 1 : 0) -
+      (this.keys.left.some((k) => k.isDown) || padHeld(PadButton.left) ? 1 : 0);
+    // Keys and the d-pad steer at full speed; the stick scales with its deflection.
+    const dir = digital !== 0 ? digital : padStick().x;
     if (dir !== 0) this.paddle.targetX = this.paddle.x + dir * KEY_SPEED * (dtMs / 1000) * 2;
   }
 

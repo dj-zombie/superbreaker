@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HEIGHT, SCENES, WIDTH } from '../config';
+import { HEIGHT, SCENES, STAGE_W, WIDTH, WING } from '../config';
 import { audio } from '../systems/AudioSystem';
 import { particleDensity } from '../systems/Quality';
 import { canvasTexture, glowLineTexture, softDiscTexture } from '../ui/frames';
@@ -73,17 +73,17 @@ export class Transition extends BaseScene {
 
   create(): void {
     this.setupCamera();
-    this.veil = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, 0x000000, 0.003);
+    this.veil = this.add.rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, 0x000000, 0.003);
     this.veil.setVisible(false);
     this.solid = this.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, theme().palette.base)
+      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, theme().palette.base)
       .setAlpha(0);
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
   }
 
   private layout(): void {
-    this.solid.setPosition(WIDTH / 2, HEIGHT / 2).setSize(WIDTH * 2, HEIGHT * 2);
-    this.veil.setPosition(WIDTH / 2, HEIGHT / 2).setSize(WIDTH * 2, HEIGHT * 2);
+    this.solid.setPosition(WIDTH / 2, HEIGHT / 2).setSize(STAGE_W * 2, HEIGHT * 2);
+    this.veil.setPosition(WIDTH / 2, HEIGHT / 2).setSize(STAGE_W * 2, HEIGHT * 2);
   }
 
   get running(): boolean {
@@ -146,16 +146,16 @@ export class Transition extends BaseScene {
   private buildCurtain(t: UiTheme): Phaser.GameObjects.Container {
     this.curtain?.destroy();
     const key = burnEdgeTexture(this, t);
-    const top = this.add.tileSprite(WIDTH / 2, EDGE / 2, WIDTH + 40, EDGE, key);
-    const body = this.add.rectangle(WIDTH / 2, EDGE + HEIGHT / 2, WIDTH + 40, HEIGHT + 2, t.palette.base);
+    const top = this.add.tileSprite(WIDTH / 2, EDGE / 2, STAGE_W + 40, EDGE, key);
+    const body = this.add.rectangle(WIDTH / 2, EDGE + HEIGHT / 2, STAGE_W + 40, HEIGHT + 2, t.palette.base);
     const bottom = this.add
-      .tileSprite(WIDTH / 2, EDGE * 1.5 + HEIGHT, WIDTH + 40, EDGE, key)
+      .tileSprite(WIDTH / 2, EDGE * 1.5 + HEIGHT, STAGE_W + 40, EDGE, key)
       .setFlipY(true)
       .setTilePosition(73, 0);
     const heat = (y: number) =>
       this.add
         .image(WIDTH / 2, y, glowLineTexture(this))
-        .setDisplaySize(WIDTH * 1.4, 54)
+        .setDisplaySize(STAGE_W * 1.4, 54)
         .setTint(t.palette.glow)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setAlpha(0.85);
@@ -168,7 +168,7 @@ export class Transition extends BaseScene {
     ]);
     this.embers?.destroy();
     this.embers = this.add.particles(0, 0, softDiscTexture(this), {
-      x: { min: 0, max: WIDTH },
+      x: { min: -WING, max: WIDTH + WING },
       lifespan: { min: 400, max: 900 },
       speedY: { min: -260, max: -80 },
       speedX: { min: -40, max: 40 },
@@ -277,7 +277,7 @@ export class Transition extends BaseScene {
     for (let i = 0; i < 7; i++) {
       this.slices.push(
         this.add
-          .rectangle(WIDTH / 2, 0, WIDTH, 10, colors[i % colors.length]!, 0.55)
+          .rectangle(WIDTH / 2, 0, STAGE_W, 10, colors[i % colors.length]!, 0.55)
           .setBlendMode(Phaser.BlendModes.ADD)
           .setVisible(false),
       );
@@ -290,7 +290,7 @@ export class Transition extends BaseScene {
       s.setVisible(show);
       if (!show) continue;
       s.setPosition(WIDTH / 2 + Phaser.Math.Between(-60, 60), Phaser.Math.Between(0, HEIGHT));
-      s.setSize(WIDTH * Phaser.Math.FloatBetween(0.4, 1.2), Phaser.Math.Between(3, 26));
+      s.setSize(STAGE_W * Phaser.Math.FloatBetween(0.4, 1.2), Phaser.Math.Between(3, 26));
     }
   }
 

@@ -1,6 +1,9 @@
 node_modules
 dist
 dev-dist
+# Electron: compiled shell and packaged installers
+desktop/dist/
+release/
 *.log
 .DS_Store
 ._*
