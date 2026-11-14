@@ -50,7 +50,24 @@ export let LOSE_Y = initial.loseY;
 /** True when the viewport is taller than 3:4 and the field grows to meet it. */
 export let coverScreen = false;
 
-export const UI_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const SYSTEM_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+/** Body copy and labels. */
+export const UI_FONT = `"Barlow Semi Condensed", ${SYSTEM_FONT}`;
+/** Headings, buttons and numbers. */
+export const DISPLAY_FONT = `"Barlow Condensed", ${SYSTEM_FONT}`;
+/** World names: carved capitals for Hell and the Crypt, a machined face for the Mainframe. */
+export const CARVED_FONT = `Cinzel, Georgia, serif`;
+export const MACHINE_FONT = `Orbitron, ${SYSTEM_FONT}`;
+
+/** Font faces that must be ready before any canvas text or glyph atlas is drawn. */
+export const FONT_FACES = [
+  `700 32px "Barlow Condensed"`,
+  `800 32px "Barlow Condensed"`,
+  `600 32px "Barlow Semi Condensed"`,
+  `700 32px "Barlow Semi Condensed"`,
+  `700 32px Cinzel`,
+  `700 32px Orbitron`,
+];
 
 export const COLORS = {
   bg: 0x0b0820,
@@ -308,13 +325,18 @@ export const SCENES = {
   boot: 'Boot',
   preload: 'Preload',
   title: 'Title',
-  levelSelect: 'LevelSelect',
+  arcadeSelect: 'ArcadeSelect',
   play: 'Play',
   hud: 'Hud',
   pause: 'Pause',
   results: 'Results',
   upgrades: 'Upgrades',
   settings: 'Settings',
+  worlds: 'Worlds',
+  worldPath: 'WorldPath',
+  briefing: 'Briefing',
+  transition: 'Transition',
+  gallery: 'UiGallery',
 } as const;
 
 applyViewport();

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
-import { LIGHTING_LOOKS, resolveLook, type LightingLook } from '../art/lighting';
+import { LIGHTING_LOOKS, resolveLook, sceneryLight, type LightingLook } from '../art/lighting';
 import { hasNormalMap } from '../art/foreground';
 import {
   LIGHT_TEX,
@@ -268,6 +268,8 @@ export class LightingSystem {
   readonly calm: boolean;
   /** Set by moods every frame: breathing forge, beat pulse. */
   ambientScale = 1;
+  /** Lights out, set by moods every frame: how far the room lights have sputtered on, 0..1. */
+  roomFlicker = 0;
   stats: LightingStats = { tier: 'medium', lights: 0, drawn: 0, map: '', ms: 0 };
 
   private lights: Light[] = [];
@@ -299,11 +301,13 @@ export class LightingSystem {
   private flashRGB: [number, number, number] = [0, 0, 0];
   /** Clock times of recent ambient flashes, for the MAX_FLASH_HZ limit. */
   private flashTimes: number[] = [];
+  private lastFlash = -Infinity;
   private dipK = 0;
   private pulseColor = 0;
   private pulseK = 0;
-  private endgame = 0;
-  private endgameTarget = 0;
+  /** Lights out: the lights coming back on after a clear, 0..1. */
+  private relight = 0;
+  private relightTarget = 0;
   private reveal = 0;
   private revealPeak = 0;
   private mood?: MoodFx;
@@ -395,15 +399,35 @@ export class LightingSystem {
    * in any second are dropped (returns false), and the brightening stays well short of white.
    */
   flashAmbient(color: number, amount: number): boolean {
-    const now = this.clock;
-    this.flashTimes = this.flashTimes.filter((t) => now - t < 1);
-    if (this.flashTimes.length >= Math.floor(MAX_FLASH_HZ)) return false;
-    this.flashTimes.push(now);
+    if (!this.claimFlash()) return false;
     const k = this.calm ? amount * CALM_FLASH : amount;
     this.flashRGB[0] = Math.min(0.6, this.flashRGB[0] + red(color) * k);
     this.flashRGB[1] = Math.min(0.6, this.flashRGB[1] + green(color) * k);
     this.flashRGB[2] = Math.min(0.6, this.flashRGB[2] + blue(color) * k);
     return true;
+  }
+
+  /**
+   * Books one whole-screen flash against the MAX_FLASH_HZ limit, shared by everything that
+   * flashes the room. False means the flash must not happen.
+   */
+  claimFlash(): boolean {
+    const now = this.clock;
+    this.flashTimes = this.flashTimes.filter((t) => now - t < 1);
+    if (this.flashTimes.length >= Math.floor(MAX_FLASH_HZ)) return false;
+    this.flashTimes.push(now);
+    this.lastFlash = now;
+    return true;
+  }
+
+  /** Seconds since the last whole-screen flash. */
+  get sinceFlash(): number {
+    return this.clock - this.lastFlash;
+  }
+
+  /** Lights out: the level is cleared and the room lights are coming back on for good. */
+  get relit(): boolean {
+    return this.relightTarget > 0;
   }
 
   /**
@@ -439,22 +463,18 @@ export class LightingSystem {
     return 0.25 + Math.max(0, HEIGHT - y) * 0.0012;
   }
 
-  /** Lights out: the room brightens as the last bricks remain, so the end never drags. */
-  setRemaining(remaining: number): void {
-    this.endgameTarget = this.look.lightsOut && remaining <= 3 ? 1 : 0;
-  }
-
-  /** Life lost: the room flushes with `color` and recovers. */
+  /** Life lost: the room flushes with `color` and recovers. Lights out keeps it dark. */
   pulse(color: number, amount = 0.6): void {
+    const k = amount * sceneryLight(this.look) * (this.calm ? CALM_FLASH : 1);
     this.pulseColor = color;
-    this.pulseK = Math.max(this.pulseK, this.calm ? amount * CALM_FLASH : amount);
+    this.pulseK = Math.max(this.pulseK, k);
   }
 
-  /** Level clear: every light flares and the room brightens. */
+  /** Level clear: every light flares and the room brightens. Lights out turns the lights on. */
   celebrate(): void {
     this.flare = 1;
     this.celebrating = true;
-    this.endgameTarget = 1;
+    this.relightTarget = 1;
   }
 
   /** Mainframe glitches on hits; other moods ignore it. */
@@ -649,32 +669,38 @@ export class LightingSystem {
     let floor = look.brickFloor;
     let intro = 1;
     if (look.lightsOut) {
-      const normal = LIGHTING_LOOKS[this.world];
       const preview = look.preview ?? 0;
-      const k = t < preview ? 0 : Math.min(1, (t - preview) / FADE_S);
-      const e = k * k * (3 - 2 * k);
-      base = mixColor(normal.ambient, look.ambient, e);
-      floor = normal.brickFloor + (look.brickFloor - normal.brickFloor) * e;
+      // No preview means the level is already dark. A preview holds the normal look, then fades.
+      if (preview > 0) {
+        const normal = LIGHTING_LOOKS[this.world];
+        const k = t < preview ? 0 : Math.min(1, (t - preview) / FADE_S);
+        const e = k * k * (3 - 2 * k);
+        base = mixColor(normal.ambient, look.ambient, e);
+        floor = normal.brickFloor + (look.brickFloor - normal.brickFloor) * e;
+      }
     } else if (t < INTRO_S) {
       const k = t / INTRO_S;
       intro = INTRO_AMBIENT + (1 - INTRO_AMBIENT) * (1 - (1 - k) * (1 - k));
     }
 
-    this.endgame += (this.endgameTarget - this.endgame) * Math.min(1, dt * 1.5);
-    if (this.endgame > 0.001 && look.lightsOut) {
-      base = mixColor(base, LIGHTING_LOOKS[this.world].ambient, this.endgame * 0.6);
-      floor += (0.6 - floor) * this.endgame;
+    this.relight += (this.relightTarget - this.relight) * Math.min(1, dt * 1.5);
+    if (this.relight > 0.001 && look.lightsOut) {
+      base = mixColor(base, LIGHTING_LOOKS[this.world].ambient, this.relight * 0.6);
+      floor += (0.6 - floor) * this.relight;
     }
     this.reveal += (this.revealPeak - this.reveal) * Math.min(1, dt * (this.calm ? 3 : 40));
     this.revealPeak *= Math.exp(-dt * (this.calm ? 1.2 : 3.5));
-    if (this.reveal > 0.002 && look.lightsOut) {
+    // A sputter snaps on and off with no easing: that's what makes it read as a failing bulb.
+    const shown = Math.max(this.reveal, this.roomFlicker);
+    if (shown > 0.002 && look.lightsOut) {
       const normal = LIGHTING_LOOKS[this.world];
-      base = mixColor(base, normal.ambient, this.reveal);
-      floor += (normal.brickFloor - floor) * this.reveal;
+      base = mixColor(base, normal.ambient, shown);
+      floor += (normal.brickFloor - floor) * shown;
     }
     // Combos and fever lift the room; in the dark that would give the layout away.
-    const light = 1 - (look.darkness ?? 0);
-    const boostTarget = this.celebrating ? 0.35 : (this.comboBoost + this.feverBoost) * light;
+    const boostTarget = this.celebrating
+      ? 0.35
+      : (this.comboBoost + this.feverBoost) * sceneryLight(look);
     this.boost += (boostTarget - this.boost) * Math.min(1, dt * 2);
     this.flare *= Math.exp(-dt * 1.2);
     this.dipK *= Math.exp(-dt * 14);

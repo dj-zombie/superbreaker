@@ -33,6 +33,27 @@ export const DEFAULT_PACING: PacingConfig = {
 const ESCALATION: Intervention[] = ['nudge', 'gift', 'surge'];
 const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 
+/** The collapse waits for a spell this long without a break. */
+export const COLLAPSE_IDLE_MS = 2_000;
+/** More balls than this in flight hold the collapse back. */
+export const COLLAPSE_MAX_BALLS = 2;
+
+export interface CollapseState {
+  fever: boolean;
+  /** Balls in flight. */
+  balls: number;
+  /** Time since the last break while a ball was in play. */
+  idleMs: number;
+}
+
+/**
+ * The collapse only rescues a slow ending. During a multiball or Fever peak the player gets to
+ * smash the last bricks themselves.
+ */
+export function collapseReady(s: CollapseState): boolean {
+  return !s.fever && s.balls <= COLLAPSE_MAX_BALLS && s.idleMs >= COLLAPSE_IDLE_MS;
+}
+
 /**
  * Watches the flow of a level and decides when to step in. Boredom rises when nothing breaks for a
  * while, the break rate is low, the ball loops off the paddle without hitting anything, or the last
@@ -53,6 +74,11 @@ export class PacingDirector {
 
   get boredom(): number {
     return this.smoothed;
+  }
+
+  /** Time since the last break, counting only time with a ball in play. */
+  get idleMs(): number {
+    return this.sinceBreakMs;
   }
 
   /** 0..1 rubber-band factor for the ability roulette. */
@@ -168,12 +194,15 @@ export class FeverMeter {
     return this.active ? this.remainingMs / this.cfg.durationMs : this.value;
   }
 
-  /** Returns true when this break starts Fever. */
-  onBreak(combo: number): boolean {
+  /**
+   * Returns true when this break starts Fever. The fill shrinks with the square root of the balls
+   * in flight, so a streak still pays but a field full of balls can't chain Fevers back to back.
+   */
+  onBreak(combo: number, balls = 1): boolean {
     if (this.active) return false;
     this.sinceBreakMs = 0;
     const bonus = Math.min(combo, this.cfg.maxComboBonus) * this.cfg.fillPerCombo;
-    return this.add(this.cfg.fillPerBreak + bonus);
+    return this.add((this.cfg.fillPerBreak + bonus) / Math.sqrt(Math.max(1, balls)));
   }
 
   /** Adds charge directly (pacing surges). Returns true when this starts Fever. */

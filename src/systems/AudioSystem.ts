@@ -27,6 +27,7 @@ class AudioSystem {
   private analyser?: AnalyserNode;
   private bins?: Uint8Array<ArrayBuffer>;
   private noise?: AudioBuffer;
+  private hiss?: AudioBuffer;
 
   init(game: Phaser.Game): void {
     this.sound = game.sound;
@@ -147,6 +148,59 @@ class AudioSystem {
     src.connect(lp).connect(gain).connect(mgr.destination);
     src.start(t);
     src.stop(t + seconds);
+  }
+
+  /** Air rush for screen transitions: band-passed noise swept upward, or down for `fall`. */
+  whoosh(volume = 0.18, fall = false): void {
+    const mgr = this.webAudio;
+    if (!mgr || !save.state.settings.sfx || mgr.locked) return;
+    const ctx = mgr.context;
+    if (!this.hiss) {
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.6), ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      this.hiss = buf;
+    }
+    const t = ctx.currentTime;
+    const len = 0.42;
+    const src = ctx.createBufferSource();
+    src.buffer = this.hiss;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.4;
+    band.frequency.setValueAtTime(fall ? 2600 : 320, t);
+    band.frequency.exponentialRampToValueAtTime(fall ? 260 : 2800, t + len);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(volume, t + len * 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(band).connect(gain).connect(mgr.destination);
+    src.start(t);
+    src.stop(t + len + 0.02);
+  }
+
+  /** The mains buzz of a failing light, on for `seconds`. The hard attack is its click. */
+  buzz(seconds: number, volume = 0.2): void {
+    const mgr = this.webAudio;
+    if (!mgr || !save.state.settings.sfx || mgr.locked) return;
+    const ctx = mgr.context;
+    const t = ctx.currentTime;
+    const end = t + Math.max(0.04, seconds);
+    const hum = ctx.createOscillator();
+    hum.type = 'sawtooth';
+    hum.frequency.value = 120;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 1100;
+    band.Q.value = 0.9;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(volume, t + 0.005);
+    gain.gain.setValueAtTime(volume, end - 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    hum.connect(band).connect(gain).connect(mgr.destination);
+    hum.start(t);
+    hum.stop(end + 0.02);
   }
 
   stopMusic(forget = true): void {

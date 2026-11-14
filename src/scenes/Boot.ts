@@ -1,4 +1,5 @@
 import { SCENES } from '../config';
+import { loadLogo } from '../ui/fx/logoReveal';
 import { BaseScene } from './BaseScene';
 
 export class Boot extends BaseScene {
@@ -8,7 +9,7 @@ export class Boot extends BaseScene {
 
   preload(): void {
     this.load.setPath('assets/');
-    this.load.image('logo', 'images/ui/logo.png');
+    loadLogo(this.load);
   }
 
   create(): void {

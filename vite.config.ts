@@ -33,7 +33,10 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,jpg,webp,json,tmj,tsj,mp3,wav,xml,fnt}'],
+        globPatterns: ['**/*.{js,css,html,png,jpg,webp,json,tmj,tsj,mp3,wav,xml,fnt,woff2}'],
+        // The plugin treats all of assets/ as hashed, but levels, art and audio from public/assets
+        // keep their names there. Without a revision a device keeps the first copy it cached.
+        dontCacheBustURLsMatching: /^assets\/[^/]+-[\w-]{8}\.\w+$/,
         // Normal maps only serve the desktop High tier, so phones shouldn't precache them.
         globIgnores: ['**/*_n.png'],
         runtimeCaching: [

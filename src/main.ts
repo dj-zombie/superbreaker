@@ -1,8 +1,15 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
+import '@fontsource/barlow-condensed/latin-700.css';
+import '@fontsource/barlow-condensed/latin-800.css';
+import '@fontsource/barlow-semi-condensed/latin-600.css';
+import '@fontsource/barlow-semi-condensed/latin-700.css';
+import '@fontsource/cinzel/latin-700.css';
+import '@fontsource/orbitron/latin-700.css';
 import {
   applyViewport,
   COLORS,
+  FONT_FACES,
   HEIGHT,
   IS_TOUCH,
   RENDER_ZOOM,
@@ -22,13 +29,18 @@ import { RELIEF_MAX_LIGHTS } from './systems/ReliefLighting';
 import { Boot } from './scenes/Boot';
 import { Preload } from './scenes/Preload';
 import { Title } from './scenes/Title';
-import { LevelSelect } from './scenes/LevelSelect';
+import { Worlds } from './scenes/Worlds';
+import { WorldPath } from './scenes/WorldPath';
+import { Briefing } from './scenes/Briefing';
+import { ArcadeSelect } from './scenes/ArcadeSelect';
 import { Play } from './scenes/Play';
 import { Hud } from './scenes/Hud';
 import { Pause } from './scenes/Pause';
 import { Results } from './scenes/Results';
 import { Upgrades } from './scenes/Upgrades';
 import { Settings } from './scenes/Settings';
+import { Transition } from './scenes/Transition';
+import { UiGallery } from './scenes/UiGallery';
 
 let framedW = 0;
 let framedH = 0;
@@ -100,8 +112,16 @@ function measureFrameMs(frames = 8): Promise<number> {
   });
 }
 
+/** Canvas text and the glyph atlases are drawn once, so the faces must be ready first. */
+function loadFonts(timeoutMs = 2500): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();
+  const all = Promise.all(FONT_FACES.map((f) => document.fonts.load(f))).then(() => undefined);
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+  return Promise.race([all, timeout]).catch(() => undefined);
+}
+
 async function start(): Promise<void> {
-  await save.load(legacyLocalStorageGet);
+  await Promise.all([save.load(legacyLocalStorageGet), loadFonts()]);
   const frameMs = await measureFrameMs();
   setRenderZoom(targetZoom());
   syncStage();
@@ -138,7 +158,24 @@ async function start(): Promise<void> {
       maxLights: RELIEF_MAX_LIGHTS,
       maxTextures: IS_TOUCH ? 8 : -1,
     },
-    scene: [Boot, Preload, Title, LevelSelect, Play, Hud, Pause, Results, Upgrades, Settings],
+    scene: [
+      Boot,
+      Preload,
+      Title,
+      Worlds,
+      WorldPath,
+      ArcadeSelect,
+      Play,
+      Hud,
+      Briefing,
+      Pause,
+      Results,
+      Upgrades,
+      Settings,
+      ...(import.meta.env.DEV ? [UiGallery] : []),
+      // Last, so it draws over every other scene.
+      Transition,
+    ],
   });
   audio.init(game);
   syncStage(game);

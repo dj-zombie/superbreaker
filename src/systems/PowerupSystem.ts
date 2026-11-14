@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { HYPER_DURATION_MS, LOSE_Y, PIERCE_DURATION_MS, POWERUP_INFO } from '../config';
-import { powerupStats, rollDrop } from '../core/Economy';
+import { DropDirector, powerupStats, type DropContext } from '../core/Economy';
 import type { PowerupId } from '../core/types';
 import { save } from '../services';
 
@@ -24,6 +24,8 @@ export interface PowerupHost {
   grantMystery(x: number, y: number): void;
   /** A pickup started falling. */
   onSpawned?(pickup: Pickup): void;
+  /** The field right now, for the drop director. */
+  dropContext(): DropContext;
 }
 
 export class Pickup extends Phaser.Physics.Arcade.Sprite {
@@ -44,6 +46,7 @@ export class Pickup extends Phaser.Physics.Arcade.Sprite {
 export class PowerupSystem {
   readonly group: Phaser.Physics.Arcade.Group;
   private effects = new Map<TimedEffect, ActiveEffect>();
+  private drops = new DropDirector();
   magnetCharges = 0;
 
   constructor(
@@ -66,7 +69,7 @@ export class PowerupSystem {
 
   /** `noMystery` stops ability kills from snowballing into more abilities. */
   maybeDrop(x: number, y: number, fixed?: PowerupId, noMystery = false): void {
-    let id = fixed ?? rollDrop();
+    let id = fixed ?? this.drops.roll(this.host.dropContext());
     if (!id) return;
     if (id === 'magnet' && this.is('magnet') && !fixed) id = 'coin';
     if (id === 'mystery' && noMystery && !fixed) id = 'coin';

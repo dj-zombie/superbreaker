@@ -17,6 +17,16 @@
    "name": "title",
    "type": "string",
    "value": "Supernova"
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "lightning",
+   "type": "bool",
+   "value": true
   }
  ],
  "tilesets": [
@@ -1330,5 +1340,6 @@
     }
    ]
   }
- ]
+ ],
+ "class": "LevelLighting"
 }

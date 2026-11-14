@@ -137,7 +137,8 @@
         { "name": "lanternRadius", "type": "float", "value": -1 },
         { "name": "previewTime", "type": "float", "value": -1 },
         { "name": "lightning", "type": "bool", "value": false },
-        { "name": "lightningInterval", "type": "float", "value": 10 }
+        { "name": "lightningInterval", "type": "float", "value": 6 },
+        { "name": "sputter", "type": "bool", "value": true }
       ]
     }
   ]

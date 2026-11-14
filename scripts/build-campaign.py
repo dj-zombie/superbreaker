@@ -135,7 +135,7 @@ class Level:
         armor: dict[tuple[int, int], int] | None = None,
         glow: dict[tuple[int, int], tuple[str, float, float]] | None = None,
         lights_out: bool = False,
-        lightning: bool = False,
+        lightning: bool | None = None,
     ) -> None:
         self.num = num
         self.title = title
@@ -150,7 +150,8 @@ class Level:
         self.glow = glow or {}
         self.lights_out = lights_out
         # Strikes show the layout for a moment; the interval is LevelLighting's default.
-        self.lightning = lightning
+        # Lights-out levels storm unless told otherwise.
+        self.lightning = lights_out if lightning is None else lightning
 
 
 def kind_of(ch: str) -> str:
@@ -184,7 +185,7 @@ def level_first_light() -> Level:
     drop(g, 4, 9, "o")
     drop(g, 22, 1, "u")
     drop(g, 22, 9, "g")
-    return Level(1, "First Light", g, RAINBOW, "row")
+    return Level(1, "First Light", g, RAINBOW, "row", lights_out=True)
 
 
 def level_diamond() -> Level:
@@ -225,7 +226,7 @@ def level_halo() -> Level:
     drop(g, 8, 9, "m")
     drop(g, 21, 3, "o")
     drop(g, 21, 15, "u")
-    return Level(4, "Halo", g, OCEAN, "row")
+    return Level(4, "Halo", g, OCEAN, "row", lights_out=True)
 
 
 def level_smile() -> Level:
@@ -306,7 +307,7 @@ def level_lattice() -> Level:
     drop(g, 22, 0, "l")
     drop(g, 22, 8, "o")
     drop(g, 22, 16, "m")
-    return Level(8, "Lattice", g, NEON, "checker")
+    return Level(8, "Lattice", g, NEON, "checker", lights_out=True)
 
 
 def level_fireworks() -> Level:
@@ -335,7 +336,7 @@ def level_fuses() -> Level:
     drop(g, 24, 8, "o")
     drop(g, 24, 12, "u")
     drop(g, 24, 15, "f")
-    return Level(10, "Fuses", g, [5, 6, 9, 15], "row")
+    return Level(10, "Fuses", g, [5, 6, 9, 15], "row", lights_out=True)
 
 
 def level_vault() -> Level:
@@ -353,7 +354,7 @@ def level_vault() -> Level:
     drop(g, 21, 17, "h")
     drop(g, 20, 5, "o")
     drop(g, 20, 14, "l")
-    return Level(11, "The Vault", g, ICE, "row")
+    return Level(11, "The Vault", g, ICE, "row", lights_out=True)
 
 
 def level_heart() -> Level:
@@ -444,7 +445,6 @@ def level_bullseye() -> Level:
         # The vault in the dark: glowing bricks on the core's corners and the ends of the lower wall.
         glow={(5, 7): warm, (5, 12): warm, (8, 7): warm, (8, 12): warm, (19, 2): warm, (20, 17): warm},
         lights_out=True,
-        lightning=True,
     )
 
 
@@ -484,7 +484,6 @@ def level_patrol() -> Level:
         # Night watch: each patrolling brick glows as it moves through the dark.
         glow={(9, 2): ("#ff9cc4ff", 130.0, 0.65), (13, 11): ("#ff9cc4ff", 130.0, 0.65), (17, 4): ("#ff9cc4ff", 130.0, 0.65)},
         lights_out=True,
-        lightning=True,
     )
 
 
@@ -524,7 +523,7 @@ def level_turnstile() -> Level:
     drop(g, 21, 6, "h")
     drop(g, 21, 10, "o")
     drop(g, 21, 13, "g")
-    return Level(19, "Turnstile", g, PURPLE, "row", moves={(11, 8): (90, 46)})
+    return Level(19, "Turnstile", g, PURPLE, "row", moves={(11, 8): (90, 46)}, lights_out=True)
 
 
 def level_crossfire() -> Level:
@@ -588,7 +587,7 @@ def level_weeds() -> Level:
     drop(g, 11, 4, "f")
     drop(g, 18, 9, "o")
     drop(g, 11, 14, "u")
-    return Level(22, "Weeds", g, FOREST, "col", regen_delay=4.5)
+    return Level(22, "Weeds", g, FOREST, "col", regen_delay=4.5, lights_out=True)
 
 
 def level_pendulum() -> Level:
@@ -634,7 +633,7 @@ def level_gauntlet() -> Level:
     drop(g, 21, 12, "o")
     drop(g, 20, 14, "q")
     drop(g, 20, 6, "p")
-    return Level(25, "Gauntlet", g, [8, 5, 15, 3, 1], "row", regen_delay=4.5)
+    return Level(25, "Gauntlet", g, [8, 5, 15, 3, 1], "row", regen_delay=4.5, lights_out=True)
 
 
 def level_cascade() -> Level:
@@ -701,7 +700,7 @@ def level_highway() -> Level:
     # Night traffic: cyan cars start on the left, magenta ones mid-road.
     glow = {(r, c): ("#ff22d3ff" if c == 1 else "#ffff3ad0", 110.0, 0.6) for r, c in moves}
     return Level(
-        28, "Highway", g, [1, 2, 15, 5, 11], "row", moves=moves, glow=glow, lights_out=True, lightning=True
+        28, "Highway", g, [1, 2, 15, 5, 11], "row", moves=moves, glow=glow, lights_out=True
     )
 
 
@@ -765,6 +764,7 @@ def level_supernova() -> Level:
         "diag",
         regen_delay=5,
         armor={(2 + top, 4): 3, (2 + top, 15): 3},
+        lights_out=True,
     )
 
 
@@ -1180,7 +1180,12 @@ def emit(level: Level, previous: dict | None = None) -> dict:
     if level.lightning:
         properties.append({"name": "lightning", "type": "bool", "value": True})
     generated = {p["name"] for p in properties}
-    properties += [p for p in (previous or {}).get("properties", []) if p.get("name") not in generated]
+    # `lighting` is not a map property; a bool of that name used to get saved by mistake.
+    properties += [
+        p
+        for p in (previous or {}).get("properties", [])
+        if p.get("name") not in generated and p.get("name") != "lighting"
+    ]
 
     out = {
         "type": "map",

@@ -79,6 +79,8 @@ export interface LevelLightingSpec {
   lightning: boolean;
   /** Average seconds between strikes. */
   lightningInterval: number;
+  /** Lights out: the dead room lights sputter back on now and then, buzzing, and die again. */
+  sputter: boolean;
 }
 
 /** Defaults for the `Light` class in superbreaker.tiled-project. Keep the two in sync. */
@@ -100,11 +102,12 @@ export const LEVEL_LIGHTING_DEFAULTS: LevelLightingSpec = {
   mood: 'world',
   lightsOut: false,
   lightning: false,
-  lightningInterval: 10,
+  lightningInterval: 6,
+  sputter: true,
 };
 
 /** Lights-out values when the map leaves them at -1. */
-export const LIGHTS_OUT_DEFAULTS = { darkness: 0.85, previewTime: 1.5 };
+export const LIGHTS_OUT_DEFAULTS = { darkness: 0.75, previewTime: 0 };
 
 /** Lightning strikes never come closer together than this, whatever the map asks for. */
 export const MIN_LIGHTNING_INTERVAL = 3;
@@ -228,6 +231,42 @@ export function flickerAt(kind: Flicker, t: number, speed = 1, calm = false): nu
       return glitchDrop(Math.floor(t * 6 * s)) ? 0.2 : 1;
     }
   }
+}
+
+/** One blink of a failing light: on at `at` seconds for `hold` seconds, at `level` (0..1). */
+export interface Blink {
+  at: number;
+  hold: number;
+  level: number;
+}
+
+/**
+ * A dead light trying to come back on: two to five irregular blinks, sometimes ending in a
+ * longer hold. Each blink is a whole-screen flash, so no more than MAX_FLASH_HZ of them start
+ * in any one second, however the dice fall.
+ */
+export function sputter(random: () => number = Math.random): Blink[] {
+  const range = (a: number, b: number) => a + random() * (b - a);
+  const perSecond = Math.floor(MAX_FLASH_HZ);
+  const count = 2 + Math.floor(random() * 4);
+  const blinks: Blink[] = [];
+  for (let i = 0; i < count; i++) {
+    const prev = blinks[i - 1];
+    let at = 0;
+    if (prev) {
+      // Quick stutters, then a pause long enough to wonder whether it's over.
+      at = prev.at + prev.hold + (random() < 0.5 ? range(0.06, 0.14) : range(0.3, 0.7));
+      const window = blinks[i - perSecond];
+      if (window) at = Math.max(at, window.at + 1.05);
+    }
+    const long = i === count - 1 && random() < 0.4;
+    blinks.push({
+      at,
+      hold: long ? range(0.5, 1.1) : range(0.05, 0.12),
+      level: long ? range(0.5, 0.7) : range(0.3, 0.6),
+    });
+  }
+  return blinks;
 }
 
 // ---------------------------------------------------------------- paths

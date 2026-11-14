@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { AUDIO_ASSETS, COLORS, HEIGHT, IMAGE_ASSETS, SCENES, WIDTH } from '../config';
+import { AUDIO_ASSETS, HEIGHT, IMAGE_ASSETS, SCENES, WIDTH } from '../config';
 import { buildUiFonts } from '../art/fonts';
 import {
   attachNormalMaps,
@@ -8,6 +8,9 @@ import {
   rebuildMissingForeground,
 } from '../art/foreground';
 import { ensureProceduralTextures } from '../art/procedural';
+import { calm, menuWorld, useWorld } from '../ui/theme';
+import { label } from '../ui/type';
+import { Meter } from '../ui/widgets';
 import {
   parseLevel,
   validateLevel,
@@ -15,8 +18,12 @@ import {
   type TiledTemplate,
   type TiledTileset,
 } from '../core/LevelParser';
+import { randomSeed } from '../core/Rng';
+import { GOAL_KINDS, RUN_LOOPS, goalFor, type RunConfig } from '../core/Run';
 import type { LevelSpec } from '../core/types';
 import { lightingTier } from '../systems/Quality';
+import { transitioning } from '../ui/fx/transitions';
+import { installBack } from '../ui/nav';
 import { BaseScene } from './BaseScene';
 
 const LEVEL_INDEX = 'levels-index';
@@ -42,6 +49,29 @@ function devLevel(levels: LevelSpec[]): number | undefined {
   }
   const n = Number(new URLSearchParams(location.search).get('level'));
   return Number.isInteger(n) && n >= 1 && n <= levels.length ? n : undefined;
+}
+
+/**
+ * Dev only: `?arcade=waves|descent`, optionally with `&goal=rounds|timed` and `&seed=1K9ZQ2`.
+ * The seed is read in base 36, as Results shows it.
+ */
+function devRun(): RunConfig | undefined {
+  if (!import.meta.env.DEV) return undefined;
+  const q = new URLSearchParams(location.search);
+  const loop = RUN_LOOPS.find((l) => l === q.get('arcade'));
+  if (!loop) return undefined;
+  const goal = GOAL_KINDS.find((g) => g === q.get('goal')) ?? 'endless';
+  const seed = parseInt(q.get('seed') ?? '', 36);
+  return {
+    loop,
+    goal: goalFor(goal),
+    seed: Number.isFinite(seed) ? seed >>> 0 : randomSeed(),
+  };
+}
+
+/** Dev only: `?ui=gallery` opens the UI component gallery. */
+function devGallery(): boolean {
+  return import.meta.env.DEV && new URLSearchParams(location.search).get('ui') === 'gallery';
 }
 
 export class Preload extends BaseScene {
@@ -104,8 +134,12 @@ export class Preload extends BaseScene {
     }
     const levels = this.parseLevels();
     this.registry.set('levels', levels);
+    installBack(() => transitioning(this));
     const jump = devLevel(levels);
-    if (jump) this.scene.start(SCENES.play, { index: jump });
+    const run = devRun();
+    if (run) this.scene.start(SCENES.play, { run });
+    else if (jump) this.scene.start(SCENES.play, { index: jump });
+    else if (devGallery()) this.scene.start(SCENES.gallery);
     else this.scene.start(SCENES.title);
   }
 
@@ -140,27 +174,32 @@ export class Preload extends BaseScene {
     return levels;
   }
 
+  /** The launch logo breathing over its glow, and a themed meter filling underneath. */
   private drawProgress(): void {
-    const w = 360;
-    const h = 18;
+    const t = useWorld(menuWorld());
+    this.cameras.main.setBackgroundColor(t.palette.base);
+    const y = HEIGHT * 0.38;
     if (this.textures.exists('logo')) {
-      const logo = this.add.image(WIDTH / 2, HEIGHT * 0.36, 'logo');
-      logo.setScale(Math.min(1, 480 / logo.width));
+      const logo = this.add.image(WIDTH / 2, y, 'logo');
+      const scale = Math.min(1, 480 / logo.width);
+      logo.setScale(scale);
+      if (this.textures.exists('logo_glow')) {
+        const glow = this.add
+          .image(WIDTH / 2, y, 'logo_glow')
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setAlpha(0.5);
+        glow.setScale((logo.width * scale) / glow.width);
+        if (!calm()) {
+          this.tweens.add({ targets: glow, alpha: 0.9, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        }
+      }
     }
-    const frame = this.add.graphics();
-    frame.lineStyle(3, COLORS.panelEdge, 1);
-    frame.strokeRoundedRect(WIDTH / 2 - w / 2, HEIGHT * 0.62, w, h, h / 2);
-    const bar = this.add.graphics();
-    this.load.on(Phaser.Loader.Events.PROGRESS, (p: number) => {
-      bar.clear();
-      bar.fillStyle(COLORS.accent, 1);
-      bar.fillRoundedRect(
-        WIDTH / 2 - w / 2 + 4,
-        HEIGHT * 0.62 + 4,
-        (w - 8) * p,
-        h - 8,
-        (h - 8) / 2,
-      );
+    const meterY = HEIGHT * 0.62;
+    const meter = new Meter(this, WIDTH / 2, meterY, 360, 12, 0, t.palette.accent);
+    const pct = label(this, WIDTH / 2, meterY + 30, 'Loading  0%', 12, { t, color: t.palette.textDim });
+    this.load.on(Phaser.Loader.Events.PROGRESS, (v: number) => {
+      meter.set(v, false);
+      pct.setText(`Loading  ${Math.round(v * 100)}%`);
     });
   }
 }

@@ -20,6 +20,8 @@ export class FeverSystem {
     private juice: JuiceSystem,
     private backdrop: Backdrop,
     private onChange: (active: boolean) => void,
+    /** Edge glow brightness; lights-out levels keep it low so the walls don't light up. */
+    private edgeAlpha = 1,
   ) {}
 
   get active(): boolean {
@@ -35,8 +37,8 @@ export class FeverSystem {
     return Phaser.Display.Color.HSVToRGB(this.hue, 0.85, 1).color;
   }
 
-  onBreak(combo: number): void {
-    if (this.meter.onBreak(combo)) this.start();
+  onBreak(combo: number, balls: number): void {
+    if (this.meter.onBreak(combo, balls)) this.start();
   }
 
   boost(amount: number): void {
@@ -49,7 +51,7 @@ export class FeverSystem {
     if (!this.glow) return;
     const color = this.trailColor;
     this.backdrop.setHue(color);
-    const alpha = 0.55 + Math.sin(this.scene.time.now / 160) * 0.2;
+    const alpha = (0.55 + Math.sin(this.scene.time.now / 160) * 0.2) * this.edgeAlpha;
     for (const g of this.glow) {
       g.setTint(color).setAlpha(alpha);
       if (g.displayHeight !== HEIGHT) g.setDisplaySize(GLOW_WIDTH, HEIGHT).setY(HEIGHT / 2);

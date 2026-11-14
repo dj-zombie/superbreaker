@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHTING_LOOKS, resolveLook } from '../src/art/lighting';
+import { LIGHTING_LOOKS, resolveLook, sceneryLight } from '../src/art/lighting';
 import {
   FLICKERS,
   LEVEL_LIGHTING_DEFAULTS,
@@ -8,6 +8,7 @@ import {
   accumulate,
   falloff,
   flickerAt,
+  hash,
   lightWeight,
   mixColor,
   parseColor,
@@ -15,6 +16,7 @@ import {
   rgbToColor,
   selectLights,
   red,
+  sputter,
   type LevelLightingSpec,
   type SampleLight,
 } from '../src/core/Lighting';
@@ -209,6 +211,12 @@ describe('resolveLook', () => {
     const look = lightsOut();
     expect(look.darkness).toBe(LIGHTS_OUT_DEFAULTS.darkness);
     expect(look.preview).toBe(LIGHTS_OUT_DEFAULTS.previewTime);
+    expect(look.sputter).toBe(true);
+    // Dark, but not black: the bricks still read as shapes away from the lantern.
+    expect(look.brickFloor).toBeGreaterThan(0.06);
+    expect(look.brickFloor).toBeLessThan(0.12);
+    expect(red(look.ambient)).toBeGreaterThan(0.04);
+    expect(red(look.ambient)).toBeLessThan(0.1);
     expect(lightsOut({ lanternRadius: 90, previewTime: 0 })).toMatchObject({
       ball: { radius: 90 },
       preview: 0,
@@ -218,5 +226,56 @@ describe('resolveLook', () => {
   it('only sets a lightning interval when the level asks for lightning', () => {
     expect(lightsOut().lightning).toBeUndefined();
     expect(lightsOut({ lightning: true, lightningInterval: 6 }).lightning).toBe(6);
+  });
+
+  it('lets a lights-out level turn the sputtering room lights off', () => {
+    expect(lightsOut({ sputter: false }).sputter).toBe(false);
+  });
+});
+
+describe('sputter', () => {
+  const seeded = (seed: number) => {
+    let n = seed;
+    return () => hash(n++);
+  };
+
+  it('never starts more blinks in a second than the photosensitivity cap allows', () => {
+    for (let seed = 0; seed < 2000; seed++) {
+      const blinks = sputter(seeded(seed * 97));
+      for (let i = 0; i < blinks.length; i++) {
+        const inSecond = blinks.filter((b) => b.at >= blinks[i]!.at && b.at < blinks[i]!.at + 1);
+        expect(inSecond.length).toBeLessThanOrEqual(Math.floor(MAX_FLASH_HZ));
+      }
+    }
+  });
+
+  it('blinks two to five times, each one dark again before the next', () => {
+    for (let seed = 0; seed < 500; seed++) {
+      const blinks = sputter(seeded(seed * 31));
+      expect(blinks.length).toBeGreaterThanOrEqual(2);
+      expect(blinks.length).toBeLessThanOrEqual(5);
+      expect(blinks[0]!.at).toBe(0);
+      for (const [i, b] of blinks.entries()) {
+        expect(b.level).toBeGreaterThan(0);
+        expect(b.level).toBeLessThan(1);
+        const next = blinks[i + 1];
+        if (next) expect(next.at).toBeGreaterThan(b.at + b.hold);
+      }
+    }
+  });
+});
+
+describe('sceneryLight', () => {
+  it('keeps room-wide light on normal levels', () => {
+    expect(sceneryLight(resolveLook('hell', LEVEL_LIGHTING_DEFAULTS))).toBe(1);
+  });
+
+  it('all but removes it at the default darkness and fades it as darkness rises', () => {
+    const at = (darkness: number) =>
+      sceneryLight(resolveLook('hell', { ...LEVEL_LIGHTING_DEFAULTS, lightsOut: true, darkness }));
+    // Combo lifts, Fever and the life-lost flush multiply by this, so it must stay small.
+    expect(at(LIGHTS_OUT_DEFAULTS.darkness)).toBeLessThan(0.1);
+    expect(at(1)).toBe(0);
+    expect(at(0.9)).toBeLessThan(at(0.5));
   });
 });

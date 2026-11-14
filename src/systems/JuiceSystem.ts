@@ -134,7 +134,8 @@ export class JuiceSystem {
     });
   }
 
-  popText(x: number, y: number, text: string, color = '#ffffff', size = 18): void {
+  /** Floating callout; `punch` above 1 overshoots harder, for escalating combos. */
+  popText(x: number, y: number, text: string, color = '#ffffff', size = 18, punch = 1): void {
     const t =
       this.texts.pop() ??
       this.scene.add.bitmapText(0, 0, POP_FONT, '', size).setOrigin(0.5).setDepth(20);
@@ -145,7 +146,8 @@ export class JuiceSystem {
       .setAlpha(1)
       .setScale(0.5)
       .setVisible(true);
-    this.scene.tweens.add({ targets: t, scale: 1, duration: 160, ease: 'Back.Out' });
+    if (punch > 1) t.setScale(punch * 1.6);
+    this.scene.tweens.add({ targets: t, scale: 1, duration: 160 + (punch - 1) * 200, ease: 'Back.Out' });
     this.scene.tweens.add({
       targets: t,
       y: y - 46,

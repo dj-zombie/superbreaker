@@ -443,6 +443,8 @@ function parseLevelLighting(
     MIN_LIGHTNING_INTERVAL,
     num(p.lightningInterval, LEVEL_LIGHTING_DEFAULTS.lightningInterval),
   );
+  // Tiled only saves a member the map changes, so unset means the class default: on.
+  out.sputter = p.sputter !== false && p.sputter !== 'false';
   return out;
 }
 

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { worldForLevel, type WorldId } from '../art/backdrops';
+import { worldForLevel, worldForRun, type WorldId } from '../art/backdrops';
 import {
   ARENA_MID,
   COLORS,
@@ -15,20 +15,27 @@ import {
   HYPER_TIME_SCALE,
   WIDTH,
 } from '../config';
-import { PacingDirector, type Intervention } from '../core/Pacing';
+import { PacingDirector, collapseReady, type Intervention } from '../core/Pacing';
 import {
+  BALL_OVERFLOW_SCORE,
   BRICK_SCORE,
   DIFFICULTY,
   FIREBALL_DAMAGE,
   LASER_BRICK_SCORE,
+  MAX_BALLS,
   MAX_LIVES,
   PIERCE_DAMAGE,
   START_LIVES,
+  campaignSpeedScale,
+  cruiseSpeed,
+  relaxSpeed,
+  scaleSpeeds,
   starsForLives,
   type DifficultyConfig,
 } from '../core/Difficulty';
 import { unlockedAbilities, type AbilityId } from '../core/Abilities';
 import { LASER_BARREL_OFFSETS, powerupStats } from '../core/Economy';
+import { runKey, scaleDifficulty, type RunConfig, type RunOutcome } from '../core/Run';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BALL_SIZE, Ball } from '../entities/Ball';
@@ -49,11 +56,28 @@ import { JuiceSystem } from '../systems/JuiceSystem';
 import { LightingSystem, type Light } from '../systems/LightingSystem';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/PowerupSystem';
-import { bodyText, fadeIn } from '../ui/Button';
+import { RunDirector, type RunHost } from '../systems/RunDirector';
+import { framePanel, glowLineTexture } from '../ui/frames';
+import { slam } from '../ui/fx/motion';
+import { onBack } from '../ui/nav';
+import { calm, css, pickWorld, theme, useWorld, worldLevels } from '../ui/theme';
+import { body, display, glowWord, heading, label } from '../ui/type';
+import { Meter, revealStars, RingTimer } from '../ui/widgets';
 import { BaseScene } from './BaseScene';
 
 export interface PlayData {
-  index: number;
+  /** Campaign level, 1-based. */
+  index?: number;
+  /** Starts an Arcade run instead of a campaign level. */
+  run?: RunConfig;
+}
+
+export interface RunResults {
+  config: RunConfig;
+  outcome: Exclude<RunOutcome, 'playing'>;
+  tier: number;
+  reach: number;
+  bestReach: number;
 }
 
 export interface ResultsData {
@@ -64,11 +88,17 @@ export interface ResultsData {
   isBest: boolean;
   coinsEarned: number;
   bestScore: number;
+  run?: RunResults;
 }
 
 /** Read by the HUD scene every frame. */
 export interface HudState {
-  index: number;
+  /** "LEVEL 3", "WAVE 7", "TIER 2/10". */
+  title: string;
+  /** Shown after the title; null shows the bricks left. */
+  detail: string | null;
+  /** Timed runs: time left in ms. */
+  clockMs: number | null;
   score: number;
   lives: number;
   coinsEarned: number;
@@ -103,12 +133,26 @@ const AIM_SPEED = 2.4;
 const NUDGE_TURN = 1.8;
 const ENDGAME_TURN = 1.1;
 const NUDGE_MS = 4_000;
+/** A held serve launches itself after this long unless the player taps first. */
+const SERVE_COUNTDOWN_MS = 3_000;
+/** The very first serve waits longer, while the instructions are up. */
+const FIRST_SERVE_MS = 5_000;
+/** A magnet catch lets go by itself after this long. */
+const MAGNET_HOLD_MS = 2_500;
+/** The level-clear banner moves on to the next level by itself after this long. */
+const CLEAR_ADVANCE_MS = 3_500;
+/** Taps are ignored this long, so the tap that broke the last brick can't skip the banner. */
+const CLEAR_TAP_GUARD_MS = 700;
 
 export class Play extends BaseScene {
   levelIndex = 1;
+  /** Set when this is an Arcade run rather than a campaign level. */
+  runConfig?: RunConfig;
   hud!: HudState;
 
   private level!: LevelSpec;
+  world!: WorldId;
+  private runDirector?: RunDirector;
   private diff!: DifficultyConfig;
   private paddle!: Paddle;
   private balls!: Phaser.Physics.Arcade.Group;
@@ -122,6 +166,7 @@ export class Play extends BaseScene {
   private lighting!: LightingSystem;
   private ballLights = new Map<Ball, Light>();
   private brickLights: Array<{ brick: Brick; light: Light }> = [];
+  private beacons = new Map<Brick, Light>();
   private shieldLight?: Light;
   private ballFx!: BallFx;
   private frameMonitor!: FrameMonitor;
@@ -132,12 +177,20 @@ export class Play extends BaseScene {
   private inputSys!: InputSystem;
   private arrow!: Phaser.GameObjects.Image;
   private hint?: Phaser.GameObjects.Text;
+  private countdown?: Phaser.GameObjects.Container;
+  private countdownShown = 0;
+  /** Time until a held ball launches by itself. */
+  private serveMs = 0;
   private shieldBar?: Phaser.Physics.Arcade.Image;
   private aim = -Math.PI / 2;
   private aimDir = 1;
   private laserCooldown = 0;
   private finished = false;
   private cleared = false;
+  /** The level-clear banner is counting down to the next level. */
+  private bannerUp = false;
+  /** Set once the banner accepts taps; going on early calls it. */
+  private skipBanner?: () => void;
   /** Stocked abilities sitting in slots. Refunded if the level is abandoned. */
   private stockOrigin: Array<AbilityId | null> = Array.from({ length: SLOT_COUNT }, () => null);
   private unsubscribeBackground?: () => void;
@@ -147,28 +200,44 @@ export class Play extends BaseScene {
   }
 
   init(data: PlayData): void {
-    this.levelIndex = Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
+    this.runConfig = data.run;
+    this.levelIndex = data.run
+      ? 0
+      : Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
+    this.world = data.run ? worldForRun(data.run.seed) : worldForLevel(this.levelIndex);
+    useWorld(this.world);
+    if (!data.run) pickWorld(this.world);
     this.finished = false;
     this.cleared = false;
+    this.bannerUp = false;
+    this.skipBanner = undefined;
     this.stockOrigin = Array.from({ length: SLOT_COUNT }, () => null);
     this.aim = -Math.PI / 2;
     this.laserCooldown = 0;
     this.nudgeMs = 0;
+    this.serveMs = 0;
+    this.countdownShown = 0;
   }
 
   preload(): void {
-    ParallaxBackdrop.preload(this, worldForLevel(this.levelIndex));
+    ParallaxBackdrop.preload(this, this.world);
   }
 
   create(): void {
     this.setupCamera();
-    fadeIn(this, 300);
+    const shade = Phaser.Display.Color.IntegerToColor(theme().palette.base);
+    this.cameras.main.fadeIn(300, shade.red, shade.green, shade.blue);
     this.input.enabled = true;
-    this.level = this.levels[this.levelIndex - 1]!;
-    const world = worldForLevel(this.levelIndex);
-    this.diff = DIFFICULTY[save.state.difficulty];
+    onBack(this, () => this.requestPause());
+    this.runDirector = this.runConfig ? new RunDirector(this.runConfig) : undefined;
+    this.level = this.runDirector?.firstLevel() ?? this.levels[this.levelIndex - 1]!;
+    const world = this.world;
+    const base = DIFFICULTY[save.state.difficulty];
+    this.diff = this.runConfig ? base : scaleSpeeds(base, campaignSpeedScale(this.levelIndex));
     this.hud = {
-      index: this.levelIndex,
+      title: `LEVEL ${this.levelIndex}`,
+      detail: null,
+      clockMs: null,
       score: 0,
       lives: START_LIVES,
       coinsEarned: 0,
@@ -184,7 +253,7 @@ export class Play extends BaseScene {
       ballHeld: true,
     };
 
-    this.scenery = new ParallaxBackdrop(this, worldForLevel(this.levelIndex));
+    this.scenery = new ParallaxBackdrop(this, world);
     this.lighting = new LightingSystem(this, world, this.level, this.scenery);
     // The light map replaces the flat dim; without WebGL the old tint still darkens the art.
     this.backdrop = this.lighting.enabled
@@ -192,6 +261,7 @@ export class Play extends BaseScene {
       : new Backdrop(this.scenery, 0.12);
     this.ballLights = new Map();
     this.brickLights = [];
+    this.beacons = new Map();
     this.shieldLight = undefined;
     this.setupPhysics();
 
@@ -225,18 +295,31 @@ export class Play extends BaseScene {
             (ball) => Math.abs(ball.x - b.x) < reachX && Math.abs(ball.y - b.y) < reachY,
           );
         },
+        collapseReady: () =>
+          collapseReady({
+            fever: this.fever.active,
+            balls: this.freeBallCount,
+            idleMs: this.pacing.idleMs,
+          }),
       },
       world,
+      { collapse: !this.runDirector?.descent },
     );
     this.hud.remaining = this.bricks.remaining;
     this.initialBreakables = Math.max(1, this.bricks.remaining);
     this.lighting.attach(this.bricks.bricks, this.paddle);
-    this.addBrickLights(world);
+    this.addBrickLights(this.bricks.bricks);
     this.pacing = new PacingDirector();
-    this.fever = new FeverSystem(this, this.juice, this.backdrop, (active) => {
-      this.onEffectsChanged();
-      this.scenery.setPace(active ? 3.5 : 1);
-    });
+    this.fever = new FeverSystem(
+      this,
+      this.juice,
+      this.backdrop,
+      (active) => {
+        this.onEffectsChanged();
+        this.scenery.setPace(active ? 3.5 : 1);
+      },
+      this.lighting.look.lightsOut ? 0.35 : 1,
+    );
 
     this.powerups = new PowerupSystem(this, {
       spawnExtraBalls: (n) => this.spawnExtraBalls(n),
@@ -247,6 +330,11 @@ export class Play extends BaseScene {
       onEffectsChanged: () => this.onEffectsChanged(),
       onPickup: (id, x, y) => this.onPickup(id, x, y),
       grantMystery: (x, y) => this.grantMystery(x, y),
+      dropContext: () => ({
+        balls: this.freeBallCount,
+        effects: this.powerups.active.length,
+        fever: this.fever.active,
+      }),
       onSpawned: (p) =>
         this.lighting.addLight({
           follow: p,
@@ -282,10 +370,11 @@ export class Play extends BaseScene {
     this.loadRunAbilities();
 
     this.setupColliders();
+    this.runDirector?.attach(this.runHost());
     this.inputSys = new InputSystem(
       this,
       this.paddle,
-      () => this.launch(),
+      () => this.onTap(),
       () => this.requestPause(),
     );
 
@@ -309,6 +398,7 @@ export class Play extends BaseScene {
 
     this.resetBall();
     this.showHint();
+    this.introCard();
 
     this.scene.launch(SCENES.hud);
     audio.resetArpeggio();
@@ -321,7 +411,7 @@ export class Play extends BaseScene {
       this.juice.particleScale = particleDensity();
       this.physics.world.resume();
       audio.duckMusic(false);
-      this.fillAbilityStock();
+      if (!this.finished) this.fillAbilityStock();
     });
   }
 
@@ -346,6 +436,9 @@ export class Play extends BaseScene {
     this.updateLasers(dt);
     this.updatePacing(dt);
     this.checkLostBalls();
+    this.runDirector?.update(dt);
+    this.hud.clockMs = this.runDirector?.state.timeLeftMs ?? null;
+    if (this.finished) return;
     this.hud.effects = this.powerups.active;
     this.hud.remaining = this.bricks.remaining;
     this.hud.slots = this.abilities.slots;
@@ -353,7 +446,9 @@ export class Play extends BaseScene {
     this.hud.fever = this.fever.meter.display;
     this.hud.feverActive = this.fever.active;
     this.hud.paddleX = this.paddle.x;
-    if (this.hud.remaining === 0) this.win();
+    if (this.hud.remaining > 0) return;
+    if (this.runDirector) this.runDirector.onBoardEmpty();
+    else this.win();
   }
 
   /** Fires an ability slot (HUD tap or Q/E). */
@@ -378,7 +473,7 @@ export class Play extends BaseScene {
   }
 
   requestPause(): void {
-    if (this.finished || !this.scene.isActive()) return;
+    if ((this.finished && !this.bannerUp) || !this.scene.isActive()) return;
     this.physics.world.pause();
     audio.duckMusic(true);
     this.scene.launch(SCENES.pause, { from: SCENES.play });
@@ -395,12 +490,15 @@ export class Play extends BaseScene {
     world.resume();
     world.on(Phaser.Physics.Arcade.Events.WORLD_BOUNDS, (body: Phaser.Physics.Arcade.Body) => {
       const ball = body.gameObject as Ball;
-      if (!(ball instanceof Ball)) return;
-      ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
-      this.refillPlow(ball);
-      audio.sfx('ui_move', 0.12);
-      this.juice.sparkle(ball.x, ball.y, 0x7fe9ff, 3);
+      if (ball instanceof Ball) this.onWallBounce(ball);
     });
+  }
+
+  private onWallBounce(ball: Ball): void {
+    ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
+    this.refillPlow(ball);
+    audio.sfx('ui_move', 0.12);
+    this.juice.sparkle(ball.x, ball.y, 0x7fe9ff, 3);
   }
 
   private setupColliders(): void {
@@ -436,7 +534,7 @@ export class Play extends BaseScene {
   // ---------------------------------------------------------------- balls
 
   private makeBall(x: number, y: number): Ball {
-    const ball = new Ball(this, x, y, worldForLevel(this.levelIndex));
+    const ball = new Ball(this, x, y, this.world);
     ball.setName('ball');
     this.balls.add(ball);
     ball.body.setAllowGravity(false);
@@ -452,21 +550,39 @@ export class Play extends BaseScene {
     return this.balls.getChildren() as Ball[];
   }
 
+  /** Balls in flight, not waiting on the paddle. */
+  private get freeBallCount(): number {
+    let n = 0;
+    for (const b of this.ballList) if (!b.attached) n++;
+    return n;
+  }
+
   private resetBall(): void {
-    this.balls.clear(true, true);
     this.paddle.setX(WIDTH / 2);
     this.paddle.targetX = WIDTH / 2;
-    const ball = this.makeBall(WIDTH / 2, PADDLE_Y - 24);
+    this.rearm();
+  }
+
+  /** A fresh ball on the paddle wherever it is, waiting for an aimed launch. */
+  private rearm(): void {
+    this.balls.clear(true, true);
+    const ball = this.makeBall(this.paddle.x, PADDLE_Y - 24);
     ball.attach(0);
     this.aim = -Math.PI / 2;
+    this.serveMs = save.state.seenInstructions ? SERVE_COUNTDOWN_MS : FIRST_SERVE_MS;
+  }
+
+  /** A tap launches the held ball, or skips the level-clear banner. */
+  private onTap(): void {
+    if (this.skipBanner) this.skipBanner();
+    else this.launch();
   }
 
   private launch(): void {
     const held = this.ballList.find((b) => b.attached);
     if (!held || this.finished) return;
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
-    this.hint?.destroy();
-    this.hint = undefined;
+    this.clearHint();
     if (!save.state.seenInstructions) save.update((d) => (d.seenInstructions = true));
     audio.sfx('ui_toggle', 0.4);
   }
@@ -482,23 +598,74 @@ export class Play extends BaseScene {
     if (this.aim < AIM_MIN) this.aimDir = 1;
     this.aim = Phaser.Math.Clamp(this.aim, AIM_MIN, AIM_MAX);
     this.arrow.setPosition(held.x, held.y).setRotation(this.aim);
+    this.serveMs -= dt;
+    if (this.serveMs <= 0) this.launch();
+    else this.tickCountdown();
+  }
+
+  /** Big 3-2-1 over the paddle for the last seconds of a serve. */
+  private tickCountdown(): void {
+    const label = this.countdown;
+    if (!label) return;
+    const [ring, num] = label.list as [RingTimer, Phaser.GameObjects.Text];
+    const n = Math.ceil(this.serveMs / 1000);
+    if (n <= 3) ring.set((this.serveMs - (n - 1) * 1000) / 1000);
+    if (n === this.countdownShown) return;
+    this.countdownShown = n;
+    if (n > 3) return;
+    num.setText(String(n));
+    label.setVisible(true);
+    this.tweens.killTweensOf(label);
+    this.tweens.add({
+      targets: label,
+      scale: { from: 1.6, to: 1 },
+      alpha: { from: 0.3, to: 1 },
+      duration: 260,
+      ease: 'Back.Out',
+    });
+    audio.sfx('ui_move', 0.4, (3 - n) * 250);
   }
 
   private spawnExtraBalls(count: number): void {
     const src = this.ballList.find((b) => !b.attached) ?? this.ballList[0];
     if (!src) return;
+    const room = this.ballRoom(count, src.x, src.y);
     const speed = Math.max(src.speed, this.diff.minSpeed);
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < room; i++) {
       const b = this.makeBall(src.x, src.y);
       b.launch(Phaser.Math.FloatBetween(-2.4, -0.7), speed);
     }
   }
 
+  /** How many of `wanted` new balls fit under the cap; going over pays out instead. */
+  private ballRoom(wanted: number, x: number, y: number): number {
+    const room = Phaser.Math.Clamp(MAX_BALLS - this.ballList.length, 0, wanted);
+    if (room < wanted) {
+      this.addScore(BALL_OVERFLOW_SCORE);
+      this.fever.boost(0.1);
+      this.juice.popText(x, y - 40, 'MAX BALLS', '#7fe9ff', 18);
+    }
+    return room;
+  }
+
   private checkLostBalls(): void {
+    if (save.state.settings.godMode) this.bounceOffFloor();
     for (const b of this.ballList) {
       if (b.y > LOSE_Y) b.destroy();
     }
     if (this.ballList.length === 0) this.loseLife();
+  }
+
+  /** God mode: balls bounce back up where they would otherwise be lost. */
+  private bounceOffFloor(): void {
+    const floor = Math.min(LOSE_Y, HEIGHT) - BALL_SIZE / 2;
+    for (const b of this.ballList) {
+      if (b.attached || b.y < floor) continue;
+      b.setY(floor);
+      if (b.body.velocity.y <= 0) continue;
+      b.body.velocity.y = -b.body.velocity.y;
+      this.onWallBounce(b);
+    }
   }
 
   private currentMode() {
@@ -535,6 +702,7 @@ export class Play extends BaseScene {
         Phaser.Math.Clamp(ball.x - this.paddle.x, -this.paddle.halfWidth, this.paddle.halfWidth),
       );
       this.aim = -Math.PI / 2;
+      this.serveMs = MAGNET_HOLD_MS;
       this.powerups.consumeMagnet();
       audio.sfx('sfx_magnet', 0.4);
       return;
@@ -614,16 +782,24 @@ export class Play extends BaseScene {
   }
 
   private onBrickDestroyed(b: Brick, cause: DestroyCause, chain: number): void {
+    if (cause === 'breach') {
+      this.juice.burst(b.x, b.y, b.tintColor, 6);
+      return;
+    }
     if (cause !== 'fall') {
       this.hud.combo++;
       this.pacing.onBreak();
-      this.fever.onBreak(this.hud.combo);
+      this.fever.onBreak(this.hud.combo, this.freeBallCount);
     }
     const base = cause === 'laser' ? LASER_BRICK_SCORE : BRICK_SCORE;
     const bonus = Math.min(this.hud.combo, 20) * 10 + chain * 20;
     this.addScore((base + bonus) * this.fever.scoreMultiplier);
     if (this.hud.combo >= 5 && this.hud.combo % 5 === 0) {
-      this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, '#ffc93c', 20);
+      const tier = Math.min(6, this.hud.combo / 5);
+      const p = theme().palette;
+      const color = tier >= 4 ? '#ffffff' : css(tier >= 2 ? p.accentHi : p.gold);
+      this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, color, 18 + tier * 4, 1 + tier * 0.12);
+      if (tier >= 4 && save.state.settings.screenShake) this.juice.shake(120, 0.002 * tier);
     }
     this.juice.burst(b.x, b.y, b.tintColor, cause === 'explosion' ? 8 : 12);
     const glow = b.spec.light;
@@ -685,10 +861,14 @@ export class Play extends BaseScene {
 
   // ---------------------------------------------------------------- lights
 
-  /** Authored emissive bricks glow until they break; TNT smoulders so it reads as dangerous. */
-  private addBrickLights(world: WorldId): void {
-    const flicker = world === 'mainframe' ? 'breathe' : 'candle';
-    for (const b of this.bricks.bricks) {
+  /**
+   * Authored emissive bricks glow until they break; TNT smoulders so it reads as dangerous.
+   * With the lights out TNT stays dark, or a row of it would light up half the level.
+   */
+  private addBrickLights(bricks: readonly Brick[]): void {
+    const flicker = this.world === 'mainframe' ? 'breathe' : 'candle';
+    const smoulder = !this.lighting.look.lightsOut;
+    for (const b of bricks) {
       const glow = b.spec.light;
       const light = glow
         ? this.lighting.addLight({
@@ -701,7 +881,7 @@ export class Play extends BaseScene {
             priority: 5,
             igniteAt: this.lighting.igniteTime(b.y),
           })
-        : b.spec.kind === 'explosive'
+        : smoulder && b.spec.kind === 'explosive'
           ? this.lighting.addLight({
               follow: b,
               color: 0xff5a1f,
@@ -756,7 +936,31 @@ export class Play extends BaseScene {
     this.lighting.setShadowFocus(main ?? this.paddle);
     this.lighting.setCombo(this.hud.combo);
     this.lighting.setFever(this.fever.active);
-    this.lighting.setRemaining(this.bricks.remaining);
+    this.syncBeacons();
+  }
+
+  /** Lights out: the last few bricks glow faintly, so the level can be finished in the dark. */
+  private syncBeacons(): void {
+    const on = this.lighting.look.lightsOut && this.pacing.endgameAssist(this.bricks.remaining);
+    for (const [b, l] of this.beacons) {
+      if (on && b.isAlive) continue;
+      l.kill();
+      this.beacons.delete(b);
+    }
+    if (!on) return;
+    for (const b of this.bricks.targets) {
+      if (b.spec.light || this.beacons.has(b)) continue;
+      const light = this.lighting.addLight({
+        follow: b,
+        color: b.tintColor,
+        radius: 44,
+        intensity: 0.6,
+        flicker: 'pulse',
+        speed: 0.6,
+        priority: 6,
+      });
+      this.beacons.set(b, light);
+    }
   }
 
   // ---------------------------------------------------------------- powerups
@@ -908,7 +1112,9 @@ export class Play extends BaseScene {
       }
     }
     const hyper = this.powerups.is('hyper');
+    const cruise = cruiseSpeed(this.diff, 1 - remaining / this.initialBreakables);
     for (const b of free) {
+      b.speed = relaxSpeed(b.speed, cruise, dt);
       b.setHyper(hyper);
       if (this.fever.active) b.setTrailTint(this.fever.trailColor);
     }
@@ -988,9 +1194,10 @@ export class Play extends BaseScene {
 
   private spawnFrenzy(count: number): void {
     const speed = Math.max(this.ballList[0]?.speed ?? 0, this.diff.minSpeed);
-    for (let i = 0; i < count; i++) {
+    const room = this.ballRoom(count, this.paddle.x, this.paddle.y);
+    for (let i = 0; i < room; i++) {
       const b = this.makeBall(this.paddle.x, this.paddle.y - 26);
-      b.launch(-Math.PI / 2 + (i - (count - 1) / 2) * 0.22, speed);
+      b.launch(-Math.PI / 2 + (i - (room - 1) / 2) * 0.22, speed);
     }
     this.powerups.apply('pierce', this.paddle.x, this.paddle.y);
   }
@@ -1001,18 +1208,21 @@ export class Play extends BaseScene {
     this.hud.score += Math.round(n);
   }
 
-  private loseLife(): void {
+  /** A ball was lost, or (`breach`) Descent bricks crossed the line while the ball stays in play. */
+  private loseLife(breach = false): void {
     if (this.finished) return;
-    this.hud.lives--;
+    if (!save.state.settings.godMode) this.hud.lives--;
     this.hud.combo = 0;
     this.pacing.onLifeLost();
-    this.abilities.clearEffects();
-    this.fever.reset();
-    this.nudgeMs = 0;
-    this.powerups.clear();
-    this.lasers.clear(true, true);
-    this.removeShield();
-    this.paddle.resetSize();
+    if (!breach) {
+      this.abilities.clearEffects();
+      this.fever.reset();
+      this.nudgeMs = 0;
+      this.powerups.clear();
+      this.lasers.clear(true, true);
+      this.removeShield();
+      this.paddle.resetSize();
+    }
     audio.sfx('death', 0.3);
     haptic('heavy');
     this.lighting.pulse(0xff2a3a, 0.4);
@@ -1022,33 +1232,102 @@ export class Play extends BaseScene {
       this.gameOver();
       return;
     }
+    if (breach) return;
     this.resetBall();
     this.showHint();
   }
 
   private showHint(): void {
-    this.hint?.destroy();
+    this.clearHint();
     const first = !save.state.seenInstructions;
     const text = first
       ? 'Drag to move the paddle\nTap to launch the ball\nCatch powerups as they fall!'
       : 'TAP TO LAUNCH';
-    this.hint = bodyText(this, WIDTH / 2, PADDLE_Y - 160, text, first ? 22 : 18, '#ffffff');
-    this.hint.setDepth(20);
-    this.hint.setStroke('#1a0629', 6);
+    const t = theme();
+    this.hint = first
+      ? body(this, WIDTH / 2, PADDLE_Y - 160, text, 20, { t })
+      : label(this, WIDTH / 2, PADDLE_Y - 160, text, 18, { t, color: t.palette.text });
+    this.hint.setDepth(20).setStroke(css(t.palette.base), 6);
+    if (!calm()) {
+      this.tweens.add({
+        targets: this.hint,
+        alpha: { from: 1, to: 0.4 },
+        duration: 700,
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+    const ring = new RingTimer(this, 0, 0, 96, t.palette.accent);
+    const num = display(this, 0, 2, '', 56, { t });
+    this.countdown = this.add.container(WIDTH / 2, this.countdownY(), [ring, num]).setDepth(20).setVisible(false);
+    this.countdownShown = 0;
+  }
+
+  /** A band slams across the field with the level's name, then gets out of the way. */
+  private introCard(): void {
+    const t = theme();
+    let kicker = 'Arcade run';
+    let name = this.hud.title;
+    if (!this.runConfig) {
+      const { first, last } = worldLevels(this.world);
+      kicker = `${t.name}  ·  ${this.levelIndex - first + 1} / ${last - first + 1}`;
+      name = this.level.title ?? `Level ${this.levelIndex}`;
+    }
+    const band = this.add.container(WIDTH / 2, ARENA_MID - 40).setDepth(25);
+    const bg = this.add.rectangle(0, 0, WIDTH, 112, t.palette.base, 0.78);
+    const rules = [-56, 56].map((y) =>
+      this.add
+        .image(0, y, glowLineTexture(this))
+        .setDisplaySize(WIDTH, 12)
+        .setTint(t.palette.accent)
+        .setBlendMode(Phaser.BlendModes.ADD),
+    );
+    const top = label(this, 0, -24, kicker, 13, { t, color: t.palette.textDim });
+    const head = heading(this, 0, 14, name, 40, { t });
+    band.add([bg, ...rules, top, head]);
+    if (calm()) {
+      band.setAlpha(0);
+      this.tweens.chain({
+        targets: band,
+        tweens: [
+          { alpha: 1, duration: 200 },
+          { alpha: 0, delay: 1200, duration: 300, onComplete: () => band.destroy() },
+        ],
+      });
+      return;
+    }
+    band.setScale(1, 0);
+    head.setX(-WIDTH);
+    this.tweens.add({ targets: band, scaleY: 1, duration: 220, ease: 'Cubic.Out' });
+    this.tweens.add({ targets: head, x: 0, delay: 120, duration: 360, ease: 'Back.Out' });
+    audio.sfx('ui_select', 0.4, -300);
     this.tweens.add({
-      targets: this.hint,
-      alpha: { from: 1, to: 0.4 },
-      duration: 700,
-      yoyo: true,
-      repeat: -1,
+      targets: band,
+      scaleY: 0,
+      alpha: 0,
+      delay: 1500,
+      duration: 260,
+      ease: 'Cubic.In',
+      onComplete: () => band.destroy(),
     });
+  }
+
+  private clearHint(): void {
+    this.hint?.destroy();
+    this.hint = undefined;
+    this.countdown?.destroy();
+    this.countdown = undefined;
+  }
+
+  /** Above the hint, clear of the taller first-play instructions. */
+  private countdownY(): number {
+    return PADDLE_Y - (save.state.seenInstructions ? 215 : 255);
   }
 
   private win(): void {
     if (this.finished) return;
     this.finished = true;
     this.cleared = true;
-    this.inputSys.enabled = false;
     this.fever.reset();
     this.abilities.clearEffects();
     runCarry.stage(this.abilities.held(), this.levelIndex + 1);
@@ -1061,20 +1340,106 @@ export class Play extends BaseScene {
     this.lighting.celebrate();
     this.juice.flash(250, 255, 240, 200);
     for (const b of this.ballList) b.body.setVelocity(0, 0);
-    this.time.delayedCall(700, () => {
-      this.showResults({
-        win: true,
-        index: this.levelIndex,
-        score: this.hud.score,
-        stars,
-        isBest,
-        coinsEarned: this.hud.coinsEarned,
-        bestScore: Math.max(prevBest, this.hud.score),
-      });
+    const data: ResultsData = {
+      win: true,
+      index: this.levelIndex,
+      score: this.hud.score,
+      stars,
+      isBest,
+      coinsEarned: this.hud.coinsEarned,
+      bestScore: Math.max(prevBest, this.hud.score),
+    };
+    if (this.levelIndex >= this.levels.length) {
+      this.inputSys.enabled = false;
+      this.time.delayedCall(700, () => this.showResults(data));
+      return;
+    }
+    this.showClearBanner(data);
+  }
+
+  /**
+   * Campaign clear without leaving the action: stars and score over the field, then the next level
+   * starts by itself. A tap goes on early; pausing still reaches Upgrades and the level list.
+   */
+  private showClearBanner(d: ResultsData): void {
+    this.bannerUp = true;
+    this.clearHint();
+    this.powerups.clear();
+    this.lasers.clear(true, true);
+    this.physics.world.pause();
+
+    const next = d.index + 1;
+    const t = theme();
+    const root = this.add.container(WIDTH / 2, ARENA_MID).setDepth(30);
+    root.add(framePanel(this, 0, 0, 440, 340, t, { ornament: true }));
+    const head = heading(this, 0, -122, `Level ${d.index} clear`, 36, { t });
+    root.add(head);
+    slam(this, head, { delay: 120 });
+    root.add(
+      revealStars(this, 0, -46, d.stars, {
+        size: 62,
+        delay: 260,
+        t,
+        onStar: (i) => audio.sfx('sfx_coin', 0.5, i * 200),
+      }),
+    );
+
+    const score = display(this, 0, 28, '0', 40, { t });
+    root.add(score);
+    const counter = { v: 0 };
+    this.tweens.add({
+      targets: counter,
+      v: d.score,
+      duration: 900,
+      delay: 200,
+      ease: 'Cubic.Out',
+      onUpdate: () => score.setText(Math.round(counter.v).toLocaleString()),
+    });
+    root.add(
+      d.isBest
+        ? glowWord(this, 0, 64, 'New best', 18, t.palette.gold)
+        : label(this, 0, 64, `Best ${d.bestScore.toLocaleString()}`, 13, { t, color: t.palette.textDim }),
+    );
+    root.add(label(this, 0, 88, `+${d.coinsEarned} coins`, 14, { t, color: css(t.palette.gold) }));
+
+    const bar = new Meter(this, 0, 120, 320, 10, 0, t.palette.accent);
+    root.add(bar);
+    root.add(label(this, 0, 146, `Level ${next}  ·  tap to go`, 14, { t, color: t.palette.text }));
+
+    root.setScale(0.6).setAlpha(0);
+    this.tweens.add({ targets: root, scale: 1, alpha: 1, duration: 260, ease: 'Back.Out' });
+
+    let gone = false;
+    const go = () => {
+      if (gone) return;
+      gone = true;
+      this.skipBanner = undefined;
+      const c = Phaser.Display.Color.IntegerToColor(t.palette.base);
+      this.cameras.main.fadeOut(220, c.red, c.green, c.blue);
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
+        this.scene.restart({ index: next }),
+      );
+    };
+    const fill = { v: 0 };
+    this.tweens.add({
+      targets: fill,
+      v: 1,
+      duration: CLEAR_ADVANCE_MS,
+      onUpdate: () => bar.set(fill.v, false),
+      onComplete: go,
+    });
+    this.time.delayedCall(CLEAR_TAP_GUARD_MS, () => (this.skipBanner = go));
+    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER).on('down', () => {
+      this.skipBanner?.();
     });
   }
 
   private gameOver(): void {
+    if (this.runDirector) {
+      this.runDirector.onOutOfLives();
+      this.endRun();
+      return;
+    }
     this.finished = true;
     this.inputSys.enabled = false;
     this.fever.reset();
@@ -1094,6 +1459,86 @@ export class Play extends BaseScene {
     );
   }
 
+  /** Arcade: the goal was met, time ran out, or the lives did. */
+  private endRun(): void {
+    const director = this.runDirector;
+    if (this.finished || !director) return;
+    this.finished = true;
+    this.inputSys.enabled = false;
+    this.fever.reset();
+    this.abilities.clearEffects();
+    const { state, config } = director;
+    const complete = state.outcome === 'complete';
+    const key = runKey(config.loop, config.goal.kind);
+    const prev = save.state.runs[key] ?? { bestScore: 0, bestReach: 0 };
+    const isBest = save.recordRun(key, this.hud.score, state.reach);
+    audio.stopMusic();
+    if (complete) {
+      audio.sfx('fanfare', 0.5);
+      haptic('heavy');
+      this.lighting.celebrate();
+      this.juice.flash(250, 255, 240, 200);
+    } else {
+      audio.sfx('gameover', 0.3);
+    }
+    for (const b of this.ballList) b.body.setVelocity(0, 0);
+    this.time.delayedCall(complete ? 700 : 600, () =>
+      this.showResults({
+        win: complete,
+        index: 0,
+        score: this.hud.score,
+        stars: 0,
+        isBest,
+        coinsEarned: this.hud.coinsEarned,
+        bestScore: Math.max(prev.bestScore, this.hud.score),
+        run: {
+          config,
+          outcome: complete ? 'complete' : 'over',
+          tier: state.tier,
+          reach: state.reach,
+          bestReach: Math.max(prev.bestReach, state.reach),
+        },
+      }),
+    );
+  }
+
+  private runHost(): RunHost {
+    return {
+      scene: this,
+      bricks: this.bricks,
+      juice: this.juice,
+      lighting: this.lighting,
+      ballInPlay: () => this.ballList.some((b) => !b.attached),
+      rearm: () => {
+        this.rearm();
+        this.showHint();
+      },
+      bricksAdded: (bricks, board) => this.onBricksAdded(bricks, board),
+      addScore: (n) => this.addScore(n),
+      addLife: () => this.addLife(),
+      setTier: (tier) => {
+        this.diff = scaleDifficulty(DIFFICULTY[save.state.difficulty], tier);
+      },
+      breach: () => this.loseLife(true),
+      endRun: () => this.endRun(),
+      setLabel: (title, detail) => {
+        this.hud.title = title;
+        this.hud.detail = detail;
+      },
+    };
+  }
+
+  private onBricksAdded(bricks: readonly Brick[], board: boolean): void {
+    this.addBrickLights(bricks);
+    const remaining = this.bricks.remaining;
+    if (board) {
+      this.pacing = new PacingDirector();
+      this.initialBreakables = Math.max(1, remaining);
+    } else {
+      this.initialBreakables = Math.max(this.initialBreakables, remaining);
+    }
+  }
+
   private showResults(data: ResultsData): void {
     this.physics.world.pause();
     this.scene.launch(SCENES.results, { from: SCENES.play, ...data });
@@ -1105,6 +1550,7 @@ export class Play extends BaseScene {
     this.paddle.setY(PADDLE_Y);
     this.physics.world.setBounds(0, HUD_HEIGHT, WIDTH, HEIGHT - HUD_HEIGHT + 200);
     this.hint?.setY(PADDLE_Y - 160);
+    this.countdown?.setY(this.countdownY());
     if (this.shieldBar) {
       this.shieldBar.setY(shieldY());
       this.shieldBar.refreshBody();

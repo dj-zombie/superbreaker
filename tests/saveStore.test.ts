@@ -83,6 +83,50 @@ describe('settings', () => {
     expect(normalizeSave({ settings: { music: false } }).settings.batterySaver).toBe(false);
     expect(normalizeSave({ settings: { batterySaver: true } }).settings.batterySaver).toBe(true);
   });
+
+  it('adds god mode to older saves, off, and keeps a stored choice', () => {
+    expect(normalizeSave({ settings: { music: false } }).settings.godMode).toBe(false);
+    expect(normalizeSave({ settings: { godMode: true } }).settings.godMode).toBe(true);
+  });
+});
+
+describe('unlockAll', () => {
+  it('opens every level, keeps progress, and never locks levels again', async () => {
+    const storage = memoryStorage();
+    const store = new SaveStore(storage);
+    await store.load();
+    store.recordWin(1, 2, 5000, 30);
+    store.unlockAll(30);
+    expect(store.state.unlocked).toBe(30);
+    expect(store.state.levels.level01).toEqual({ stars: 2, bestScore: 5000 });
+    store.unlockAll(10);
+    expect(store.state.unlocked).toBe(30);
+    await store.flush();
+
+    expect((await new SaveStore(storage).load()).unlocked).toBe(30);
+  });
+});
+
+describe('arcade run bests', () => {
+  it('adds empty run bests to older saves and cleans bad values', () => {
+    expect(normalizeSave({ coins: 3 }).runs).toEqual({});
+    const s = normalizeSave({ runs: { 'waves-endless': { bestScore: 900.7, bestReach: -2 } } });
+    expect(s.runs['waves-endless']).toEqual({ bestScore: 900, bestReach: 0 });
+  });
+
+  it('keeps the best score and the best reach separately', async () => {
+    const storage = memoryStorage();
+    const store = new SaveStore(storage);
+    await store.load();
+    expect(store.recordRun('descent-timed', 4000, 30)).toBe(true);
+    expect(store.recordRun('descent-timed', 3000, 45)).toBe(false);
+    expect(store.recordRun('waves-endless', 0, 0)).toBe(false);
+    await store.flush();
+
+    const s = await new SaveStore(storage).load();
+    expect(s.runs['descent-timed']).toEqual({ bestScore: 4000, bestReach: 45 });
+    expect(s.runs['waves-endless']).toEqual({ bestScore: 0, bestReach: 0 });
+  });
 });
 
 describe('SaveStore', () => {

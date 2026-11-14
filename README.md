@@ -22,13 +22,17 @@ pnpm dev          # http://localhost:5173
 | `pnpm cap:ios`     | Build, sync and open the Xcode project                |
 | `pnpm cap:android` | Build, sync and open the Android Studio project       |
 
-In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. The Phaser game is also available as `window.game` in the browser console:
+In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. The Phaser game is also available as `window.game` in the browser console:
 
 ```js
 game.scene.getScene('Title').scene.start('Play', { index: 24 });
 ```
 
 To check performance on a phone, run `pnpm build && pnpm preview --host`, open the printed network URL with `?debug` appended, and watch the overlay: frame rate, CPU time per frame, physics bodies, live particles, render zoom and the lighting tier, light count, light map size and lighting CPU time. When frames stay slow the game steps quality down by itself: first the High lighting extras, then the render resolution (2x, then 1.5x, then 1.25x), and last the light map drops to Low. Settings has a Battery saver toggle that forces the lowest steps and halves particles.
+
+The preview serves `dist/` as it was at the last build, so run `pnpm build` again after editing levels or code. The phone picks up the new build when it next reloads the page (it may reload once by itself).
+
+For play-testing on any build, including phones, Settings has God mode (balls bounce off the floor and no lives are lost, Descent breaches included) and Unlock all levels. Unlocking keeps stars and best scores, and there is no button to lock levels again.
 
 ## Project layout
 
@@ -41,11 +45,15 @@ src/
     Economy.ts       Coin upgrade shop, powerup stats, drop table
     LevelParser.ts   Tiled map -> LevelSpec, plus validation
     Lighting.ts      Light falloff, flicker presets, sampling and the per-frame light budget
+    Rng.ts           Seeded random numbers for generated levels
+    Run.ts           Arcade run rules: loops, goals, tiers, clock
+    procgen/         Arcade level generator: tier curve, patterns, mechanics, rule checks
     SaveStore.ts     Versioned save data with legacy Cordova migration
   entities/          Ball, Paddle, Brick game objects
-  systems/           Bricks, powerups, input, audio, juice (shake/hit-stop/particles), lighting
-  scenes/            Boot, Preload, Title, LevelSelect, Play, Hud, Pause, Results, Upgrades, Settings
-  ui/                Buttons, panels and widgets drawn with Phaser graphics
+  systems/           Bricks, powerups, input, audio, juice (shake/hit-stop/particles), lighting, Arcade runs
+  scenes/            Boot, Preload, Title, Worlds, WorldPath, Briefing, ArcadeSelect, Play, Hud, Pause, Results, Upgrades, Settings, Transition
+  ui/                Per-world themes, baked frames, buttons, cards, controls and widgets
+  ui/fx/             Scene transitions, motion helpers, UI particles, the logo reveal and behind-overlay filters
   art/procedural.ts  Canvas-drawn fallbacks for any texture that fails to load
   art/backdrops.ts   Parallax worlds: layer order, scroll speeds, tints, light and particles
   art/lighting.ts    How each world is lit: ambient, shadows, ball light, key light, mood
@@ -54,7 +62,8 @@ public/assets/       Images, audio, fonts, tileset and levels
 art-src/             Source sheets for the generated art, and the painted backdrop layers
 scripts/process-art.py  Cuts the art sheets into game sprites and app icons
 scripts/build-foreground.py  Cuts the per-world brick, paddle and ball renders into atlases and normal maps
-scripts/build-backdrops.py  Keys, loops and splits the backdrop layers
+scripts/build-backdrops.py  Keys, loops and splits the backdrop layers, and cuts the world cards
+scripts/process-logo.py  Splits the logo concepts into a base and a glow layer
 archive/             Retired levels and the old static backgrounds
 tests/               Vitest suites
 ios/, android/       Capacitor native projects
@@ -62,16 +71,49 @@ ios/, android/       Capacitor native projects
 
 The playfield is 600 logical units wide and at least 800 tall; on taller screens it grows to fill the display. `src/core/Layout.ts` splits it into the HUD strip, an arena capped at 840 units (so the ball's trip to the bricks stays short) and, on touch devices, a control deck under the paddle that holds the ability and powerup buttons and a drag strip. Dragging anywhere on screen still moves the paddle. The canvas renders at up to 2x device pixel ratio, drops resolution automatically if frames run long, and respects safe-area insets. Portrait is enforced on native and a rotate prompt is shown on landscape phones.
 
+## Menus
+
+The title screen plays the logo reveal once per session, then opens the hub: Continue (the next level, with its stars and the world's progress), Campaign, Arcade and the Armory, with coins, stars and Settings along the top.
+
+- **Campaign** is a carousel of the three worlds. Swipe, use the arrow keys or tap the arrows; locked worlds say which level unlocks them. Entering a world opens its path, ten nodes down the screen with stars on each cleared level.
+- Tapping a level opens the **Briefing** sheet: what the level features (steel, TNT, lights out, storms…), the difficulty, your loadout, and Play.
+- **Arcade** picks the mode (Waves or Descent), the goal, the difficulty and the seed, which can be rerolled.
+- The **Armory** sells permanent upgrades (Powerups and Abilities tabs) and one-use stock for the next run. It opens from the hub, the briefing, pause and results.
+
+Every screen is skinned by the world it belongs to: forged iron and embers for Hell, carved stone, silver and violet glass for the Crypt, holographic cyan glass for the Mainframe. The menus follow the world you last played. `src/ui/theme.ts` holds each skin's palette, fonts, frame style and ambient particles; `src/ui/frames.ts` bakes the panels and buttons into canvas textures once, so menus cost no geometry per frame. Pause blurs the level behind it, and a game over drains its colour.
+
+Reduced motion keeps the layout and cuts the idle loops, particles and big entrances. Battery saver also drops the filters (blur, glow and desaturation). Escape and the Android back button go back one screen everywhere.
+
+The title logo is one of four designs, picked at random each launch. The source concepts are in `art-src/logo/`; `scripts/process-logo.py` (Pillow, numpy) splits each into a base and a glow layer that is tinted per world. The original hand-made logo is kept in `archive/ui/logo-original.png`.
+
+```sh
+python3 scripts/process-logo.py              # all concepts
+python3 scripts/process-logo.py concept-2-shattered
+```
+
 ## Gameplay
 
-- **Difficulties:** easy, normal and hard change ball speed, brick damage, spin and paddle size.
+- **Difficulties:** easy, normal and hard change ball speed, brick damage, spin and paddle size. In the campaign the ball speed also follows a gentle sawtooth (`campaignSpeedScale` in `src/core/Difficulty.ts`): it rises through each world's ten levels, and each world opens a little easier than the last one ended.
+- **Serving:** a held ball launches by itself after a 3-2-1 countdown (5 seconds on the very first serve, while the instructions show), unless the player taps first. Magnet catches let go after 2.5 seconds.
+- **Level clear:** a banner with stars, score and coins counts down to the next level, which starts by itself after 3.5 seconds; a tap goes on early. Pausing during the banner still reaches Upgrades and the level list. The last level, Game Over and Arcade runs end on the Results screen.
+- **Ball speed:** each break speeds the ball up, and it eases back toward a cruise speed afterwards. The cruise speed climbs as the level empties.
 - **Stars and coins:** levels award 1–3 stars based on lives left. Coins dropped by bricks are spent in the Upgrades shop. The **Powerups** tab upgrades magnet, fireball (duration and how many bricks it plows through before bouncing) and laser over 5 tiers; each tier costs base × tier, so the first ones only cost 8–12 coins. The **Abilities** tab unlocks Mega Bomb, Laser Sweep and Black Hole (Meteor, Lightning and Frenzy are owned from the start) and raises each ability through 3 tiers. Only owned abilities appear in the slot roulette.
 - **Brick kinds:** normal, steel (unbreakable), explosive (chain-reacts in a radius), armored (needs extra hits, shows cracks), regen (clusters grow back unless cleared together), and moving (any brick can slide horizontally).
-- **Powerups:** magnet, fireball (smashes through several bricks before bouncing), laser, multiball, bigger/smaller paddle, coin, shield, hyperspeed (faster physics and double damage), extra life, pierce and the mystery box.
+- **Powerups:** magnet, fireball (smashes through several bricks before bouncing), laser, multiball, bigger/smaller paddle, coin, shield, hyperspeed (faster physics and double damage), extra life, pierce and the mystery box. Multiball and Ball Frenzy stop at 10 balls; going over pays out score and a little Fever instead.
+- **Drop director:** `DropDirector` in `src/core/Economy.ts` scales powerup drops by how much is going on (balls in flight, running powerups, Fever). A calm field drops about 27% powerups, a multiball peak about 6%, multiball fades out toward the ball cap, and coins keep their share either way. The first powerup of a level is guaranteed by the third break, and after that one comes within 8 dry breaks while the field is calm.
 - **Ability slots:** rainbow mystery boxes fill two slots through a Mario Kart style roulette. Tap a slot (or press Q/E) to fire Meteor Shower, Chain Lightning, Mega Bomb, Laser Sweep, Black Hole or Ball Frenzy. Players who are struggling, and levels with lots left, roll bigger area abilities (`src/core/Abilities.ts`).
-- **Fever:** fast consecutive breaks fill the bar under the HUD. When it's full you get 8 seconds of fireball balls, double score and rainbow trails.
+- **Fever:** fast consecutive breaks fill the bar under the HUD. When it's full you get 8 seconds of fireball balls, double score and rainbow trails. Each break fills less with more balls in flight (divided by the square root of the ball count), so a full field can't chain Fevers back to back.
 - **Pacing director:** `src/core/Pacing.ts` scores boredom from dry spells, a low break rate, the ball looping off the paddle, and the last bricks dragging on. It escalates from a homing nudge to a gift mystery box to a power surge that charges Fever. With 3 or fewer bricks left the ball homes in gently.
-- When enough breakable bricks are gone (about 30% left, between 8 and 30 bricks), the rest collapse and fall so levels never drag on.
+- When few breakable bricks are left (about 15%, between 6 and 18 bricks) and the level goes quiet (no Fever, at most 2 balls in flight and nothing broken for 2 seconds), the rest collapse and fall so levels never drag on. During a multiball or Fever peak the player smashes the last bricks themselves.
+
+## Arcade mode
+
+Arcade plays generated levels instead of the campaign. Pick a loop and a goal on the Arcade screen:
+
+- **Waves:** clear a generated board and a harder one drops in. **Descent:** rows keep pushing down from the top, and a brick crossing the danger line costs a life.
+- **Endless** (until out of lives), **Rounds** (10) or **Timed** (3 minutes; in Waves each clear adds 15 seconds).
+
+Boards come from a seeded generator (`src/core/procgen/`) that unlocks mechanics in the same order as the campaign and checks every board against the campaign's rules: reachable bricks, bounded explosion chains, small regen clusters and safe movers. The same seed always gives the same run, and the results screen can replay it. The design, tuning values and roadmap are in [docs/procedural-mode.md](docs/procedural-mode.md).
 
 ## Editing levels with Tiled
 
@@ -131,19 +173,20 @@ Bricks can glow too: set the `Brick` members `light` (a color), `lightRadius` (d
 
 Give the map the `LevelLighting` class to override the world look. `-1` and an empty color mean "use the default":
 
-| Member              | Type        | Meaning                                                                                                                                                                                                                  |
-| ------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambient`           | color       | Backdrop brightness where no light reaches; `#ffffff` leaves the art as painted                                                                                                                                          |
-| `backdropStrength`  | float       | How strongly lights brighten the backdrop                                                                                                                                                                                |
-| `brickFloor`        | float (0–1) | Brick and paddle brightness where no light reaches                                                                                                                                                                       |
-| `vignette`          | float (0–1) | Darkening toward the corners                                                                                                                                                                                             |
-| `mood`              | `Mood` enum | `world`, `none`, `forge`, `storm` or `beat`                                                                                                                                                                              |
-| `lightsOut`         | bool        | Shows the layout for `previewTime`, then the lights go out: the ball becomes a lantern, and only it, glowing bricks and the level's lights reveal the bricks. The room brightens again when 3 bricks are left            |
-| `darkness`          | float (0–1) | Lights out: 0 leaves the bricks dimly visible, 1 shows only what lights reach. Default 0.85                                                                                                                              |
-| `lanternRadius`     | float       | Lights out: how far the ball's light reaches, in playfield units. By default it shrinks as `darkness` rises, to about 165 at 0.85                                                                                        |
-| `previewTime`       | float (s)   | Lights out: how long the layout shows first. Default 1.5; 0 starts in the dark                                                                                                                                           |
-| `lightning`         | bool        | Lightning and thunder. On a lights-out level each strike shows the whole layout for a moment. With reduced motion a strike is a slow swell instead of a flash. Crypt levels that aren't lights-out have lightning anyway |
-| `lightningInterval` | float (s)   | Average time between strikes, at least 3. Default 10                                                                                                                                                                     |
+| Member              | Type        | Meaning                                                                                                                                                                                                                                                                                                                                      |
+| ------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ambient`           | color       | Backdrop brightness where no light reaches; `#ffffff` leaves the art as painted                                                                                                                                                                                                                                                              |
+| `backdropStrength`  | float       | How strongly lights brighten the backdrop                                                                                                                                                                                                                                                                                                    |
+| `brickFloor`        | float (0–1) | Brick and paddle brightness where no light reaches                                                                                                                                                                                                                                                                                           |
+| `vignette`          | float (0–1) | Darkening toward the corners                                                                                                                                                                                                                                                                                                                 |
+| `mood`              | `Mood` enum | `world`, `none`, `forge`, `storm` or `beat`                                                                                                                                                                                                                                                                                                  |
+| `lightsOut`         | bool        | The lights are out from the start: the ball becomes a lantern, and only it, glowing bricks and the level's lights reveal the bricks. TNT doesn't smoulder, and combos, Fever and lost lives don't lift the room. The last 3 bricks glow faintly, and the lights come back on when the level is cleared. `previewTime` shows the layout first |
+| `darkness`          | float (0–1) | Lights out: 0 leaves the bricks dimly visible, 1 shows only what lights reach. Default 0.75, which keeps about 9% of the room so the bricks still read as shapes                                                                                                                                                                             |
+| `lanternRadius`     | float       | Lights out: how far the ball's light reaches, in playfield units. By default it shrinks as `darkness` rises, to about 120 at 0.75                                                                                                                                                                                                            |
+| `previewTime`       | float (s)   | Lights out: how long the layout shows before the lights go out. Default 0, so the level starts dark                                                                                                                                                                                                                                          |
+| `lightning`         | bool        | Lightning and thunder. On a lights-out level each strike shows the whole layout for a moment. With reduced motion a strike is a slow swell instead of a flash. Crypt levels that aren't lights-out have lightning anyway, and `build-campaign.py` turns it on for every lights-out level                                                     |
+| `lightningInterval` | float (s)   | Average time between strikes, at least 3. Default 6                                                                                                                                                                                                                                                                                          |
+| `sputter`           | bool        | Lights out: about every 11 s the dead room lights sputter back on with an electrical buzz, blink a few times and die again, each blink showing the layout for a moment. Blinks and lightning share the limit of two flashes a second. With reduced motion a sputter is one faint, slow swell. Default on                                     |
 
 ## Art pipeline
 
@@ -196,7 +239,7 @@ python3 scripts/build-backdrops.py                     # all worlds
 python3 scripts/build-backdrops.py hell --stills /tmp/hell.jpg --video /tmp/hell.mp4
 ```
 
-`--stills` and `--video` composite the world with sample bricks to check readability and the loop.
+`--stills` and `--video` composite the world with sample bricks to check readability and the loop. Each run also writes the world carousel cards (`public/assets/images/ui/world_<id>.webp`, cropped from `key.jpg`); `--thumbs-only` writes just those.
 
 Any texture missing at runtime is replaced by a procedural canvas drawing (`src/art/procedural.ts`), so new brick kinds or powerups can be prototyped before their art exists.
 

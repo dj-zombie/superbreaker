@@ -31,6 +31,8 @@ export interface LightingLook {
   preview?: number;
   /** Average seconds between lightning strikes, when the level asks for them. */
   lightning?: number;
+  /** Lights out: the room lights sputter back on now and then. */
+  sputter?: boolean;
 }
 
 export const LIGHTING_LOOKS: Record<WorldId, LightingLook> = {
@@ -75,6 +77,17 @@ export const LIGHTING_LOOKS: Record<WorldId, LightingLook> = {
   },
 };
 
+/**
+ * How much of the room's own light survives a lights-out level: scenery lights, combo and
+ * Fever lifts, the life-lost flush. It falls off faster than `darkness`, so a blackout isn't
+ * washed out. 1 on normal levels.
+ */
+export function sceneryLight(look: LightingLook): number {
+  if (!look.lightsOut) return 1;
+  const left = 1 - (look.darkness ?? 0);
+  return left * left;
+}
+
 /** The world look with a level's Tiled overrides applied. */
 export function resolveLook(world: WorldId, spec?: LevelLightingSpec): LightingLook {
   const base = LIGHTING_LOOKS[world];
@@ -83,18 +96,22 @@ export function resolveLook(world: WorldId, spec?: LevelLightingSpec): LightingL
   if (spec.lightsOut) {
     const d = spec.darkness ?? LIGHTS_OUT_DEFAULTS.darkness;
     const byDarkness = (light: number, dark: number) => light + (dark - light) * d;
+    // The light map multiplies gamma-encoded pixels, so a straight fade already looks even.
+    // The default (0.75) leaves about 9%: dark, but the bricks still read as shapes.
+    const shown = 1 - d;
     look.lightsOut = true;
     look.darkness = d;
     look.preview = spec.previewTime ?? LIGHTS_OUT_DEFAULTS.previewTime;
-    look.ambient = scaleColor(base.ambient, byDarkness(0.6, 0.04));
+    look.sputter = spec.sputter;
+    look.ambient = scaleColor(base.ambient, 0.35 * shown);
     // Lights must climb well past the painted art to read as pools in the dark.
     look.backdropStrength = base.backdropStrength * 1.5;
-    look.brickFloor = byDarkness(0.35, 0);
+    look.brickFloor = 0.35 * shown;
     look.brickGain = 1.25;
     // The ambient already does the darkening; a strong vignette would only smother the lantern.
     look.vignette = base.vignette * 0.6;
     // A darker room also gets a smaller lantern, so less of the layout shows at once.
-    look.ball.radius = spec.lanternRadius ?? base.ball.radius * byDarkness(1.8, 1.2);
+    look.ball.radius = spec.lanternRadius ?? base.ball.radius * byDarkness(1.4, 0.75);
     look.ball.intensity = base.ball.intensity * 1.4;
     look.shadow.alpha = base.shadow.alpha * 0.6;
   }

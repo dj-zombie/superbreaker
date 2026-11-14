@@ -261,7 +261,8 @@ describe('bricks and map lighting', () => {
       mood: 'storm',
       lightsOut: true,
       lightning: false,
-      lightningInterval: 10,
+      lightningInterval: 6,
+      sputter: true,
     });
   });
 
@@ -288,12 +289,28 @@ describe('bricks and map lighting', () => {
     });
   });
 
+  it('keeps the sputtering room lights on unless the map turns them off', () => {
+    const sputter = (value?: boolean) =>
+      parse(
+        map([], {
+          properties: [
+            { name: 'lightsOut', type: 'bool', value: true },
+            ...(value === undefined ? [] : [{ name: 'sputter', type: 'bool', value }]),
+          ],
+        }),
+      ).level.lighting.sputter;
+    expect(sputter()).toBe(true);
+    expect(sputter(true)).toBe(true);
+    expect(sputter(false)).toBe(false);
+  });
+
   it('defaults to the world look', () => {
     expect(parse(map([])).level.lighting).toEqual({
       mood: 'world',
       lightsOut: false,
       lightning: false,
-      lightningInterval: 10,
+      lightningInterval: 6,
+      sputter: true,
     });
   });
 });

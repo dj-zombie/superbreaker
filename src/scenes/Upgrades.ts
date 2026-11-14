@@ -1,14 +1,5 @@
 import Phaser from 'phaser';
-import {
-  ABILITY_INFO,
-  COLORS,
-  HEIGHT,
-  POWERUP_INFO,
-  RENDER_ZOOM,
-  SCENES,
-  UI_FONT,
-  WIDTH,
-} from '../config';
+import { ABILITY_INFO, HEIGHT, POWERUP_INFO, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
 import {
   ABILITY_IDS,
   ABILITY_SHOP,
@@ -38,335 +29,359 @@ import {
   type SessionPowerupId,
 } from '../core/Session';
 import { haptic } from '../platform/haptics';
-import { roundBox } from '../ui/shapes';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
-import { Button, bodyText, panel, title } from '../ui/Button';
-import { coinCounter } from '../ui/widgets';
+import { Button } from '../ui/Button';
+import { Card } from '../ui/Card';
+import { Tabs } from '../ui/controls';
+import { softDiscTexture } from '../ui/frames';
+import { cascade, punch, shake } from '../ui/fx/motion';
+import { flyCoins } from '../ui/fx/particles';
+import { BehindFx } from '../ui/fx/sceneFx';
+import { onBack } from '../ui/nav';
+import { screenHeader } from '../ui/ScreenHeader';
+import { roundBox } from '../ui/shapes';
+import { calm, css, theme, type UiTheme } from '../ui/theme';
+import { body, heading, label } from '../ui/type';
+import type { CurrencyPill } from '../ui/widgets';
 import { Overlay } from './Overlay';
 
 type Tab = 'powerups' | 'abilities' | 'stock';
+const TABS: readonly Tab[] = ['powerups', 'abilities', 'stock'];
+const TAB_LABELS = ['Powerups', 'Abilities', 'Stock'];
 
 interface Row {
-  refresh(): void;
+  refresh(animate: boolean): void;
 }
 
-const PANEL_H = 720;
-const TOP = -PANEL_H / 2;
-const style = { fontFamily: UI_FONT, resolution: RENDER_ZOOM, fontStyle: '800' };
+const CARD_W = 540;
 
-/** Coin shop: permanent upgrades, plus one-use powerups and abilities for this run. */
+/** The Armory: permanent upgrades, plus one-use powerups and abilities for the next run. */
 export class Upgrades extends Overlay {
-  private tab: Tab = 'powerups';
-  private root!: Phaser.GameObjects.Container;
+  private static tab: Tab = 'powerups';
+  private t!: UiTheme;
+  private coins!: CurrencyPill;
   private content?: Phaser.GameObjects.Container;
   private rows: Row[] = [];
-  private tabs: Partial<Record<Tab, Button>> = {};
-  private toast?: Phaser.GameObjects.Text;
+  private toast!: Phaser.GameObjects.Text;
+  private contentTop = 0;
+  private contentBottom = 0;
 
   constructor() {
     super(SCENES.upgrades);
   }
 
   create(): void {
-    this.openOverlay(0.7);
-    this.root = this.add.container(WIDTH / 2, HEIGHT / 2);
-    this.root.add(panel(this, 0, 0, 540, PANEL_H));
-    this.root.add(title(this, 0, TOP + 45, 'UPGRADES', 36));
-    this.popIn(this.root);
+    this.setupCamera();
+    this.input.enabled = true;
+    const t = (this.t = theme());
+    new BehindFx(this).blur([this.scene.get(this.from)], 1);
+    const shade = this.add
+      .rectangle(WIDTH / 2, HEIGHT / 2, WIDTH * 2, HEIGHT * 2, t.palette.base, 0.9)
+      .setInteractive()
+      .setAlpha(0);
+    this.tweens.add({ targets: shade, alpha: 1, duration: 220 });
 
-    (
-      [
-        ['powerups', 'POWERUPS'],
-        ['abilities', 'ABILITIES'],
-        ['stock', 'STOCK'],
-      ] as const
-    ).forEach(([t, label], i) => {
-      const b = new Button(this, (i - 1) * 168, TOP + 105, label, () => this.show(t), {
-        width: 156,
-        height: 46,
-        fontSize: 15,
-      });
-      this.tabs[t] = b;
-      this.root.add(b);
+    const header = screenHeader(this, 'Armory', {
+      kicker: 'Spend your coins',
+      coins: true,
+      onBack: () => this.close(),
+      t,
     });
+    this.coins = header.coins!;
 
-    this.toast = bodyText(this, 0, -TOP - 95, '', 17, '#ffc93c');
-    this.root.add(this.toast);
-    this.root.add(
-      new Button(this, 0, -TOP - 45, 'DONE', () => this.close(), {
-        width: 220,
-        height: 56,
-        fill: COLORS.good,
-        textColor: '#1a0629',
-      }),
+    const tabs = new Tabs(this, WIDTH / 2, header.bottom + 26, TAB_LABELS, TABS.indexOf(Upgrades.tab), (i) =>
+      this.show(TABS[i]!),
     );
-    this.show(this.tab);
+    tabs.setDepth(10);
+
+    const doneY = HEIGHT - SAFE_BOTTOM - 46;
+    this.contentTop = header.bottom + 70;
+    this.contentBottom = doneY - 74;
+    this.toast = body(this, WIDTH / 2, doneY - 52, '', 15, { color: css(t.palette.gold), t }).setDepth(20);
+    new Button(this, WIDTH / 2, doneY, 'Done', () => this.close(), { width: 240, height: 56 });
+    onBack(this, () => this.close());
+
+    this.show(Upgrades.tab);
   }
 
   private show(tab: Tab): void {
-    this.tab = tab;
+    Upgrades.tab = tab;
     this.content?.destroy(true);
-    this.content = this.add.container(0, 0);
-    this.root.add(this.content);
+    this.content = this.add.container(WIDTH / 2, 0);
     this.rows = [];
-    for (const [t, b] of Object.entries(this.tabs) as Array<[Tab, Button]>) {
-      const on = t === tab;
-      b.setFill(on ? COLORS.accent : 0x3a3366);
-      b.label.setColor(on ? '#1a0629' : '#ffffff');
-    }
-    if (tab === 'powerups') {
-      UPGRADE_IDS.forEach((id, i) => this.powerupRow(id, TOP + 200 + i * 138));
-    } else if (tab === 'abilities') {
-      ABILITY_IDS.forEach((id, i) => this.abilityRow(id, TOP + 172 + i * 76));
-    } else {
-      this.stockTab();
-    }
-    this.refresh();
-    if (this.toast) this.root.bringToTop(this.toast);
+    const cards =
+      tab === 'powerups' ? this.powerupsTab() : tab === 'abilities' ? this.abilitiesTab() : this.stockTab();
+    this.refresh(false);
+    cascade(this, cards, { dy: 26, stagger: 45, ease: 'Cubic.Out' });
+  }
+
+  /** Card heights that share the content area between `n` rows. */
+  private fit(n: number, max: number, gap: number): number {
+    return Math.min(max, (this.contentBottom - this.contentTop - gap * (n - 1)) / n);
   }
 
   // ---------------------------------------------------------------- powerups tab
 
-  private powerupRow(id: UpgradeId, y: number): void {
-    const c = this.content!;
+  private powerupsTab(): Card[] {
+    const gap = 14;
+    const h = this.fit(UPGRADE_IDS.length, 150, gap);
+    return UPGRADE_IDS.map((id, i) => this.powerupCard(id, this.contentTop + h / 2 + i * (h + gap), h));
+  }
+
+  private powerupCard(id: UpgradeId, y: number, h: number): Card {
     const def = UPGRADES[id];
-    const bg = roundBox(this, 0, y, 490, 116, 18, 0x0b0820, 0.6);
-    const icon = this.add.image(-200, y, `pu_${id}`);
-    icon.setScale(62 / Math.max(icon.width, icon.height));
-    const name = this.add.text(-155, y - 44, def.label, {
-      ...style,
-      fontSize: '23px',
-      color: '#ffffff',
+    const t = this.t;
+    const card = new Card(this, 0, y, CARD_W, h, { t });
+    const icon = this.iconWithGlow(card, -CARD_W / 2 + 62, 0, `pu_${id}`, Math.min(70, h - 40));
+    const lx = -CARD_W / 2 + 116;
+    const name = heading(this, lx, -h / 2 + 30, def.label, 24, { originX: 0, t });
+    const stat = body(this, lx, -4, '', 13, { originX: 0, color: t.palette.textDim, t });
+    const pips = makePips(this, lx, h / 2 - 28, MAX_UPGRADE_LEVEL, 38, 10, t);
+    const buy = this.buyButton(CARD_W / 2 - 78, 0, 124, 54);
+    buy.setHandler(() => {
+      const cost = upgradeCost(id, save.state.upgrades[id]) ?? 0;
+      this.afterBuy(save.purchase(id), card, buy, `${def.label} upgraded`, cost);
     });
-    const stat = this.add.text(-155, y - 14, '', { ...style, fontSize: '14px', color: '#8a83b8' });
-    const pips = makePips(this, -155, y + 30, MAX_UPGRADE_LEVEL, 44, 14);
-    const buy = new Button(
-      this,
-      178,
-      y,
-      '',
-      () =>
-        this.afterBuy(save.purchase(id), def.label, () => upgradeCost(id, save.state.upgrades[id])),
-      {
-        width: 116,
-        height: 54,
-        fontSize: 18,
-        fill: COLORS.accent,
-        textColor: '#1a0629',
-        icon: 'coin_icon',
-      },
-    );
-    c.add([bg, icon, name, stat, pips, buy]);
+    card.add([name, stat, pips, buy]);
+    this.content!.add(card);
     this.rows.push({
-      refresh: () => {
+      refresh: (animate) => {
         const tier = save.state.upgrades[id];
-        setPips(pips, tier);
+        setPips(this, pips, tier, t, animate);
         const cost = upgradeCost(id, tier);
-        buy.setText(cost === null ? 'MAX' : String(cost));
-        buy.setEnabled(canPurchase(id, save.state.upgrades, save.state.coins) !== 'maxed');
+        const maxed = canPurchase(id, save.state.upgrades, save.state.coins) === 'maxed';
+        this.priceButton(buy, cost, maxed);
         stat.setText(powerupLine(id, save.state.upgrades));
+        icon.setAlpha(1);
       },
     });
+    return card;
   }
 
   // ---------------------------------------------------------------- abilities tab
 
-  private abilityRow(id: AbilityId, y: number): void {
-    const c = this.content!;
+  private abilitiesTab(): Card[] {
+    const gap = 8;
+    const h = this.fit(ABILITY_IDS.length, 84, gap);
+    return ABILITY_IDS.map((id, i) => this.abilityCard(id, this.contentTop + h / 2 + i * (h + gap), h));
+  }
+
+  private abilityCard(id: AbilityId, y: number, h: number): Card {
     const info = ABILITY_INFO[id];
-    const bg = roundBox(this, 0, y, 490, 68, 16, 0x0b0820, 0.6);
-    const icon = this.add.image(-212, y, `ab_${id}`);
-    icon.setScale(50 / icon.width);
-    const name = this.add.text(-178, y - 27, info.label, {
-      ...style,
-      fontSize: '19px',
-      color: '#ffffff',
+    const t = this.t;
+    const card = new Card(this, 0, y, CARD_W, h, { t });
+    const icon = this.iconWithGlow(card, -CARD_W / 2 + 44, 0, `ab_${id}`, Math.min(52, h - 22));
+    const lx = -CARD_W / 2 + 84;
+    const name = heading(this, lx, -h / 2 + 20, info.label, 19, { originX: 0, t });
+    const stat = body(this, lx, 2, '', 12, { originX: 0, color: t.palette.textDim, t });
+    const pips = makePips(this, lx, h / 2 - 16, MAX_ABILITY_TIER, 26, 7, t);
+    const buy = this.buyButton(CARD_W / 2 - 70, 0, 112, 46);
+    buy.setHandler(() => {
+      const cost = abilityCost(id, save.state.abilities[id]) ?? 0;
+      const unlocking = save.state.abilities[id] === 0;
+      this.afterBuy(save.purchaseAbility(id), card, buy, `${info.label} ${unlocking ? 'unlocked' : 'upgraded'}`, cost);
     });
-    const stat = this.add.text(-178, y - 2, '', { ...style, fontSize: '13px', color: '#8a83b8' });
-    const pips = makePips(this, -178, y + 22, MAX_ABILITY_TIER, 30, 8);
-    const buy = new Button(
-      this,
-      182,
-      y,
-      '',
-      () =>
-        this.afterBuy(save.purchaseAbility(id), info.label, () =>
-          abilityCost(id, save.state.abilities[id]),
-        ),
-      {
-        width: 112,
-        height: 46,
-        fontSize: 16,
-        fill: COLORS.accent,
-        textColor: '#1a0629',
-        icon: 'coin_icon',
-      },
-    );
-    c.add([bg, icon, name, stat, pips, buy]);
+    card.add([name, stat, pips, buy]);
+    this.content!.add(card);
     this.rows.push({
-      refresh: () => {
+      refresh: (animate) => {
         const tier = save.state.abilities[id];
         const locked = tier === 0;
-        setPips(pips, tier);
+        setPips(this, pips, tier, t, animate);
         icon.setAlpha(locked ? 0.35 : 1);
         const cost = abilityCost(id, tier);
-        buy.setText(cost === null ? 'MAX' : String(cost));
-        buy.setEnabled(cost !== null);
-        buy.setFill(locked ? COLORS.good : COLORS.accent);
-        stat.setText(locked ? `LOCKED · ${ABILITY_SHOP[id].description}` : abilityLine(id, tier));
+        this.priceButton(buy, cost, cost === null);
+        stat.setText(locked ? `Locked · ${ABILITY_SHOP[id].description}` : abilityLine(id, tier));
       },
     });
+    return card;
   }
 
   // ---------------------------------------------------------------- stock tab
 
-  private stockTab(): void {
+  private stockTab(): Card[] {
+    const t = this.t;
     const c = this.content!;
-    c.add(
-      bodyText(
-        this,
-        0,
-        TOP + 148,
-        'One-time uses. Held abilities carry to the next level, except on Hard.',
-        14,
-        '#8a83b8',
-      ),
-    );
-    c.add(sectionLabel(this, 0, TOP + 190, 'POWERUPS'));
+    const cols = 3;
+    const gap = 10;
+    const w = (CARD_W - gap * (cols - 1)) / cols;
+    const puRows = Math.ceil(SESSION_POWERUP_IDS.length / cols);
+    const abRows = Math.ceil(ABILITY_IDS.length / cols);
+    const headings = 3 * 34;
+    const h = Math.min(92, (this.contentBottom - this.contentTop - headings - gap * (puRows + abRows - 2)) / (puRows + abRows));
+    const colX = (i: number) => (i % cols - 1) * (w + gap);
+    let y = this.contentTop + 6;
+    c.add(body(this, 0, y, 'One-time uses for your next run. Held abilities carry over, except on Hard.', 13, {
+      color: t.palette.textDim,
+      wrap: CARD_W - 20,
+      t,
+    }));
+    y += 38;
+    c.add(label(this, 0, y, 'Powerups', 12, { color: t.palette.textDim, t }));
+    y += 24 + h / 2;
+    const cards: Card[] = [];
     SESSION_POWERUP_IDS.forEach((id, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      this.stockPowerup(id, (col - 1) * 164, TOP + 242 + row * 74);
+      cards.push(this.stockPowerup(id, colX(i), y + Math.floor(i / cols) * (h + gap), w, h));
     });
-    c.add(sectionLabel(this, 0, TOP + 456, 'ABILITIES'));
+    y += puRows * (h + gap) - h / 2 + 18;
+    c.add(label(this, 0, y, 'Abilities', 12, { color: t.palette.textDim, t }));
+    y += 24 + h / 2;
     ABILITY_IDS.forEach((id, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      this.stockAbility(id, (col - 1) * 164, TOP + 500 + row * 72);
+      cards.push(this.stockAbility(id, colX(i), y + Math.floor(i / cols) * (h + gap), w, h));
     });
+    return cards;
   }
 
-  private stockPowerup(id: SessionPowerupId, x: number, y: number): void {
+  private stockPowerup(id: SessionPowerupId, x: number, y: number, w: number, h: number): Card {
     const info = POWERUP_INFO[id];
-    const card = this.stockButton(x, y, info.label, info.texture, () =>
-      this.afterSessionBuy(save.purchaseStockPowerup(id), info.label, SESSION_POWERUP_COST[id]),
+    const cost = SESSION_POWERUP_COST[id];
+    const s = this.stockCard(x, y, w, h, info.label, info.texture);
+    s.buy.setHandler(() =>
+      this.afterSessionBuy(save.purchaseStockPowerup(id), s.card, s.buy, `${info.label} ready for this run`, cost),
     );
     this.rows.push({
       refresh: () => {
         const owned = save.state.stock.powerups.filter((p) => p === id).length;
         const full = save.state.stock.powerups.length >= MAX_POWERUP_STOCK;
-        card.buy.setText(
-          owned ? `${SESSION_POWERUP_COST[id]}  ×${owned}` : String(SESSION_POWERUP_COST[id]),
-        );
-        card.buy.setEnabled(!full);
+        this.priceButton(s.buy, cost, false);
+        s.buy.setEnabled(!full);
+        s.owned.setText(owned ? `×${owned}` : '');
       },
     });
+    return s.card;
   }
 
-  private stockAbility(id: AbilityId, x: number, y: number): void {
+  private stockAbility(id: AbilityId, x: number, y: number, w: number, h: number): Card {
     const info = ABILITY_INFO[id];
-    const card = this.stockButton(x, y, info.label, `ab_${id}`, () =>
-      this.afterSessionBuy(save.purchaseStockAbility(id), info.label, SESSION_ABILITY_COST[id]),
+    const cost = SESSION_ABILITY_COST[id];
+    const s = this.stockCard(x, y, w, h, info.label, `ab_${id}`);
+    s.buy.setHandler(() =>
+      this.afterSessionBuy(save.purchaseStockAbility(id), s.card, s.buy, `${info.label} ready for this run`, cost),
     );
     this.rows.push({
       refresh: () => {
         const locked = save.state.abilities[id] <= 0;
         const owned = save.state.stock.abilities.filter((a) => a === id).length;
         const full = save.state.stock.abilities.length >= MAX_ABILITY_STOCK;
-        card.buy.setText(
-          locked
-            ? 'LOCK'
-            : owned
-              ? `${SESSION_ABILITY_COST[id]}  ×${owned}`
-              : String(SESSION_ABILITY_COST[id]),
-        );
-        card.buy.setEnabled(!locked && !full);
+        if (locked) {
+          s.buy.setGlyphVisible(false).setText('Locked').setVariant('secondary');
+        } else {
+          this.priceButton(s.buy, cost, false);
+        }
+        s.buy.setEnabled(!locked && !full);
+        s.owned.setText(owned ? `×${owned}` : '');
         const dim = locked ? 0.4 : 1;
-        card.name.setAlpha(dim);
-        card.icon.setAlpha(dim);
+        s.name.setAlpha(dim);
+        s.icon.setAlpha(dim);
       },
     });
+    return s.card;
   }
 
-  private stockButton(
-    x: number,
-    y: number,
-    label: string,
-    texture: string,
-    onClick: () => void,
-  ): { buy: Button; name: Phaser.GameObjects.Text; icon: Phaser.GameObjects.Image } {
-    const c = this.content!;
-    const name = this.add
-      .text(x, y - 22, label, { ...style, fontSize: '12px', color: '#ffffff' })
-      .setOrigin(0.5);
-    const icon = this.add.image(x - 58, y + 8, texture);
-    icon.setScale(28 / Math.max(icon.width, icon.height));
-    const buy = new Button(this, x + 18, y + 8, '', onClick, {
-      width: 100,
-      height: 36,
-      fontSize: 15,
-      fill: COLORS.accent,
-      textColor: '#1a0629',
-      icon: 'coin_icon',
-    });
-    c.add([name, icon, buy]);
-    return { buy, name, icon };
-  }
-
-  private afterSessionBuy(res: SessionBuyResult, label: string, cost: number): void {
-    if (res === 'ok') {
-      audio.sfx('sfx_coin', 0.6);
-      haptic('medium');
-      this.say(`${label} ready for this run`);
-    } else if (res === 'insufficient') {
-      audio.sfx('sfx_smaller', 0.5);
-      haptic('heavy');
-      const need = cost - save.state.coins;
-      this.say(`Need ${need} more coin${need === 1 ? '' : 's'}. Catch them in play!`);
-    } else if (res === 'full') {
-      audio.sfx('ui_off', 0.5);
-      this.say('Hands are full. Use one during play.');
-    } else {
-      audio.sfx('ui_off', 0.5);
-      this.say('Unlock it on the Abilities tab first.');
-    }
-    this.refresh();
+  private stockCard(x: number, y: number, w: number, h: number, name: string, texture: string) {
+    const t = this.t;
+    const card = new Card(this, x, y, w, h, { t });
+    const icon = this.iconWithGlow(card, -w / 2 + 28, -h / 2 + 28, texture, 30);
+    const title = label(this, -w / 2 + 50, -h / 2 + 28, name, 12, { originX: 0, color: t.palette.text, t });
+    const owned = label(this, w / 2 - 12, -h / 2 + 14, '', 12, { originX: 1, color: css(t.palette.gold), t });
+    const buy = this.buyButton(0, h / 2 - 24, w - 24, 34, 14);
+    card.add([title, owned, buy]);
+    this.content!.add(card);
+    return { card, buy, name: title, icon, owned };
   }
 
   // ---------------------------------------------------------------- shared
 
-  private afterBuy(res: PurchaseResult, label: string, nextCost: () => number | null): void {
-    if (res === 'ok') {
-      audio.sfx('sfx_coin', 0.6);
-      haptic('medium');
-      this.say(`${label} upgraded!`);
-    } else if (res === 'insufficient') {
-      audio.sfx('sfx_smaller', 0.5);
-      haptic('heavy');
-      const need = (nextCost() ?? 0) - save.state.coins;
-      this.say(`Need ${need} more coin${need === 1 ? '' : 's'}. Catch them in play!`);
+  private iconWithGlow(card: Card, x: number, y: number, key: string, size: number): Phaser.GameObjects.Image {
+    const glow = this.add
+      .image(x, y, softDiscTexture(this))
+      .setTint(this.t.palette.glow)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.35);
+    glow.setScale((size * 1.7) / glow.width);
+    const icon = this.add.image(x, y, key);
+    icon.setScale(size / Math.max(icon.width, icon.height));
+    card.add([glow, icon]);
+    return icon;
+  }
+
+  private buyButton(x: number, y: number, w: number, h: number, fontSize = 18): Button {
+    return new Button(this, x, y, '', () => undefined, { width: w, height: h, fontSize, image: 'coin_icon' });
+  }
+
+  /** Shows the price, greyed when the balance can't cover it; taps still go through so the pill can refuse. */
+  private priceButton(b: Button, cost: number | null, maxed: boolean): void {
+    if (maxed || cost === null) {
+      b.setGlyphVisible(false).setText('Max').setVariant('secondary').setEnabled(false);
+      return;
     }
-    this.refresh();
+    b.setGlyphVisible(true)
+      .setText(String(cost))
+      .setVariant(save.state.coins >= cost ? 'primary' : 'secondary')
+      .setEnabled(true);
+  }
+
+  private afterBuy(res: PurchaseResult, card: Card, buy: Button, msg: string, cost: number): void {
+    if (res === 'ok') this.paid(card, buy, msg);
+    else if (res === 'insufficient') this.broke(buy, cost);
+  }
+
+  private afterSessionBuy(res: SessionBuyResult, card: Card, buy: Button, msg: string, cost: number): void {
+    if (res === 'ok') {
+      this.paid(card, buy, msg);
+    } else if (res === 'insufficient') {
+      this.broke(buy, cost);
+    } else {
+      audio.sfx('ui_off', 0.5);
+      shake(this, buy, 5);
+      this.say(res === 'full' ? 'Hands are full. Use one during play.' : 'Unlock it on the Abilities tab first.');
+    }
+  }
+
+  /** Coins leave the balance and land in the card, then the new tier lights up. */
+  private paid(card: Card, buy: Button, msg: string): void {
+    audio.sfx('ui_select', 0.5);
+    haptic('medium');
+    this.coins.setValue(save.state.coins);
+    const m = buy.getWorldTransformMatrix();
+    this.input.enabled = false;
+    const finish = () => {
+      this.input.enabled = true;
+      if (!card.active) return;
+      card.pulse();
+      punch(this, buy, 1.15);
+      audio.sfx('sfx_coin', 0.6);
+      if (!calm() && save.state.settings.screenShake) this.cameras.main.shake(90, 0.002);
+      this.say(msg);
+      this.refresh(true);
+    };
+    if (calm()) {
+      finish();
+      return;
+    }
+    flyCoins(this, this.coins.target(), { x: m.tx, y: m.ty }, { count: 6, spread: 18, depth: 50, onDone: finish });
+  }
+
+  private broke(buy: Button, cost: number): void {
+    audio.sfx('sfx_smaller', 0.5);
+    haptic('heavy');
+    this.coins.deny();
+    shake(this, buy, 6);
+    const need = cost - save.state.coins;
+    this.say(`Need ${need} more coin${need === 1 ? '' : 's'}. Catch them in play!`);
   }
 
   private say(msg: string): void {
-    if (!this.toast) return;
-    this.toast.setText(msg).setAlpha(1);
+    this.toast.setText(msg).setAlpha(1).setScale(0.9);
     this.tweens.killTweensOf(this.toast);
-    this.tweens.add({ targets: this.toast, alpha: 0, delay: 1600, duration: 400 });
+    this.tweens.add({ targets: this.toast, scale: 1, duration: 200, ease: 'Back.Out' });
+    this.tweens.add({ targets: this.toast, alpha: 0, delay: 1800, duration: 400 });
   }
 
-  private refresh(): void {
-    coinCounter(this, WIDTH - 40, HEIGHT / 2 + TOP + 45);
-    for (const row of this.rows) row.refresh();
+  private refresh(animate: boolean): void {
+    for (const row of this.rows) row.refresh(animate);
   }
-}
-
-function sectionLabel(scene: Phaser.Scene, x: number, y: number, text: string) {
-  return scene.add
-    .text(x, y, text, { ...style, fontSize: '12px', color: '#8a83b8' })
-    .setOrigin(0.5);
 }
 
 /** Row of tier pips; the container's left edge sits at x. */
@@ -377,16 +392,35 @@ function makePips(
   max: number,
   w: number,
   h: number,
+  t: UiTheme,
 ): Phaser.GameObjects.Container {
   const boxes = Array.from({ length: max }, (_, i) =>
-    roundBox(scene, i * (w + 6) + w / 2, 0, w, h, Math.min(6, h / 2), 0x2a2450),
+    roundBox(scene, i * (w + 5) + w / 2, 0, w, h, Math.min(4, h / 2), t.palette.edge, 0.45),
   );
-  return scene.add.container(x, y, boxes);
+  return scene.add.container(x, y, boxes).setData('tier', -1);
 }
 
-function setPips(pips: Phaser.GameObjects.Container, tier: number): void {
+/** Lights pips up to `tier`; newly lit ones flash in one after another. */
+function setPips(scene: Phaser.Scene, pips: Phaser.GameObjects.Container, tier: number, t: UiTheme, animate: boolean): void {
+  const before = pips.getData('tier') as number;
+  pips.setData('tier', tier);
   pips.list.forEach((p, i) => {
-    (p as Phaser.GameObjects.NineSlice).setTint(i < tier ? COLORS.accent : 0x2a2450);
+    const box = p as Phaser.GameObjects.NineSlice;
+    const lit = i < tier;
+    const fresh = animate && lit && before >= 0 && i >= before;
+    box.setTint(lit ? t.palette.accent : t.palette.edge).setAlpha(lit ? 1 : 0.45);
+    if (!fresh) return;
+    const delay = (i - before) * 90;
+    box.setTint(t.palette.accentHi);
+    scene.tweens.add({
+      targets: box,
+      scaleY: { from: box.scaleY * 2, to: box.scaleY },
+      delay,
+      duration: 260,
+      ease: 'Back.Out',
+      onStart: () => audio.sfx('ui_move', 0.35, i * 120),
+      onComplete: () => box.setTint(t.palette.accent),
+    });
   });
 }
 

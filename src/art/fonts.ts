@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { UI_FONT } from '../config';
+import { DISPLAY_FONT } from '../config';
 
 /** Plain white glyphs for HUD numbers and labels; tint them per use. */
 export const HUD_FONT = 'ui-plain';
@@ -8,7 +8,7 @@ export const POP_FONT = 'ui-pop';
 
 const BASE = 64;
 const ATLAS_W = 1024;
-const OUTLINE = '#1a0629';
+const OUTLINE = '#06050a';
 const CHARS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '·×‹›';
 
 /**
@@ -22,7 +22,7 @@ export function buildUiFonts(scene: Phaser.Scene): void {
 
 function bake(scene: Phaser.Scene, key: string, outline: number): void {
   if (scene.cache.bitmapFont.exists(key)) return;
-  const font = `900 ${BASE}px ${UI_FONT}`;
+  const font = `800 ${BASE}px ${DISPLAY_FONT}`;
   const probe = document.createElement('canvas').getContext('2d');
   if (!probe) return;
   probe.font = font;

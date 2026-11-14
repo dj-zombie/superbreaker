@@ -17,6 +17,16 @@
    "name": "title",
    "type": "string",
    "value": "Weeds"
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "lightning",
+   "type": "bool",
+   "value": true
   }
  ],
  "tilesets": [
@@ -1058,5 +1068,6 @@
     }
    ]
   }
- ]
+ ],
+ "class": "LevelLighting"
 }

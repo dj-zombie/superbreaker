@@ -1,8 +1,8 @@
 import type Phaser from 'phaser';
-import type { WorldMood } from '../art/lighting';
+import { sceneryLight, type WorldMood } from '../art/lighting';
 import { LIGHT_TEX } from '../art/lightTextures';
 import { HEIGHT, HUD_HEIGHT, PADDLE_Y, WIDTH } from '../config';
-import { MAX_FLASH_HZ, noise1 } from '../core/Lighting';
+import { MAX_FLASH_HZ, noise1, sputter, type Blink } from '../core/Lighting';
 import { audio } from './AudioSystem';
 import type { Light, LightingSystem } from './LightingSystem';
 import type { ParallaxBackdrop } from './ParallaxBackdrop';
@@ -18,9 +18,10 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 /** Crypt storms strike about this often (seconds) when the level doesn't set its own lightning. */
 const STORM_LIGHTNING = 14;
-
-/** How much of the scenery's own light survives a lights-out level's darkness. */
-const sceneryLight = (sys: LightingSystem) => 1 - (sys.look.darkness ?? 0);
+/** Lights out: the room lights sputter about this often (seconds). */
+const SPUTTER_INTERVAL = 11;
+/** A sputter never starts this soon (seconds) after another flash, such as a lightning strike. */
+const SPUTTER_QUIET = 1.5;
 
 export function createMood(
   sys: LightingSystem,
@@ -36,13 +37,18 @@ export function createMood(
   // Lights-out levels only get lightning when the map asks; storms skip it with reduced motion.
   const stormy = mood === 'storm' && !sys.look.lightsOut && !sys.calm;
   const interval = sys.look.lightning ?? (stormy ? STORM_LIGHTNING : undefined);
-  const lightning = interval ? new Lightning(sys, interval, scenery) : undefined;
+  const failing = sys.look.lightsOut && sys.look.sputter ? new FailingLights(sys) : undefined;
+  const lightning = interval
+    ? new Lightning(sys, interval, scenery, () => failing?.active ?? false)
+    : undefined;
   return {
     update: (dt, clock) => {
       sys.ambientScale = 1;
+      sys.roomFlicker = 0;
       keyed.update(clock);
       fx?.update(dt, clock);
       lightning?.update(clock);
+      failing?.update(clock);
     },
     onHit: () => fx?.onHit?.(),
     destroy: () => fx?.destroy(),
@@ -61,7 +67,7 @@ class KeyLight {
       y: HEIGHT * k.y,
       radius: HEIGHT * k.radius,
       color: k.color,
-      intensity: k.intensity * sceneryLight(sys),
+      intensity: k.intensity * sceneryLight(sys.look),
       priority: 7,
     });
   }
@@ -94,7 +100,7 @@ class Forge implements MoodFx {
           y: rand(HUD_HEIGHT, HEIGHT),
           radius: 56,
           color: 0xff7a2a,
-          intensity: 0.3,
+          intensity: 0.3 * sceneryLight(sys.look),
           flicker: 'candle',
           phase: i * 1.7,
           halo: 7,
@@ -114,7 +120,9 @@ class Forge implements MoodFx {
   }
 
   update(dt: number, clock: number): void {
-    if (!this.sys.calm) this.sys.ambientScale = 0.95 + 0.07 * noise1(clock * 0.45);
+    if (!this.sys.calm && !this.sys.look.lightsOut) {
+      this.sys.ambientScale = 0.95 + 0.07 * noise1(clock * 0.45);
+    }
     for (const e of this.embers) {
       const l = e.light;
       l.y -= e.vy * dt;
@@ -163,7 +171,7 @@ class Storm implements MoodFx {
           cookie: 'stained',
         },
         color: 0xfff1dc,
-        intensity: 0.3 * sceneryLight(sys),
+        intensity: 0.3 * sceneryLight(sys.look),
         affects: 'backdrop',
         priority: 2,
       });
@@ -174,7 +182,7 @@ class Storm implements MoodFx {
         sys.addLight({
           radius: 72,
           color: 0x7fe8ff,
-          intensity: 0.3,
+          intensity: 0.3 * sceneryLight(sys.look),
           flicker: 'breathe',
           phase: i * 3,
           halo: 10,
@@ -219,12 +227,15 @@ class Lightning {
     private sys: LightingSystem,
     private interval: number,
     private scenery?: ParallaxBackdrop,
+    /** True while the room lights sputter; a strike then waits so its flash isn't dropped. */
+    private busy: () => boolean = () => false,
   ) {
     // Not during a lights-out level's preview, while the layout is still lit.
     this.nextStrike = (sys.look.preview ?? 0) + 1 + interval * rand(0.3, 0.6);
   }
 
   update(clock: number): void {
+    if (clock >= this.nextStrike && this.busy()) this.nextStrike = clock + 1;
     if (clock >= this.nextStrike) {
       this.nextStrike = clock + this.interval * rand(0.6, 1.4);
       this.flashes = [clock];
@@ -262,6 +273,63 @@ class Lightning {
   }
 }
 
+/**
+ * Lights out: now and then the dead room lights sputter back on, buzzing, and die again. Each
+ * blink shows the layout for a moment and books its flash with the lighting system, which
+ * shares the MAX_FLASH_HZ limit with lightning. With reduced motion a sputter is one faint,
+ * slow swell.
+ */
+class FailingLights {
+  private nextAt: number;
+  private blinks: Blink[] = [];
+  /** Blinks that lost the flash limit to something else; they stay dark. */
+  private dropped = new Set<Blink>();
+  private start = 0;
+  private due = 0;
+
+  constructor(private sys: LightingSystem) {
+    this.nextAt = (sys.look.preview ?? 0) + rand(2.5, 5);
+  }
+
+  get active(): boolean {
+    return this.blinks.length > 0;
+  }
+
+  update(clock: number): void {
+    if (!this.active) {
+      if (clock < this.nextAt || this.sys.relit) return;
+      if (this.sys.sinceFlash < SPUTTER_QUIET) {
+        this.nextAt = clock + SPUTTER_QUIET;
+        return;
+      }
+      this.blinks = this.sys.calm ? [{ at: 0, hold: 2.4, level: 0.3 }] : sputter();
+      this.dropped.clear();
+      this.start = clock;
+      this.due = 0;
+    }
+    const t = clock - this.start;
+    while (this.due < this.blinks.length && t >= this.blinks[this.due]!.at) {
+      const b = this.blinks[this.due++]!;
+      if (this.sys.claimFlash()) audio.buzz(b.hold, this.sys.calm ? 0.08 : 0.2);
+      else this.dropped.add(b);
+    }
+    for (const b of this.blinks) {
+      const u = t - b.at;
+      if (u < 0 || u >= b.hold || this.dropped.has(b)) continue;
+      let level = b.level;
+      // A long hold never settles: the tube hums and wavers before it gives out.
+      if (this.sys.calm) level *= Math.sin((Math.PI * u) / b.hold);
+      else if (b.hold > 0.3) level *= 0.7 + 0.3 * noise1(clock * 13);
+      this.sys.roomFlicker = Math.max(this.sys.roomFlicker, level);
+    }
+    const last = this.blinks[this.blinks.length - 1]!;
+    if (t >= last.at + last.hold) {
+      this.blinks = [];
+      this.nextAt = clock + SPUTTER_INTERVAL * rand(0.6, 1.4);
+    }
+  }
+}
+
 // ---------------------------------------------------------------- Mainframe
 
 /** Lights pulse with the music's bass, scanners sweep, data packets race along traces. */
@@ -280,7 +348,7 @@ class Beat implements MoodFx {
       const light = sys.addLight({
         area: { width: 80, height: HEIGHT * 0.85, cookie: 'shaft' },
         color: colors[i]!,
-        intensity: 0.2 * sceneryLight(sys),
+        intensity: 0.2 * sceneryLight(sys.look),
         affects: 'backdrop',
         priority: 2,
       });
@@ -301,7 +369,9 @@ class Beat implements MoodFx {
     }
     this.env = Math.max(beat, this.env * Math.exp(-dt * 7));
     const env = this.sys.calm ? this.env * 0.3 : this.env;
-    this.sys.ambientScale = 0.93 + 0.14 * env;
+    // A blackout stays black: the bass pulse only lifts the room as much as `darkness` allows.
+    const room = sceneryLight(this.sys.look);
+    this.sys.ambientScale = 1 - (1 - (0.93 + 0.14 * env)) * room;
 
     for (const s of this.scanners) {
       const swing = this.sys.calm ? 0 : Math.sin(clock * 0.45) * 0.3 * s.dir;
@@ -336,7 +406,7 @@ class Beat implements MoodFx {
     this.sys.addLight({
       radius: 44,
       color: Math.random() < 0.7 ? 0x22d3ff : 0xff3ad6,
-      intensity: 0.4,
+      intensity: 0.4 * sceneryLight(this.sys.look),
       halo: 6,
       haloAlpha: 0.45,
       haloDepth: -3,

@@ -2,10 +2,16 @@ import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
 import { EXPLOSION_RADIUS, FALL_SHATTER_Y } from '../config';
 import { collapseThreshold } from '../core/Difficulty';
-import type { LevelSpec } from '../core/types';
+import type { BrickSpec, LevelSpec } from '../core/types';
 import { Brick, type HitResult } from '../entities/Brick';
 
-export type DestroyCause = 'ball' | 'laser' | 'explosion' | 'fall' | 'ability';
+/** `breach`: Descent clearing bricks that crossed the danger line. It never sets off explosives. */
+export type DestroyCause = 'ball' | 'laser' | 'explosion' | 'fall' | 'ability' | 'breach';
+
+export interface BrickSystemOptions {
+  /** The last few bricks fall when the level is nearly clear. Descent turns it off. */
+  collapse?: boolean;
+}
 
 export interface BrickEvents {
   onDestroyed(brick: Brick, cause: DestroyCause, chain: number): void;
@@ -16,38 +22,110 @@ export interface BrickEvents {
   onCollapseStart(): void;
   /** True while a ball is close enough that a regrowing brick would trap it. */
   regrowBlocked(brick: Brick): boolean;
+  /** Once few enough bricks remain, the collapse still waits until this says the level is slow. */
+  collapseReady?(): boolean;
 }
 
 /** Owns every brick in the level: building, movement, regen clusters, explosions, collapse. */
 export class BrickSystem {
   readonly group: Phaser.Physics.Arcade.Group;
+  /** Kept as the same array for the whole scene; the lighting system holds on to it. */
   readonly bricks: Brick[] = [];
   private collapsing = false;
-  private fallThreshold: number;
+  private readonly collapse: boolean;
+  private fallThreshold = -1;
   private elapsedMs = 0;
   private remainingCache = -1;
   private targetsCache: Brick[] | null = null;
+  private nextCluster = 0;
 
   constructor(
     private scene: Phaser.Scene,
     level: LevelSpec,
     private events: BrickEvents,
-    world: WorldId,
+    private world: WorldId,
+    opts: BrickSystemOptions = {},
   ) {
     this.group = scene.physics.add.group({ allowGravity: false, immovable: true });
-    for (const spec of level.bricks) {
-      const b = new Brick(scene, spec, world);
+    this.collapse = opts.collapse ?? true;
+    this.load(level);
+  }
+
+  /** Replaces every brick with a new level's, e.g. the next wave of an Arcade run. */
+  load(level: LevelSpec): void {
+    for (const b of this.bricks) {
+      this.scene.tweens.killTweensOf(b);
+      b.markDead();
+      b.destroy();
+    }
+    this.bricks.length = 0;
+    this.collapsing = false;
+    this.append(level.bricks);
+    const initial = this.remaining;
+    this.fallThreshold = this.collapse ? Math.min(collapseThreshold(initial), initial - 1) : -1;
+  }
+
+  /** Adds bricks to the level, popping in like the level intro. */
+  append(specs: readonly BrickSpec[]): Brick[] {
+    const added = specs.map((spec) => {
+      const b = new Brick(this.scene, spec, this.world);
       this.group.add(b);
       b.body.pushable = false;
       if (spec.moveX !== 0) b.body.setVelocityX(Math.sign(spec.moveX) * spec.moveSpeed);
       // Static bricks skip motion integration until the collapse drops them.
       else b.body.moves = false;
       this.bricks.push(b);
+      return b;
+    });
+    this.assignRegenClusters(added);
+    this.introAnimation(added);
+    this.invalidate();
+    return added;
+  }
+
+  /** Moves every standing brick down by `dy` px over `ms`. */
+  shiftDown(dy: number, ms: number): void {
+    for (const b of this.bricks) {
+      if (b.life === 'dead') continue;
+      b.homeY += dy;
+      if (b.life === 'dormant') {
+        b.setY(b.homeY);
+        continue;
+      }
+      this.scene.tweens.add({
+        targets: b,
+        y: b.homeY,
+        duration: ms,
+        ease: 'Sine.InOut',
+        onUpdate: () => b.syncOverlay(),
+      });
     }
-    this.assignRegenClusters();
-    const initial = this.remaining;
-    this.fallThreshold = Math.min(collapseThreshold(initial), initial - 1);
-    this.introAnimation();
+  }
+
+  /** Bottom edge of the lowest standing brick once it settles, or -Infinity with none left. */
+  lowestBottom(): number {
+    let y = -Infinity;
+    for (const b of this.bricks) {
+      if (b.life !== 'dead') y = Math.max(y, b.homeY + b.displayHeight / 2);
+    }
+    return y;
+  }
+
+  /** Destroys every brick whose bottom edge sits below `y`, steel included. Returns how many. */
+  shatterBelow(y: number): number {
+    let n = 0;
+    for (const b of this.bricks) {
+      if (b.life === 'dead' || b.homeY + b.displayHeight / 2 <= y) continue;
+      if (b.life === 'dormant') {
+        b.markDead();
+        continue;
+      }
+      b.takeHit(0, { lethal: true });
+      this.destroy(b, 'breach', 0);
+      n++;
+    }
+    this.invalidate();
+    return n;
   }
 
   /** Breakable bricks still standing, including dormant regen bricks that may grow back. */
@@ -75,6 +153,7 @@ export class BrickSystem {
       if (b.falling && b.isAlive && b.y >= FALL_SHATTER_Y) this.destroy(b, 'fall', 0);
       if (b.spec.moveX !== 0 || b.falling) b.syncOverlay();
     }
+    this.checkCollapse();
   }
 
   /** Applies damage and handles destruction side effects. */
@@ -133,7 +212,7 @@ export class BrickSystem {
       });
     }
     this.events.onDestroyed(b, cause, chain);
-    if (b.spec.kind === 'explosive') this.explode(b, chain + 1);
+    if (b.spec.kind === 'explosive' && cause !== 'breach') this.explode(b, chain + 1);
     this.checkCollapse();
   }
 
@@ -183,6 +262,7 @@ export class BrickSystem {
     if (this.collapsing) return;
     const left = this.remaining;
     if (left === 0 || left > this.fallThreshold) return;
+    if (this.events.collapseReady && !this.events.collapseReady()) return;
     this.collapsing = true;
     this.events.onCollapseStart();
     for (const b of this.bricks) {
@@ -198,9 +278,9 @@ export class BrickSystem {
     this.invalidate();
   }
 
-  /** Union-find over regen bricks that touch (including diagonally). */
-  private assignRegenClusters(): void {
-    const regen = this.bricks.filter((b) => b.spec.kind === 'regen');
+  /** Union-find over new regen bricks that touch (including diagonally). */
+  private assignRegenClusters(bricks: readonly Brick[]): void {
+    const regen = bricks.filter((b) => b.spec.kind === 'regen');
     const parent = regen.map((_, i) => i);
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
     const touches = (a: Brick, b: Brick) =>
@@ -211,11 +291,13 @@ export class BrickSystem {
         if (touches(regen[i]!, regen[j]!)) parent[find(i)] = find(j);
       }
     }
-    regen.forEach((b, i) => (b.cluster = find(i)));
+    const base = this.nextCluster;
+    regen.forEach((b, i) => (b.cluster = base + find(i)));
+    this.nextCluster += regen.length;
   }
 
-  private introAnimation(): void {
-    for (const b of this.bricks) {
+  private introAnimation(bricks: readonly Brick[]): void {
+    for (const b of bricks) {
       const y = b.y;
       const sx = b.scaleX;
       const sy = b.scaleY;

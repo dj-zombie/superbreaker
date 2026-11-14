@@ -187,6 +187,13 @@ export function worldForLevel(index: number): WorldId {
   return built.includes(wanted) ? wanted : (built[0] ?? wanted);
 }
 
+/** An Arcade run stays in one world, picked from its seed. */
+export function worldForRun(seed: number): WorldId {
+  const built = availableWorlds();
+  const pool = built.length ? built : WORLD_IDS;
+  return pool[(seed >>> 0) % pool.length]!;
+}
+
 /** Texture keys and paths (relative to assets/) for one world. */
 export function worldAssets(world: WorldId): { key: string; path: string }[] {
   const w = MANIFEST[world];

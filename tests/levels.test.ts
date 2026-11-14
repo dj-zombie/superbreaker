@@ -73,16 +73,33 @@ describe('campaign', () => {
     expect(titles[29]).toBe('Supernova');
   });
 
-  it('has lights-out levels with lightning, whose bricks carry the light', () => {
+  it('has lights-out levels, and the lantern levels keep their glowing bricks', () => {
     const dark = manifest.levels.flatMap((file) => {
       const map = readJson<TiledMap>(join(LEVELS_DIR, file));
       const { level } = parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate);
       return level.lighting.lightsOut ? [level] : [];
     });
-    expect(dark.map((l) => l.title)).toEqual(['Bullseye', 'Patrol', 'Highway']);
-    for (const level of dark) {
+    expect(dark.map((l) => l.title)).toEqual([
+      'First Light',
+      'Halo',
+      'Lattice',
+      'Fuses',
+      'The Vault',
+      'Bullseye',
+      'Patrol',
+      'Turnstile',
+      'Weeds',
+      'Gauntlet',
+      'Highway',
+      'Supernova',
+    ]);
+    for (const title of ['Bullseye', 'Patrol', 'Highway']) {
+      const level = dark.find((l) => l.title === title)!;
       expect(level.bricks.filter((b) => b.light).length).toBeGreaterThanOrEqual(3);
-      expect(level.lighting.lightning).toBe(true);
+    }
+    for (const level of dark) {
+      expect(level.lighting.lightning, level.title).toBe(true);
+      expect(level.lighting.sputter, level.title).toBe(true);
     }
   });
 });

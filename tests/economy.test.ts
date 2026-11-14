@@ -9,16 +9,24 @@ import {
   rollAbility,
   unlockedAbilities,
 } from '../src/core/Abilities';
+import { MAX_BALLS } from '../src/core/Difficulty';
 import {
   DROP_WEIGHTS,
+  DropDirector,
+  FIRST_DROP_BY,
   MAX_UPGRADE_LEVEL,
+  PITY_BREAKS,
   UPGRADES,
   canPurchase,
+  dropWeights,
+  heat,
   laserClearCeiling,
   powerupStats,
   rollDrop,
   upgradeCost,
+  type DropContext,
 } from '../src/core/Economy';
+import type { PowerupId } from '../src/core/types';
 
 describe('powerupStats', () => {
   it('matches the original base durations at tier 1', () => {
@@ -69,6 +77,67 @@ describe('rollDrop', () => {
   it('covers the whole table deterministically', () => {
     expect(rollDrop(() => 0)).toBe(DROP_WEIGHTS[0]![0]);
     expect(rollDrop(() => 0.999999)).toBe(DROP_WEIGHTS[DROP_WEIGHTS.length - 1]![0]);
+  });
+});
+
+describe('drop director', () => {
+  type Table = ReadonlyArray<readonly [PowerupId | null, number]>;
+  const total = (t: Table) => t.reduce((s, [, w]) => s + w, 0);
+  const weightOf = (t: Table, id: PowerupId | null) => t.find(([p]) => p === id)![1];
+  const powerupShare = (t: Table) =>
+    t.filter(([p]) => p !== null && p !== 'coin').reduce((s, [, w]) => s + w, 0) / total(t);
+  const calm: DropContext = { balls: 1, effects: 0, fever: false };
+  const hot: DropContext = { balls: 8, effects: 3, fever: true };
+  const nothing = () => 0;
+
+  it('measures heat from balls, effects and Fever', () => {
+    expect(heat(calm)).toBe(0);
+    expect(heat({ ...calm, balls: 6 })).toBeCloseTo(0.6);
+    expect(heat({ ...calm, fever: true })).toBeCloseTo(0.35);
+    expect(heat(hot)).toBe(1);
+  });
+
+  it('drops more powerups while calm and far fewer at a peak', () => {
+    const base = powerupShare(DROP_WEIGHTS);
+    expect(powerupShare(dropWeights(calm))).toBeGreaterThan(base * 1.2);
+    expect(powerupShare(dropWeights(hot))).toBeLessThan(base * 0.4);
+  });
+
+  it('keeps the coin share and the total weight unchanged', () => {
+    for (const ctx of [calm, hot, { ...calm, balls: MAX_BALLS }]) {
+      const t = dropWeights(ctx);
+      expect(total(t)).toBeCloseTo(total(DROP_WEIGHTS));
+      expect(weightOf(t, 'coin')).toBe(weightOf(DROP_WEIGHTS, 'coin'));
+      for (const [, w] of t) expect(w).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('fades multiball out toward the ball cap', () => {
+    const two = weightOf(dropWeights({ ...calm, balls: 2 }), 'balls');
+    const five = weightOf(dropWeights({ ...calm, balls: 5 }), 'balls');
+    expect(five).toBeLessThan(two);
+    expect(weightOf(dropWeights({ ...calm, balls: MAX_BALLS }), 'balls')).toBe(0);
+  });
+
+  it(`guarantees the first powerup by break ${FIRST_DROP_BY}`, () => {
+    const d = new DropDirector();
+    for (let i = 1; i < FIRST_DROP_BY; i++) expect(d.roll(calm, nothing)).toBeNull();
+    const id = d.roll(calm, nothing);
+    expect(id).not.toBeNull();
+    expect(id).not.toBe('coin');
+    expect(id).not.toBe('smaller');
+  });
+
+  it(`then guarantees one after ${PITY_BREAKS} dry breaks`, () => {
+    const d = new DropDirector();
+    expect(d.roll(calm, () => 0.999999)).toBe('mystery');
+    for (let i = 1; i < PITY_BREAKS; i++) expect(d.roll(calm, nothing)).toBeNull();
+    expect(d.roll(calm, nothing)).not.toBeNull();
+  });
+
+  it('never forces drops during a peak', () => {
+    const d = new DropDirector();
+    for (let i = 0; i < 30; i++) expect(d.roll(hot, nothing)).toBeNull();
   });
 });
 

@@ -33,6 +33,12 @@ export interface LevelProgress {
   bestScore: number;
 }
 
+export interface RunBest {
+  bestScore: number;
+  /** Waves cleared, or rows survived in Descent. */
+  bestReach: number;
+}
+
 export interface Settings {
   music: boolean;
   sfx: boolean;
@@ -41,6 +47,8 @@ export interface Settings {
   screenShake: boolean;
   /** Lower render resolution and fewer particles. */
   batterySaver: boolean;
+  /** Balls bounce off the floor and no lives are lost. */
+  godMode: boolean;
 }
 
 export interface SaveData {
@@ -56,6 +64,8 @@ export interface SaveData {
   levels: Record<string, LevelProgress>;
   /** Number of levels unlocked, counted from the first. */
   unlocked: number;
+  /** Arcade bests, keyed by loop and goal, e.g. "waves-endless". */
+  runs: Record<string, RunBest>;
   settings: Settings;
   seenInstructions: boolean;
 }
@@ -72,6 +82,7 @@ export function defaultSave(): SaveData {
     stock: emptyStock(),
     levels: {},
     unlocked: 1,
+    runs: {},
     settings: {
       music: true,
       sfx: true,
@@ -79,6 +90,7 @@ export function defaultSave(): SaveData {
       reducedMotion: false,
       screenShake: true,
       batterySaver: false,
+      godMode: false,
     },
     seenInstructions: false,
   };
@@ -108,6 +120,11 @@ export function normalizeSave(raw: unknown): SaveData {
     }
   }
   d.unlocked = Math.max(1, nonNegInt(r.unlocked, 1));
+  if (r.runs && typeof r.runs === 'object') {
+    for (const [k, v] of Object.entries(r.runs)) {
+      d.runs[k] = { bestScore: nonNegInt(v?.bestScore, 0), bestReach: nonNegInt(v?.bestReach, 0) };
+    }
+  }
   if (r.settings && typeof r.settings === 'object') {
     for (const k of Object.keys(d.settings) as (keyof Settings)[]) {
       if (typeof r.settings[k] === 'boolean') d.settings[k] = r.settings[k];
@@ -281,6 +298,24 @@ export class SaveStore {
         bestScore: Math.max(prev.bestScore, score),
       };
       d.unlocked = Math.min(totalLevels, Math.max(d.unlocked, index + 1));
+    });
+    return isBest;
+  }
+
+  /** Opens every campaign level. Stars and best scores are left as they are. */
+  unlockAll(totalLevels: number): void {
+    this.update((d) => (d.unlocked = Math.max(d.unlocked, totalLevels)));
+  }
+
+  /** Records the end of an Arcade run; returns true if it is a new best score. */
+  recordRun(key: string, score: number, reach: number): boolean {
+    const prev = this.data.runs[key] ?? { bestScore: 0, bestReach: 0 };
+    const isBest = score > prev.bestScore;
+    this.update((d) => {
+      d.runs[key] = {
+        bestScore: Math.max(prev.bestScore, Math.floor(score)),
+        bestReach: Math.max(prev.bestReach, Math.floor(reach)),
+      };
     });
     return isBest;
   }

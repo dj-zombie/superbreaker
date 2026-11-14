@@ -17,6 +17,16 @@
    "name": "title",
    "type": "string",
    "value": "The Vault"
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "lightning",
+   "type": "bool",
+   "value": true
   }
  ],
  "tilesets": [
@@ -2110,5 +2120,6 @@
     }
    ]
   }
- ]
+ ],
+ "class": "LevelLighting"
 }

@@ -1,1123 +1,1167 @@
-{
- "type": "map",
- "version": "1.10",
- "tiledversion": "1.11.2",
- "orientation": "orthogonal",
- "renderorder": "right-down",
- "width": 20,
- "height": 50,
- "tilewidth": 30,
- "tileheight": 16,
- "infinite": false,
- "compressionlevel": -1,
- "nextlayerid": 2,
- "nextobjectid": 65,
- "properties": [
-  {
-   "name": "title",
-   "type": "string",
-   "value": "Highway"
-  },
-  {
-   "name": "lightsOut",
-   "type": "bool",
-   "value": true
-  },
-  {
-   "name": "lightning",
-   "type": "bool",
-   "value": true
-  }
- ],
- "tilesets": [
-  {
-   "firstgid": 1,
-   "source": "../tilesets/bricks.tsj"
-  }
- ],
- "layers": [
-  {
-   "type": "objectgroup",
-   "id": 1,
-   "name": "Bricks",
-   "draworder": "topdown",
-   "opacity": 1,
-   "visible": true,
-   "x": 0,
-   "y": 0,
-   "objects": [
-    {
-     "id": 1,
-     "gid": 2,
-     "x": 120,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 2,
-     "gid": 2,
-     "x": 150,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 3,
-     "gid": 2,
-     "x": 180,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 4,
-     "gid": 2,
-     "x": 210,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 5,
-     "gid": 2,
-     "x": 240,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 6,
-     "gid": 2,
-     "x": 270,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 7,
-     "gid": 2,
-     "x": 300,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 8,
-     "gid": 2,
-     "x": 330,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 9,
-     "gid": 2,
-     "x": 360,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 10,
-     "gid": 2,
-     "x": 390,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 11,
-     "gid": 2,
-     "x": 420,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 12,
-     "gid": 2,
-     "x": 450,
-     "y": 32,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 13,
-     "gid": 15,
-     "x": 120,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 14,
-     "gid": 15,
-     "x": 150,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 15,
-     "gid": 15,
-     "x": 180,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 16,
-     "gid": 15,
-     "x": 210,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 17,
-     "gid": 15,
-     "x": 240,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 18,
-     "gid": 15,
-     "x": 270,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 19,
-     "gid": 15,
-     "x": 300,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 20,
-     "gid": 15,
-     "x": 330,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 21,
-     "gid": 15,
-     "x": 360,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 22,
-     "gid": 15,
-     "x": 390,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 23,
-     "gid": 15,
-     "x": 420,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 24,
-     "gid": 15,
-     "x": 450,
-     "y": 48,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 25,
-     "gid": 5,
-     "x": 120,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 26,
-     "gid": 5,
-     "x": 150,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 27,
-     "gid": 5,
-     "x": 180,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "powerup",
-       "type": "string",
-       "propertytype": "Powerup",
-       "value": "bigger"
-      }
-     ]
-    },
-    {
-     "id": 28,
-     "gid": 5,
-     "x": 210,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 29,
-     "gid": 5,
-     "x": 240,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 30,
-     "gid": 5,
-     "x": 270,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "powerup",
-       "type": "string",
-       "propertytype": "Powerup",
-       "value": "coin"
-      }
-     ]
-    },
-    {
-     "id": 31,
-     "gid": 5,
-     "x": 300,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 32,
-     "gid": 5,
-     "x": 330,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 33,
-     "gid": 5,
-     "x": 360,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "powerup",
-       "type": "string",
-       "propertytype": "Powerup",
-       "value": "balls"
-      }
-     ]
-    },
-    {
-     "id": 34,
-     "gid": 5,
-     "x": 390,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 35,
-     "gid": 5,
-     "x": 420,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 36,
-     "gid": 5,
-     "x": 450,
-     "y": 64,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 37,
-     "gid": 11,
-     "x": 120,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 38,
-     "gid": 11,
-     "x": 150,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 39,
-     "gid": 11,
-     "x": 180,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 40,
-     "gid": 11,
-     "x": 210,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 41,
-     "gid": 11,
-     "x": 240,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "powerup",
-       "type": "string",
-       "propertytype": "Powerup",
-       "value": "hyper"
-      }
-     ]
-    },
-    {
-     "id": 42,
-     "gid": 11,
-     "x": 270,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 43,
-     "gid": 11,
-     "x": 300,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 44,
-     "gid": 11,
-     "x": 330,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 45,
-     "gid": 11,
-     "x": 360,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 46,
-     "gid": 11,
-     "x": 390,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 47,
-     "gid": 11,
-     "x": 420,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 48,
-     "gid": 11,
-     "x": 450,
-     "y": 80,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 49,
-     "gid": 5,
-     "x": 30,
-     "y": 144,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 210
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 50
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ff22d3ff"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 50,
-     "gid": 5,
-     "x": 360,
-     "y": 144,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 180
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 56
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ffff3ad0"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 51,
-     "gid": 19,
-     "x": 30,
-     "y": 192,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 210
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 66
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ff22d3ff"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 52,
-     "gid": 2,
-     "x": 360,
-     "y": 192,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 180
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 72
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ffff3ad0"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 53,
-     "gid": 11,
-     "x": 30,
-     "y": 240,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 210
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 54
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ff22d3ff"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 54,
-     "gid": 11,
-     "x": 360,
-     "y": 240,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 180
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 60
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ffff3ad0"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 55,
-     "gid": 15,
-     "x": 30,
-     "y": 288,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 210
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 76
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ff22d3ff"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 56,
-     "gid": 15,
-     "x": 360,
-     "y": 288,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 180
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 82
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ffff3ad0"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 57,
-     "gid": 19,
-     "x": 30,
-     "y": 336,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 210
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 60
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ff22d3ff"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 58,
-     "gid": 1,
-     "x": 360,
-     "y": 336,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": "",
-     "properties": [
-      {
-       "name": "moveX",
-       "type": "float",
-       "value": 180
-      },
-      {
-       "name": "moveSpeed",
-       "type": "float",
-       "value": 66
-      },
-      {
-       "name": "light",
-       "type": "color",
-       "value": "#ffff3ad0"
-      },
-      {
-       "name": "lightRadius",
-       "type": "float",
-       "value": 110.0
-      },
-      {
-       "name": "lightIntensity",
-       "type": "float",
-       "value": 0.6
-      }
-     ]
-    },
-    {
-     "id": 59,
-     "gid": 11,
-     "x": 0,
-     "y": 400,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 60,
-     "gid": 11,
-     "x": 30,
-     "y": 400,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 61,
-     "gid": 11,
-     "x": 60,
-     "y": 400,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 62,
-     "gid": 11,
-     "x": 510,
-     "y": 400,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 63,
-     "gid": 11,
-     "x": 540,
-     "y": 400,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    },
-    {
-     "id": 64,
-     "gid": 11,
-     "x": 570,
-     "y": 400,
-     "width": 30,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "name": "",
-     "type": ""
-    }
-   ]
-  }
- ],
- "class": "LevelLighting"
+{ "class":"LevelLighting",
+ "compressionlevel":-1,
+ "height":50,
+ "infinite":false,
+ "layers":[
+        {
+         "draworder":"topdown",
+         "id":1,
+         "name":"Bricks",
+         "objects":[
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":1,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":120,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":2,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":150,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":3,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":180,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":4,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":210,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":5,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":240,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":6,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":270,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":7,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":300,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":8,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":330,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":9,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":10,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":390,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":11,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":420,
+                 "y":32
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":12,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":450,
+                 "y":32
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":13,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":120,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":14,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":150,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":15,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":180,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":16,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":210,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":17,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":240,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":18,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":270,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":19,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":300,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":20,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":330,
+                 "y":48
+                },
+            
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":21,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":22,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":390,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":23,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":420,
+                 "y":48
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":24,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":450,
+                 "y":48
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":25,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":120,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":26,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":150,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":27,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"powerup",
+                         "type":"string",
+                         "value":"bigger"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":180,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":28,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":210,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":29,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":240,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":30,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"powerup",
+                         "type":"string",
+                         "value":"coin"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":270,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":31,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":300,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":32,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":330,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":33,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"powerup",
+                         "type":"string",
+                         "value":"balls"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":34,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":390,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":35,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":420,
+                 "y":64
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":36,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":450,
+                 "y":64
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":37,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":120,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":38,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":150,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":39,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":180,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":40,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":210,
+                 "y":80
+                },
+            
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":41,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"powerup",
+                         "type":"string",
+                         "value":"hyper"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":240,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":42,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":270,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":43,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":300,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":44,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":330,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":45,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":46,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":390,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":47,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":420,
+                 "y":80
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":48,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":450,
+                 "y":80
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":49,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ff22d3ff"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":210
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":50
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":210
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":30,
+                 "y":144
+                }, 
+                {
+                 "gid":5,
+                 "height":16,
+                 "id":50,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ffff3ad0"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.3
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":310
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":56
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":180
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":144
+                }, 
+                {
+                 "gid":19,
+                 "height":16,
+                 "id":51,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ff22d3ff"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":110
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":66
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":210
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":30,
+                 "y":192
+                }, 
+                {
+                 "gid":2,
+                 "height":16,
+                 "id":52,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ffff3ad0"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":110
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":72
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":180
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":192
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":53,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ff22d3ff"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":110
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":54
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":210
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":30,
+                 "y":240
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":54,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ffff3ad0"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":110
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":60
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":180
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":240
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":55,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ff22d3ff"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":110
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":76
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":210
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":30,
+                 "y":288
+                }, 
+                {
+                 "gid":15,
+                 "height":16,
+                 "id":56,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ffff3ad0"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":110
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":82
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":180
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":288
+                }, 
+                {
+                 "gid":19,
+                 "height":16,
+                 "id":57,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ff22d3ff"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.6
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":210
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":60
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":210
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":30,
+                 "y":336
+                }, 
+                {
+                 "gid":1,
+                 "height":16,
+                 "id":58,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"light",
+                         "type":"color",
+                         "value":"#ffff3ad0"
+                        }, 
+                        {
+                         "name":"lightIntensity",
+                         "type":"float",
+                         "value":0.9
+                        }, 
+                        {
+                         "name":"lightRadius",
+                         "type":"float",
+                         "value":210
+                        }, 
+                        {
+                         "name":"moveSpeed",
+                         "type":"float",
+                         "value":66
+                        }, 
+                        {
+                         "name":"moveX",
+                         "type":"float",
+                         "value":180
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":360,
+                 "y":336
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":59,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":0,
+                 "y":400
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":60,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":30,
+                 "y":400
+                },
+            
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":61,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":60,
+                 "y":400
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":62,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":510,
+                 "y":400
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":63,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":540,
+                 "y":400
+                }, 
+                {
+                 "gid":11,
+                 "height":16,
+                 "id":64,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":30,
+                 "x":570,
+                 "y":400
+                }],
+         "opacity":1,
+         "type":"objectgroup",
+         "visible":true,
+         "x":0,
+         "y":0
+        }],
+ "nextlayerid":2,
+ "nextobjectid":69,
+ "orientation":"orthogonal",
+ "properties":[
+        {
+         "name":"lightning",
+         "type":"bool",
+         "value":true
+        }, 
+        {
+         "name":"lightsOut",
+         "type":"bool",
+         "value":true
+        }, 
+        {
+         "name":"title",
+         "type":"string",
+         "value":"Highway"
+        }],
+ "renderorder":"right-down",
+ "tiledversion":"1.12.2",
+ "tileheight":16,
+ "tilesets":[
+        {
+         "firstgid":1,
+         "source":"..\/tilesets\/bricks.tsj"
+        }],
+ "tilewidth":30,
+ "type":"map",
+ "version":"1.10",
+ "width":20
 }

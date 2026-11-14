@@ -19,7 +19,8 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   regrowAt = 0;
   falling = false;
   readonly homeX: number;
-  readonly homeY: number;
+  /** Where the brick rests. Descent moves it down a row at a time. */
+  homeY: number;
   private crack?: Phaser.GameObjects.Image;
   private baseScaleX: number;
   private baseScaleY: number;
@@ -153,6 +154,14 @@ export class Brick extends Phaser.Physics.Arcade.Image {
 
   syncOverlay(): void {
     this.crack?.setPosition(this.x, this.y);
+  }
+
+  override destroy(fromScene?: boolean): void {
+    this.flashTween?.stop();
+    this.flashTween = undefined;
+    this.crack?.destroy();
+    this.crack = undefined;
+    super.destroy(fromScene);
   }
 
   private updateCracks(): void {

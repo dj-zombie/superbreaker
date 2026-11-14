@@ -7,8 +7,12 @@ top and bottom join seamlessly when it scrolls vertically, and splits layers wit
 center into a left and a right strip so the GPU doesn't fill the transparent middle. Fog layers
 are generated from periodic noise, so they loop by construction.
 
+Each world's key art also becomes a portrait card for the campaign's world carousel
+(public/assets/images/ui/world_<world>.webp).
+
 Usage:
   python3 scripts/build-backdrops.py [world ...]
+  python3 scripts/build-backdrops.py --thumbs-only
   python3 scripts/build-backdrops.py hell --stills /tmp/hell.jpg --video /tmp/hell.mp4
 Requires numpy, Pillow and (for --video) ffmpeg.
 """
@@ -27,6 +31,8 @@ SRC = ROOT / "art-src" / "backdrops"
 OUT = ROOT / "public" / "assets" / "images" / "backdrops"
 MANIFEST = ROOT / "src" / "art" / "backdrops.json"
 BRICKS = ROOT / "public" / "assets" / "images" / "bricks"
+THUMBS = ROOT / "public" / "assets" / "images" / "ui"
+THUMB_SIZE = (540, 960)
 SRC_WIDTH = 720
 FOG_SIZE = (180, 320)
 
@@ -338,12 +344,29 @@ def preview(world: str, layers: dict, stills: str | None, video: str | None, dim
         print("video:", video)
 
 
+def thumbnail(world: str) -> None:
+    """Centre-crops the key art to the carousel card's portrait shape."""
+    img = Image.open(SRC / world / "key.jpg").convert("RGB")
+    tw, th = THUMB_SIZE
+    scale = max(tw / img.width, th / img.height)
+    img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
+    left = (img.width - tw) // 2
+    top = (img.height - th) // 2
+    THUMBS.mkdir(parents=True, exist_ok=True)
+    img.crop((left, top, left + tw, top + th)).save(THUMBS / f"world_{world}.webp", "WEBP", quality=84, method=6)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("worlds", nargs="*", default=list(WORLDS))
     parser.add_argument("--stills", help="write a sheet of preview frames (one world)")
     parser.add_argument("--video", help="write a 16 s preview video (one world)")
+    parser.add_argument("--thumbs-only", action="store_true", help="only write the carousel cards")
     args = parser.parse_args()
+    for world in args.worlds:
+        thumbnail(world)
+    if args.thumbs_only:
+        return
     manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
     for world in args.worlds:
         layers, manifest[world] = build(world)

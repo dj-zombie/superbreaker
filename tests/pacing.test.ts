@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { collapseThreshold } from '../src/core/Difficulty';
-import { DEFAULT_FEVER, FeverMeter, PacingDirector, type Intervention } from '../src/core/Pacing';
+import {
+  COLLAPSE_IDLE_MS,
+  COLLAPSE_MAX_BALLS,
+  DEFAULT_FEVER,
+  FeverMeter,
+  PacingDirector,
+  collapseReady,
+  type Intervention,
+} from '../src/core/Pacing';
 
 /** Steps the director in 100ms ticks and records every intervention. */
 function run(d: PacingDirector, ms: number, remaining = 100, inPlay = true): Intervention[] {
@@ -92,6 +100,16 @@ describe('PacingDirector', () => {
     d.onLifeLost();
     expect(d.struggle).toBeGreaterThan(before);
   });
+
+  it('tracks idle time only while a ball is in play, and resets it on a break', () => {
+    const d = new PacingDirector();
+    run(d, 2_000);
+    expect(d.idleMs).toBe(2_000);
+    run(d, 5_000, 100, false);
+    expect(d.idleMs).toBe(2_000);
+    d.onBreak();
+    expect(d.idleMs).toBe(0);
+  });
 });
 
 describe('FeverMeter', () => {
@@ -129,12 +147,46 @@ describe('FeverMeter', () => {
     expect(f.boost(1)).toBe(true);
     expect(f.onBreak(5)).toBe(false);
   });
+
+  it('fills slower per break with more balls in flight', () => {
+    const one = new FeverMeter();
+    const four = new FeverMeter();
+    one.onBreak(5, 1);
+    four.onBreak(5, 4);
+    expect(four.value).toBeCloseTo(one.value / 2);
+  });
+
+  it('takes several times more breaks to fill with a full field of balls', () => {
+    const breaksToFill = (balls: number) => {
+      const f = new FeverMeter();
+      let n = 0;
+      while (!f.onBreak(0, balls)) n++;
+      return n;
+    };
+    expect(breaksToFill(9)).toBeGreaterThanOrEqual(breaksToFill(1) * 3 - 1);
+  });
 });
 
 describe('collapseThreshold', () => {
   it('scales with level size within bounds', () => {
-    expect(collapseThreshold(10)).toBe(8);
-    expect(collapseThreshold(60)).toBe(18);
-    expect(collapseThreshold(300)).toBe(30);
+    expect(collapseThreshold(10)).toBe(6);
+    expect(collapseThreshold(60)).toBe(9);
+    expect(collapseThreshold(100)).toBe(15);
+    expect(collapseThreshold(300)).toBe(18);
+  });
+});
+
+describe('collapseReady', () => {
+  const lull = { fever: false, balls: 1, idleMs: COLLAPSE_IDLE_MS };
+
+  it('lets the collapse rescue a slow ending', () => {
+    expect(collapseReady(lull)).toBe(true);
+    expect(collapseReady({ ...lull, balls: COLLAPSE_MAX_BALLS })).toBe(true);
+  });
+
+  it('holds it back during a peak', () => {
+    expect(collapseReady({ ...lull, fever: true })).toBe(false);
+    expect(collapseReady({ ...lull, balls: COLLAPSE_MAX_BALLS + 1 })).toBe(false);
+    expect(collapseReady({ ...lull, idleMs: COLLAPSE_IDLE_MS - 1 })).toBe(false);
   });
 });

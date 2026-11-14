@@ -50,7 +50,6 @@ export class InputSystem {
       launch: [kb.addKey(K.SPACE), kb.addKey(K.UP), kb.addKey(K.W)],
     };
     for (const k of this.keys.launch) k.on('down', () => this.enabled && this.onLaunch());
-    kb.addKey(K.ESC).on('down', onPause);
     kb.addKey(K.P).on('down', onPause);
 
     scene.input.on(Phaser.Input.Events.POINTER_DOWN, this.handleDown, this);
