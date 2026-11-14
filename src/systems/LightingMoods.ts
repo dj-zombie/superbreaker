@@ -213,15 +213,15 @@ class Storm implements MoodFx {
 }
 
 /**
- * Lightning: one or two flashes per strike, then thunder. Strikes come seconds apart and every
- * flash must pass flashAmbient's MAX_FLASH_HZ limit, well under the three-per-second
- * photosensitivity guideline. On lights-out levels a strike shows the layout for a moment.
- * With reduced motion a strike is one slow swell with no strike light.
+ * Lightning: one or two flashes per strike, with thunder from the first flash that shows.
+ * Strikes come seconds apart and every flash must pass flashAmbient's MAX_FLASH_HZ limit, well
+ * under the three-per-second photosensitivity guideline. On lights-out levels a strike shows
+ * the layout for a moment. With reduced motion a strike is one slow swell with no strike light.
  */
 class Lightning {
   private nextStrike: number;
   private flashes: number[] = [];
-  private thunderAt = -1;
+  private thundered = true;
 
   constructor(
     private sys: LightingSystem,
@@ -243,23 +243,23 @@ class Lightning {
       if (!this.sys.calm && Math.random() < 0.55) {
         this.flashes.push(clock + Math.max(0.2, 1 / MAX_FLASH_HZ / 2));
       }
-      this.thunderAt = clock + rand(0.5, 1.3);
+      this.thundered = false;
     }
     while (this.flashes.length && clock >= this.flashes[0]!) {
       this.flashes.shift();
-      this.strike();
-    }
-    if (this.thunderAt >= 0 && clock >= this.thunderAt) {
-      this.thunderAt = -1;
-      audio.thunder(rand(0.3, 0.5));
+      if (this.strike() && !this.thundered) {
+        this.thundered = true;
+        audio.thunder(rand(0.3, 0.45));
+      }
     }
   }
 
-  private strike(): void {
+  /** False when the flash limit dropped this flash. */
+  private strike(): boolean {
     const dark = this.sys.look.lightsOut;
-    if (!this.sys.flashAmbient(0xc8d4ff, dark ? 0.15 : 0.3)) return;
+    if (!this.sys.flashAmbient(0xc8d4ff, dark ? 0.15 : 0.3)) return false;
     this.sys.revealLevel(0.8);
-    if (this.sys.calm) return;
+    if (this.sys.calm) return true;
     this.sys.addLight({
       x: rand(80, WIDTH - 80),
       y: HUD_HEIGHT - 40,
@@ -270,6 +270,7 @@ class Lightning {
       priority: 9,
     });
     this.scenery?.flash(0.2);
+    return true;
   }
 }
 
@@ -310,7 +311,7 @@ class FailingLights {
     const t = clock - this.start;
     while (this.due < this.blinks.length && t >= this.blinks[this.due]!.at) {
       const b = this.blinks[this.due++]!;
-      if (this.sys.claimFlash()) audio.buzz(b.hold, this.sys.calm ? 0.08 : 0.2);
+      if (this.sys.claimFlash()) audio.flicker(this.sys.calm ? 0.12 : 0.3);
       else this.dropped.add(b);
     }
     for (const b of this.blinks) {

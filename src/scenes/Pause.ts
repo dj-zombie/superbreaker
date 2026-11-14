@@ -31,6 +31,7 @@ export class Pause extends Overlay {
     const play = this.scene.get(SCENES.play) as Play;
     const t = themeFor(play.world);
     new BehindFx(this).blur([play, this.scene.get(SCENES.hud)], 1.2);
+    audio.sfx('ui_pause', 0.45);
 
     const shade = this.add
       .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, t.palette.base, 0.55)
@@ -100,5 +101,10 @@ export class Pause extends Overlay {
     cascade(this, items, { dx: -40, dy: 0, stagger: 40, ease: 'Cubic.Out' });
     onBack(this, () => this.close());
     this.input.keyboard?.on('keydown-P', () => this.close());
+  }
+
+  protected override close(): void {
+    audio.whoosh(0.18, true);
+    super.close();
   }
 }

@@ -84,7 +84,6 @@ export class Results extends Overlay {
       delay: 200,
       onLand: () => {
         if (save.state.settings.screenShake && !calm()) this.cameras.main.shake(140, 0.004);
-        audio.sfx(lost ? 'gameover' : 'win_jingle', 0.5);
         haptic(lost ? 'heavy' : 'medium');
       },
     });
@@ -99,7 +98,8 @@ export class Results extends Overlay {
           delay: 650,
           t,
           onStar: (i) => {
-            audio.sfx('sfx_coin', 0.5, i * 200);
+            audio.sfx(`star_${i + 1}`, 0.5);
+            if (d.tail && i === d.stars - 1) audio.fanfareTail();
             haptic('medium');
             const m = root.getWorldTransformMatrix();
             burst(this, m.tx + (i - 1) * 100, m.ty + y, t, { count: 18, speed: 220, depth: 30 });
@@ -168,7 +168,7 @@ export class Results extends Overlay {
       this.tweens.add({ targets: rays, angle: 360, duration: 12000, repeat: -1 });
       this.tweens.add({ targets: word, scale: 1.08, duration: 600, yoyo: true, repeat: -1, delay: 400, ease: 'Sine.InOut' });
     }
-    audio.sfx('fanfare', 0.4);
+    audio.sfx('new_best', 0.5);
   }
 
   /** How far the run got, and which run it was. */

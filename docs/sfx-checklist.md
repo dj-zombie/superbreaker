@@ -10,6 +10,8 @@ Export one-shots at 44.1 kHz, mono, 192 kbps mp3 or wav. Keep gameplay one-shots
 
 Do these in order: fanfare, then the new menus, then powerups and abilities, then the gameplay moments.
 
+Every new path below, plus the two storm sounds, has a placeholder cut from [Kenney](https://kenney.nl)'s CC0 packs (Impact, Sci-fi, Interface, Digital, Casino, RPG, Music Jingles, and the Fighter voiceover). CC0 needs no credit and ships anywhere, Steam included. Replace them file for file.
+
 ## Fanfare
 
 The mid-level clear banner stays up for 3.5 seconds, and that clear should finish in about 2 seconds. Its stars land at 260 ms, 640 ms, and 1020 ms. The results screen (the last level, a failed run, and Arcade) reveals its stars later, at 650 ms, 1030 ms, and 1410 ms, and the fanfare has already been playing for about 700 ms when that screen appears. Time the bells to whichever surface is showing. The results heading does not get a second jingle on top. The tail is only for a 3-star clear, the last level of a world (10, 20, 30), and an Arcade win. Wave clears stay off this kit. The next wave arrives in 0.9 seconds.
@@ -199,5 +201,6 @@ No new files. Change one of these only if a later pass still bothers you.
 | UI kit | `audio/ui/move`, `on`, `off`, `select`, `toggle` | Button and card hover, press, and disabled. Settings and pause toggles |
 | Life lost | `audio/death.mp3` | Losing a ball |
 | Game over | `audio/gameover.wav` | Out of lives, and an Arcade run that fails. Once, not again on the results heading |
-| Thunder, buzz, whoosh | synthesized | Storm lightning, sputtering lights, and the screen whoosh until its file is signed off |
-| Music | `audio/song0.mp3`, `audio/ui/music-beat.mp3` | Play, and the menus |
+| Thunder | `audio/storm/thunder.mp3` | A lightning strike, on its first flash |
+| Flicker | `audio/storm/flicker.mp3` | Each blink of a sputtering room light on lights-out levels |
+| Music | `audio/music/pusher.mp3`, cut by `scripts/build-music.py` | The menus, and Play, where the section follows how intense the moment is |

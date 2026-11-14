@@ -1,0 +1,94 @@
+{
+  "path": "audio/music/pusher.mp3",
+  "bpm": 113.3602,
+  "beat": 0.5292864,
+  "click": 0.02322,
+  "segments": {
+    "intro": {
+      "at": 0.25,
+      "beats": 32,
+      "gain": 1.972
+    },
+    "kick": {
+      "at": 17.187166,
+      "beats": 32,
+      "gain": 1.0
+    },
+    "drop1": {
+      "at": 34.124331,
+      "beats": 64,
+      "gain": 1.0
+    },
+    "nosub": {
+      "at": 67.998639,
+      "beats": 32,
+      "gain": 1.035
+    },
+    "predrop": {
+      "at": 85.185805,
+      "beats": 32,
+      "gain": 1.072
+    },
+    "drop2": {
+      "at": 102.372971,
+      "beats": 64,
+      "gain": 1.0
+    },
+    "dark": {
+      "at": 136.497302,
+      "beats": 32,
+      "gain": 1.245
+    },
+    "peak": {
+      "at": 153.684467,
+      "beats": 32,
+      "gain": 1.0
+    }
+  },
+  "moods": {
+    "menu": {
+      "play": [
+        "intro",
+        "kick"
+      ],
+      "loop": 1
+    },
+    "calm": {
+      "play": [
+        "kick"
+      ],
+      "loop": 0
+    },
+    "groove": {
+      "play": [
+        "drop1",
+        "nosub"
+      ],
+      "loop": 0
+    },
+    "build": {
+      "play": [
+        "predrop"
+      ],
+      "loop": 0
+    },
+    "drive": {
+      "play": [
+        "drop2"
+      ],
+      "loop": 0
+    },
+    "fever": {
+      "play": [
+        "peak"
+      ],
+      "loop": 0
+    },
+    "danger": {
+      "play": [
+        "dark"
+      ],
+      "loop": 0
+    }
+  }
+}

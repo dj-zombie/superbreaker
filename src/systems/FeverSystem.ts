@@ -47,7 +47,10 @@ export class FeverSystem {
 
   update(dtMs: number): void {
     this.hue = (this.hue + dtMs / 1200) % 1;
-    if (this.meter.update(dtMs) === 'end') this.stop();
+    if (this.meter.update(dtMs) === 'end') {
+      this.stop();
+      audio.sfx('fever_end', 0.45);
+    }
     if (!this.glow) return;
     const color = this.trailColor;
     this.backdrop.setHue(color);
@@ -67,8 +70,7 @@ export class FeverSystem {
     this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'FEVER!', '#ff5cf0', 44);
     this.juice.flash(200, 255, 92, 240);
     this.juice.shake(300, 0.008);
-    audio.sfx('win_jingle', 0.4, 300);
-    audio.setMusicRate(1.12);
+    audio.sfx('fever_start', 0.5);
     haptic('heavy');
     if (!save.state.settings.reducedMotion && !this.glow) {
       const edge = (x: number, flip: boolean) =>
@@ -85,7 +87,6 @@ export class FeverSystem {
   }
 
   private stop(): void {
-    audio.setMusicRate(1);
     if (this.glow) {
       for (const g of this.glow) g.destroy();
       this.glow = undefined;

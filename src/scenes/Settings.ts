@@ -6,7 +6,7 @@ import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
 import { applyQuality } from '../systems/Quality';
 import { Button } from '../ui/Button';
-import { Toggle } from '../ui/controls';
+import { Slider, Toggle } from '../ui/controls';
 import { glowLineTexture } from '../ui/frames';
 import { cascade } from '../ui/fx/motion';
 import { onBack } from '../ui/nav';
@@ -15,18 +15,24 @@ import { theme } from '../ui/theme';
 import { body, heading, label } from '../ui/type';
 import { Overlay } from './Overlay';
 
+type KeysOf<T> = {
+  [K in keyof SettingsData]: SettingsData[K] extends T ? K : never;
+}[keyof SettingsData];
+
 interface Row {
-  key: keyof SettingsData;
+  key: KeysOf<boolean>;
   label: string;
   hint?: string;
+  /** A volume slider beside the switch. */
+  volume?: KeysOf<number>;
 }
 
 const SECTIONS: Array<{ title: string; rows: Row[] }> = [
   {
     title: 'Audio',
     rows: [
-      { key: 'music', label: 'Music' },
-      { key: 'sfx', label: 'Sound effects' },
+      { key: 'music', label: 'Music', volume: 'musicVolume' },
+      { key: 'sfx', label: 'Sound effects', volume: 'sfxVolume' },
     ],
   },
   {
@@ -57,6 +63,9 @@ const DISPLAY: { title: string; rows: Row[] } = {
 
 const ROW_H = 54;
 const HEAD_H = 40;
+const SLIDER_W = 250;
+/** A volume slider while its sound is switched off. */
+const MUTED_ALPHA = 0.4;
 
 /** Settings in sections with switches, in a sheet over whatever opened it. */
 export class Settings extends Overlay {
@@ -104,14 +113,31 @@ export class Settings extends Overlay {
         const c = this.add.container(0, y);
         c.add(body(this, left, row.hint ? -9 : 0, row.label, 19, { originX: 0, align: 'left' }));
         if (row.hint) c.add(label(this, left, 13, row.hint, 10, { originX: 0 }));
-        c.add(
-          new Toggle(this, right, 0, save.state.settings[row.key], (on) => {
-            save.update((d) => (d.settings[row.key] = on));
+        let slider: Slider | undefined;
+        const toggle = new Toggle(this, right, 0, save.state.settings[row.key], (on) => {
+          save.update((d) => (d.settings[row.key] = on));
+          audio.refresh();
+          slider?.setAlpha(on ? 1 : MUTED_ALPHA);
+          if (row.key === 'batterySaver') applyQuality(this.game);
+          if (row.key === 'fullscreen') setFullscreen(on);
+        });
+        c.add(toggle);
+        const volume = row.volume;
+        if (volume) {
+          const x = right - 56 - SLIDER_W / 2;
+          slider = new Slider(this, x, 0, SLIDER_W, save.state.settings[volume], (v) => {
+            // Turning a switched-off sound up switches it back on.
+            if (!toggle.checked) toggle.set(true, true);
+            slider?.setAlpha(1);
+            save.update((d) => {
+              d.settings[volume] = v;
+              d.settings[row.key] = true;
+            });
             audio.refresh();
-            if (row.key === 'batterySaver') applyQuality(this.game);
-            if (row.key === 'fullscreen') setFullscreen(on);
-          }),
-        );
+          });
+          slider.setAlpha(toggle.checked ? 1 : MUTED_ALPHA);
+          c.add(slider);
+        }
         root.add(c);
         items.push(c);
         y += rowH;

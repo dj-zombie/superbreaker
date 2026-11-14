@@ -75,6 +75,7 @@ export class RunDirector {
   private top = LEVEL_OFFSET_Y;
   private danger?: Phaser.GameObjects.Rectangle;
   private dangerGlow?: Phaser.GameObjects.Rectangle;
+  private near = 0;
 
   constructor(readonly config: RunConfig) {
     this.state = new RunState(config);
@@ -82,6 +83,11 @@ export class RunDirector {
 
   get descent(): boolean {
     return this.config.loop === 'descent';
+  }
+
+  /** Descent: how close the formation is to the danger line, 0..1. */
+  get threat(): number {
+    return this.near;
   }
 
   private get dangerY(): number {
@@ -160,11 +166,11 @@ export class RunDirector {
     host.juice.popText(WIDTH / 2, ARENA_MID - 50, `WAVE ${cleared} CLEAR`, '#ffc93c', 30);
     host.juice.popText(WIDTH / 2, ARENA_MID - 10, `+${bonus.toLocaleString()}`, '#ffffff', 22);
     host.lighting.pulse(0xfff0b0, 0.3);
-    audio.sfx('win_jingle', 0.4);
     if (!this.state.playing) {
       host.endRun();
       return;
     }
+    audio.sfx('wave_clear', 0.5);
     this.between = true;
     host.rearm();
     host.scene.time.delayedCall(WAVE_GAP_MS, () => this.nextWave(host, progress));
@@ -192,6 +198,7 @@ export class RunDirector {
     if (progress.extraLife) {
       host.addLife();
       host.juice.popText(WIDTH / 2, ARENA_MID + 34, 'EXTRA LIFE', '#7dff8a', 20);
+      audio.sfx('sfx_extra_life', 0.5);
     }
   }
 
@@ -245,6 +252,7 @@ export class RunDirector {
     host.bricks.shatterBelow(bottom - BREACH_ROWS * BH);
     host.juice.popText(WIDTH / 2, this.dangerY - 40, 'BREACH!', '#ff4d6d', 30);
     host.juice.shake(300, 0.012);
+    audio.sfx('breach', 0.5);
     host.breach();
   }
 
@@ -263,7 +271,7 @@ export class RunDirector {
         '#ffc93c',
         26,
       );
-      audio.sfx('win_jingle', 0.4);
+      audio.sfx('field_clear', 0.5);
     }
     this.feeding = true;
     host.scene.time.delayedCall(400, () => {
@@ -289,6 +297,7 @@ export class RunDirector {
     if (!this.danger || !this.dangerGlow || !this.host) return;
     const gap = this.dangerY - this.host.bricks.lowestBottom();
     const near = Phaser.Math.Clamp(1 - gap / (DANGER_ROWS * BH), 0, 1);
+    this.near = near;
     const beat = 0.5 + 0.5 * Math.sin(this.host.scene.time.now / (near > 0.5 ? 90 : 220));
     this.danger.setAlpha(0.35 + 0.65 * near * beat);
     this.dangerGlow.setAlpha(near * (0.4 + 0.6 * beat));

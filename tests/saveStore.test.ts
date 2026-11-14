@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_VOLUME,
   SAVE_KEY,
   SaveStore,
   defaultSave,
@@ -92,6 +93,19 @@ describe('settings', () => {
   it('adds fullscreen to older saves, on, and keeps a stored choice', () => {
     expect(normalizeSave({ settings: { music: false } }).settings.fullscreen).toBe(true);
     expect(normalizeSave({ settings: { fullscreen: false } }).settings.fullscreen).toBe(false);
+  });
+
+  it('adds the volumes to older saves at the default, and keeps stored ones in range', () => {
+    const old = normalizeSave({ settings: { music: false } }).settings;
+    expect(old.musicVolume).toBe(DEFAULT_VOLUME);
+    expect(old.sfxVolume).toBe(DEFAULT_VOLUME);
+    const s = normalizeSave({ settings: { musicVolume: 0.35, sfxVolume: 4 } }).settings;
+    expect(s.musicVolume).toBe(0.35);
+    expect(s.sfxVolume).toBe(1);
+    const bad = normalizeSave({ settings: { musicVolume: Number.NaN, sfxVolume: true } }).settings;
+    expect(bad.musicVolume).toBe(DEFAULT_VOLUME);
+    expect(bad.sfxVolume).toBe(DEFAULT_VOLUME);
+    expect(normalizeSave({ settings: { music: 0 } }).settings.music).toBe(true);
   });
 });
 

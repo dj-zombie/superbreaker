@@ -63,7 +63,6 @@ export function startRun(
   stop?: string[],
 ): void {
   const run: RunConfig = { loop, goal: goalFor(goal), seed };
-  audio.stopMusic();
   runCarry.discard();
   transitionTo(scene, SCENES.play, { run }, { stop });
 }

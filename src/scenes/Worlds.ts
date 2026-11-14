@@ -245,7 +245,7 @@ export class Worlds extends BaseScene {
       onUpdate: () => this.layout(),
     });
     if (changed) {
-      audio.whoosh(0.1);
+      audio.whoosh(0.16);
       audio.sfx('ui_move', 0.3);
       this.retheme();
     }
@@ -318,7 +318,7 @@ export class Worlds extends BaseScene {
     if (!c) return;
     if (c.locked) {
       this.tweens.add({ targets: c.card, x: c.card.x + 8, duration: 50, yoyo: true, repeat: 3 });
-      audio.sfx('ui_off', 0.4);
+      audio.sfx('ui_locked', 0.45);
       return;
     }
     pickWorld(c.world);

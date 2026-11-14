@@ -216,7 +216,7 @@ export class Logo extends Phaser.GameObjects.Container {
         ease: 'Cubic.In',
         onComplete: () => {
           landed++;
-          if (landed % 4 === 0) audio.breakSound(-300);
+          if (landed % 4 === 0) audio.sfx('ui_logo_piece', 0.3, Phaser.Math.Between(-100, 100));
           if (landed === frames.length) this.slam(pieces, onDone);
         },
       });
@@ -244,7 +244,7 @@ export class Logo extends Phaser.GameObjects.Container {
       ease: 'Back.Out',
     });
     if (save.state.settings.screenShake) this.scene.cameras.main.shake(180, 0.006);
-    audio.sfx('death', 0.25, -600);
+    audio.sfx('ui_logo_slam', 0.5);
     const m = this.getWorldTransformMatrix();
     burst(this.scene, 0, 0, this.t, {
       count: 40,

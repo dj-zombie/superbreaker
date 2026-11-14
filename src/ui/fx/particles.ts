@@ -197,7 +197,7 @@ export function flyCoins(
           },
           onComplete: () => {
             coin.destroy();
-            audio.sfx('sfx_coin', 0.22, landed * 60);
+            audio.sfx('ui_coin_land', 0.3, landed * 60);
             opts.onEach?.(landed);
             landed++;
             if (landed === count) opts.onDone?.();

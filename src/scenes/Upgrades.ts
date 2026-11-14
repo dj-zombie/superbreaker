@@ -333,7 +333,7 @@ export class Upgrades extends Overlay {
     } else if (res === 'insufficient') {
       this.broke(buy, cost);
     } else {
-      audio.sfx('ui_off', 0.5);
+      audio.sfx('ui_deny', 0.5);
       shake(this, buy, 5);
       this.say(res === 'full' ? 'Hands are full. Use one during play.' : 'Unlock it on the Abilities tab first.');
     }
@@ -351,7 +351,7 @@ export class Upgrades extends Overlay {
       if (!card.active) return;
       card.pulse();
       punch(this, buy, 1.15);
-      audio.sfx('sfx_coin', 0.6);
+      audio.sfx('ui_purchase', 0.55);
       if (!calm() && save.state.settings.screenShake) this.cameras.main.shake(90, 0.002);
       this.say(msg);
       this.refresh(true);
@@ -364,7 +364,7 @@ export class Upgrades extends Overlay {
   }
 
   private broke(buy: Button, cost: number): void {
-    audio.sfx('sfx_smaller', 0.5);
+    audio.sfx('ui_deny', 0.5);
     haptic('heavy');
     this.coins.deny();
     shake(this, buy, 6);
@@ -418,7 +418,7 @@ function setPips(scene: Phaser.Scene, pips: Phaser.GameObjects.Container, tier: 
       delay,
       duration: 260,
       ease: 'Back.Out',
-      onStart: () => audio.sfx('ui_move', 0.35, i * 120),
+      onStart: () => audio.sfx('ui_pip', 0.35, i * 120),
       onComplete: () => box.setTint(t.palette.accent),
     });
   });

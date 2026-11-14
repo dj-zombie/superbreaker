@@ -17,6 +17,9 @@ ios/build/
 __pycache__/
 *.py[cod]
 
+# Full-length song that scripts/build-music.py cuts from. `--fetch` downloads it again.
+art-src/music/source.wav
+
 # Signing leftovers
 *.xcuserstate
 *.mobileprovision

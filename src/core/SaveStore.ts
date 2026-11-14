@@ -42,6 +42,9 @@ export interface RunBest {
 export interface Settings {
   music: boolean;
   sfx: boolean;
+  /** Volume slider positions, 0..1. */
+  musicVolume: number;
+  sfxVolume: number;
   haptics: boolean;
   reducedMotion: boolean;
   screenShake: boolean;
@@ -74,6 +77,9 @@ export interface SaveData {
 
 export const SAVE_KEY = 'superbreaker.save';
 
+/** Where the volume sliders start: the mix as set, with room above it to turn things up. */
+export const DEFAULT_VOLUME = 0.8;
+
 export function defaultSave(): SaveData {
   return {
     version: 1,
@@ -88,6 +94,8 @@ export function defaultSave(): SaveData {
     settings: {
       music: true,
       sfx: true,
+      musicVolume: DEFAULT_VOLUME,
+      sfxVolume: DEFAULT_VOLUME,
       haptics: true,
       reducedMotion: false,
       screenShake: true,
@@ -129,8 +137,15 @@ export function normalizeSave(raw: unknown): SaveData {
     }
   }
   if (r.settings && typeof r.settings === 'object') {
-    for (const k of Object.keys(d.settings) as (keyof Settings)[]) {
-      if (typeof r.settings[k] === 'boolean') d.settings[k] = r.settings[k];
+    const raw: Partial<Record<keyof Settings, unknown>> = r.settings;
+    const out = d.settings as Record<keyof Settings, boolean | number>;
+    for (const k of Object.keys(out) as (keyof Settings)[]) {
+      const v = raw[k];
+      if (typeof out[k] === 'boolean' && typeof v === 'boolean') out[k] = v;
+      // The only number settings are volumes.
+      if (typeof out[k] === 'number' && typeof v === 'number' && Number.isFinite(v)) {
+        out[k] = clamp(v, 0, 1);
+      }
     }
   }
   d.seenInstructions = r.seenInstructions === true;

@@ -187,7 +187,7 @@ export class Segmented extends Phaser.GameObjects.Container {
     });
     this.paint();
     if (silent) return;
-    audio.sfx('ui_toggle', 0.45);
+    audio.sfx('ui_tab', 0.45);
     haptic('light');
     this.onChange(i);
   }
@@ -261,7 +261,7 @@ export class Tabs extends Phaser.GameObjects.Container {
     this.index = i;
     this.placeBar(true);
     this.paint();
-    audio.sfx('ui_move', 0.45);
+    audio.sfx('ui_tab', 0.45);
     haptic('light');
     this.onChange(i);
   }
@@ -294,5 +294,131 @@ export class Tabs extends Phaser.GameObjects.Container {
 
   get value(): number {
     return this.index;
+  }
+}
+
+/** Above every sheet and overlay. */
+const SHIELD_DEPTH = 100_000;
+
+/** A level from 0 to 1 in even notches. Tap or drag along the slot; it lights up to the knob. */
+export class Slider extends Phaser.GameObjects.Container {
+  private knob: Phaser.GameObjects.Image;
+  private fill: Phaser.GameObjects.Image;
+  private level: number;
+  /** Covers the screen while dragging, so letting go over a sheet's backdrop can't close it. */
+  private shield?: Phaser.GameObjects.Zone;
+  private readonly t: UiTheme;
+  private readonly span: number;
+  private static readonly H = 14;
+  private static readonly KNOB_W = 24;
+  private static readonly KNOB_H = 32;
+  private static readonly STEPS = 20;
+
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    y: number,
+    private readonly slotW: number,
+    value: number,
+    private onChange: (value: number) => void,
+  ) {
+    super(scene, x, y);
+    this.t = theme();
+    const { H, KNOB_W, KNOB_H } = Slider;
+    const w = slotW;
+    this.span = w - KNOB_W;
+    const track = scene.add.image(0, 0, trackTexture(scene, this.t, w, H)).setScale(1 / TEX_SCALE);
+    this.fill = scene.add
+      .image(-w / 2 + 2, 0, glowLineTexture(scene))
+      .setOrigin(0, 0.5)
+      .setTint(this.t.palette.accent)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.7);
+    this.knob = scene.add
+      .image(0, 0, buttonTexture(scene, this.t.frame, 'primary', KNOB_W, KNOB_H))
+      .setScale(1 / TEX_SCALE);
+    this.add([track, this.fill, this.knob]);
+    this.level = this.notch(value);
+    this.paint();
+    this.setSize(w + KNOB_W, KNOB_H + 12);
+    this.setInteractive({ useHandCursor: true });
+    this.on('pointerdown', (p: Phaser.Input.Pointer) => this.grab(p));
+    this.once(Phaser.GameObjects.Events.DESTROY, () => this.drop());
+    scene.add.existing(this);
+  }
+
+  get value(): number {
+    return this.level;
+  }
+
+  private readonly onMove = (p: Phaser.Input.Pointer) => {
+    if (p.isDown) this.drag(p);
+  };
+
+  private readonly onUp = () => this.release();
+
+  private notch(v: number): number {
+    return Math.round(Phaser.Math.Clamp(v, 0, 1) * Slider.STEPS) / Slider.STEPS;
+  }
+
+  private grab(p: Phaser.Input.Pointer): void {
+    if (this.shield) return;
+    const view = this.scene.cameras.main.worldView;
+    this.shield = this.scene.add
+      .zone(view.centerX, view.centerY, view.width * 2, view.height * 2)
+      .setDepth(SHIELD_DEPTH)
+      .setInteractive({ useHandCursor: true });
+    const input = this.scene.input;
+    input.on('pointermove', this.onMove);
+    input.on('pointerup', this.onUp);
+    input.on('pointerupoutside', this.onUp);
+    this.scene.tweens.add({
+      targets: this.knob,
+      scale: 1.15 / TEX_SCALE,
+      duration: 120,
+      ease: 'Back.Out',
+    });
+    haptic('light');
+    this.drag(p);
+  }
+
+  private drag(p: Phaser.Input.Pointer): void {
+    const world = this.scene.cameras.main.getWorldPoint(p.x, p.y);
+    const local = this.getWorldTransformMatrix().applyInverse(world.x, world.y);
+    const next = this.notch((local.x + this.span / 2) / this.span);
+    if (next === this.level) return;
+    this.level = next;
+    this.paint();
+    this.onChange(next);
+    audio.sfx('ui_tally', 0.3, next * 600);
+  }
+
+  private release(): void {
+    if (!this.shield) return;
+    this.drop();
+    this.scene.tweens.add({
+      targets: this.knob,
+      scale: 1 / TEX_SCALE,
+      duration: 160,
+      ease: 'Cubic.Out',
+    });
+  }
+
+  /** Ends a drag without animating, also when the slider goes away mid-drag. */
+  private drop(): void {
+    const input = this.scene.input;
+    input.off('pointermove', this.onMove);
+    input.off('pointerup', this.onUp);
+    input.off('pointerupoutside', this.onUp);
+    this.shield?.destroy();
+    this.shield = undefined;
+  }
+
+  private paint(): void {
+    const x = -this.span / 2 + this.level * this.span;
+    this.knob.setX(x);
+    this.fill
+      .setDisplaySize(Math.max(1, x + this.slotW / 2 - 2), Slider.H)
+      .setVisible(this.level > 0);
   }
 }

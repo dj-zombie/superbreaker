@@ -3,6 +3,7 @@ import { HYPER_DURATION_MS, LOSE_Y, PIERCE_DURATION_MS, POWERUP_INFO } from '../
 import { DropDirector, powerupStats, type DropContext } from '../core/Economy';
 import type { PowerupId } from '../core/types';
 import { save } from '../services';
+import { audio } from './AudioSystem';
 
 export type TimedEffect = 'magnet' | 'fireball' | 'laser' | 'hyper' | 'pierce';
 export const TIMED_EFFECTS: TimedEffect[] = ['fireball', 'pierce', 'laser', 'magnet', 'hyper'];
@@ -169,7 +170,10 @@ export class PowerupSystem {
         changed = true;
       }
     }
-    if (changed) this.host.onEffectsChanged();
+    if (changed) {
+      audio.sfx('sfx_timeout', 0.35);
+      this.host.onEffectsChanged();
+    }
     for (const p of this.group.getChildren() as Pickup[]) {
       if (p.y > LOSE_Y + 10) p.destroy();
     }

@@ -185,7 +185,7 @@ export class WorldPath extends BaseScene {
       this.tweens.add({ targets: c, scale: 1, duration: 240, ease: 'Back.Out' });
       if (n.state === 'locked') {
         shake(this, c, 6);
-        audio.sfx('ui_off', 0.4);
+        audio.sfx('ui_locked', 0.45);
         haptic('light');
         this.say(`Clear level ${save.state.unlocked} first`);
         return;

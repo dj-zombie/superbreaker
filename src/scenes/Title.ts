@@ -35,7 +35,6 @@ const TILE_H = 156;
 
 /** Starts a campaign level, dropping anything carried from an earlier level. */
 export function startLevel(scene: Phaser.Scene, index: number, stop?: string[]): void {
-  audio.stopMusic();
   runCarry.discard();
   transitionTo(scene, SCENES.play, { index }, { stop });
 }
@@ -142,7 +141,7 @@ export class Title extends BaseScene {
       }
       Title.awake = true;
       audio.sfx('ui_select', 0.6);
-      audio.whoosh(0.14);
+      audio.whoosh(0.22);
       this.tweens.killTweensOf(prompt);
       this.tweens.add({ targets: [prompt, studio], alpha: 0, duration: 200, onComplete: () => prompt.destroy() });
       this.toHub(true);

@@ -98,7 +98,7 @@ export class Transition extends BaseScene {
     const t = theme();
     const style: Style = calm() || !richFx() ? 'fade' : t.transition;
     this.solid.setFillStyle(t.palette.base);
-    audio.whoosh(0.16);
+    audio.whoosh(0.25);
     this.cover(style, t, req.from, () => this.swap(req));
   }
 

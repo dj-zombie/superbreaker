@@ -16,6 +16,7 @@ import {
   WIDTH,
 } from '../config';
 import { pickHomingTarget, type HomingBox } from '../core/Homing';
+import { MusicIntensity } from '../core/MusicMood';
 import { PacingDirector, collapseReady, type Intervention } from '../core/Pacing';
 import {
   BALL_OVERFLOW_SCORE,
@@ -90,6 +91,8 @@ export interface ResultsData {
   isBest: boolean;
   coinsEarned: number;
   bestScore: number;
+  /** The fanfare's held chord lands with the last star: 3 stars or a world's last level. */
+  tail?: boolean;
   run?: RunResults;
 }
 
@@ -150,6 +153,18 @@ const MAGNET_HOLD_MS = 2_500;
 const CLEAR_ADVANCE_MS = 3_500;
 /** Taps are ignored this long, so the tap that broke the last brick can't skip the banner. */
 const CLEAR_TAP_GUARD_MS = 700;
+/** The last level and an Arcade win wait this long before the results screen comes up. */
+const RESULTS_DELAY_MS = 700;
+/** An Arcade win has no stars to land the fanfare tail on, so it follows the rise. */
+const ARCADE_TAIL_AT = 1.05;
+/** The banner's "New best" sparkle waits for the stars and the score count. */
+const NEW_BEST_MS = 1_250;
+/** Cents over the countdown beep's C for 1, 2 and 3: G, D, C. */
+const COUNTDOWN_DETUNE = [700, 200, 0];
+/** Cents over the combo callout for combo 5, 10, 15 and 20. A voice, so it only lifts a little. */
+const COMBO_DETUNE = [0, 60, 120, 180];
+/** A Descent breach sounds its alarm first; the life-lost sound follows by this many seconds. */
+const BREACH_DEATH_DELAY = 0.35;
 
 export class Play extends BaseScene {
   levelIndex = 1;
@@ -178,6 +193,7 @@ export class Play extends BaseScene {
   private ballFx!: BallFx;
   private frameMonitor!: FrameMonitor;
   private pacing!: PacingDirector;
+  private musicMood!: MusicIntensity;
   private initialBreakables = 1;
   private nudgeMs = 0;
   private juice!: JuiceSystem;
@@ -289,11 +305,15 @@ export class Play extends BaseScene {
       {
         onDestroyed: (b, cause, chain) => this.onBrickDestroyed(b, cause, chain),
         onExplosion: (x, y, chain) => this.onExplosion(x, y, chain),
-        onRegrow: (b) => this.juice.sparkle(b.x, b.y, COLORS.good, 8),
+        onRegrow: (b) => {
+          this.juice.sparkle(b.x, b.y, COLORS.good, 8);
+          audio.sfx('brick_regen', 0.35);
+        },
         onHit: (b, res) => this.onBrickHit(b, res),
         onCollapseStart: () => {
           this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'COLLAPSE!', '#ffc93c', 30);
           this.juice.shake(400, 0.006);
+          audio.sfx('brick_collapse', 0.5);
           haptic('medium');
         },
         regrowBlocked: (b) => {
@@ -318,6 +338,7 @@ export class Play extends BaseScene {
     this.lighting.attach(this.bricks.bricks, this.paddle);
     this.addBrickLights(this.bricks.bricks);
     this.pacing = new PacingDirector();
+    this.musicMood = new MusicIntensity();
     this.fever = new FeverSystem(
       this,
       this.juice,
@@ -440,6 +461,7 @@ export class Play extends BaseScene {
       this.powerups.update(dt);
       this.bricks.update(dt);
     }
+    audio.loop('brick_mover', this.bricks.moving);
     this.abilities.update(dt);
     this.fever.update(dt);
     this.backdrop.update(dt);
@@ -450,6 +472,7 @@ export class Play extends BaseScene {
     this.updateTimeScale();
     this.updateLasers(dt);
     this.updatePacing(dt);
+    this.updateMusic(dt);
     this.checkLostBalls();
     this.runDirector?.update(dt);
     this.hud.clockMs = this.runDirector?.state.timeLeftMs ?? null;
@@ -491,6 +514,7 @@ export class Play extends BaseScene {
     if ((this.finished && !this.bannerUp) || !this.scene.isActive()) return;
     this.physics.world.pause();
     audio.duckMusic(true);
+    audio.loop('brick_mover', false);
     this.scene.launch(SCENES.pause, { from: SCENES.play });
     this.scene.pause();
   }
@@ -512,7 +536,7 @@ export class Play extends BaseScene {
   private onWallBounce(ball: Ball): void {
     ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
     this.refillPlow(ball);
-    audio.sfx('ui_move', 0.12);
+    audio.sfx('wall', 0.2);
     this.juice.sparkle(ball.x, ball.y, 0x7fe9ff, 3);
   }
 
@@ -599,7 +623,7 @@ export class Play extends BaseScene {
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
     if (!save.state.seenInstructions) save.update((d) => (d.seenInstructions = true));
-    audio.sfx('ui_toggle', 0.4);
+    audio.sfx('launch', 0.45);
   }
 
   private updateAttachedBalls(dt: number): void {
@@ -638,7 +662,7 @@ export class Play extends BaseScene {
       duration: 260,
       ease: 'Back.Out',
     });
-    audio.sfx('ui_move', 0.4, (3 - n) * 250);
+    audio.sfx('countdown', 0.4, COUNTDOWN_DETUNE[n - 1]);
   }
 
   private spawnExtraBalls(count: number): void {
@@ -783,8 +807,10 @@ export class Play extends BaseScene {
     );
     this.refillPlow(ball);
     if (res === 'immune') {
-      audio.sfx('ui_toggle', 0.25);
+      audio.sfx('brick_steel', 0.3);
       this.juice.sparkle(ball.x, ball.y, 0xcfd6e6, 5);
+    } else if (res === 'armor') {
+      audio.sfx('brick_armor', 0.4);
     } else if (res !== 'destroyed') {
       audio.hit();
     }
@@ -804,6 +830,7 @@ export class Play extends BaseScene {
     if (cause !== 'fall') {
       this.hud.combo++;
       this.pacing.onBreak();
+      this.musicMood.onBreak();
       this.fever.onBreak(this.hud.combo, this.freeBallCount);
     }
     const base = cause === 'laser' ? LASER_BRICK_SCORE : BRICK_SCORE;
@@ -815,6 +842,8 @@ export class Play extends BaseScene {
       const color = tier >= 4 ? '#ffffff' : css(tier >= 2 ? p.accentHi : p.gold);
       this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, color, 18 + tier * 4, 1 + tier * 0.12);
       if (tier >= 4 && save.state.settings.screenShake) this.juice.shake(120, 0.002 * tier);
+      const detune = COMBO_DETUNE[tier - 1];
+      if (detune !== undefined) audio.sfx('combo', 0.5, detune);
     }
     this.juice.burst(b.x, b.y, b.tintColor, cause === 'explosion' ? 8 : 12);
     const glow = b.spec.light;
@@ -849,7 +878,7 @@ export class Play extends BaseScene {
     this.juice.flash(80, 255, 140, 60);
     this.scenery.flash(0.12 + chain * 0.04);
     this.lighting.flash(x, y, 0xff8a3c, EXPLOSION_RADIUS * 2.6, 480, 0.8, 1.3, 8, true);
-    audio.sfx('sfx_fireball', 0.45, -200 + chain * 100);
+    audio.sfx('brick_tnt', 0.5, Math.min(chain - 1, 5) * 100);
     haptic('heavy');
     if (chain >= 2) this.juice.popText(x, y - 20, `CHAIN x${chain}`, '#ff8a1f', 22);
   }
@@ -994,10 +1023,10 @@ export class Play extends BaseScene {
       balls: 'sfx_balls',
       bigger: 'sfx_bigger',
       smaller: 'sfx_smaller',
-      shield: 'ui_on',
-      hyper: 'sfx_laser',
-      extraLife: 'win_jingle',
-      pierce: 'sfx_laser',
+      shield: 'sfx_shield_on',
+      hyper: 'sfx_hyper',
+      extraLife: 'sfx_extra_life',
+      pierce: 'sfx_pierce',
     };
     const key = sfx[id];
     if (key) audio.sfx(key, 0.5);
@@ -1042,7 +1071,7 @@ export class Play extends BaseScene {
       ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
       ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
       this.juice.ring(ball.x, bar.y, 0x78dcff, 60);
-      audio.sfx('ui_off', 0.5);
+      audio.sfx('sfx_shield_break', 0.5);
       haptic('medium');
       this.removeShield();
     });
@@ -1134,6 +1163,24 @@ export class Play extends BaseScene {
     }
   }
 
+  /** Tells the music how hot the moment is. */
+  private updateMusic(dt: number): void {
+    const balls = this.freeBallCount;
+    audio.steerMusic(
+      this.musicMood.update(dt, {
+        live: balls > 0,
+        combo: this.hud.combo,
+        balls,
+        effects: this.powerups.active.length,
+        fever: this.fever.active,
+        charge: this.fever.meter.value,
+        lastLife: this.hud.lives <= 1 && !save.state.settings.godMode,
+        danger: this.runDirector?.threat ?? 0,
+        clockMs: this.runDirector?.state.timeLeftMs ?? null,
+      }),
+    );
+  }
+
   private intervene(step: Intervention): void {
     if (step === 'gift' && !this.abilities.hasFreeSlot) step = 'surge';
     switch (step) {
@@ -1145,12 +1192,13 @@ export class Play extends BaseScene {
         const x = Phaser.Math.Clamp(this.paddle.x + Phaser.Math.Between(-80, 80), 40, WIDTH - 40);
         this.powerups.maybeDrop(x, HUD_HEIGHT + 30, 'mystery');
         this.juice.popText(x, HUD_HEIGHT + 60, 'GIFT!', '#ff5cf0', 22);
-        audio.sfx('ui_on', 0.5);
+        audio.sfx('gift', 0.5);
         break;
       }
       case 'surge':
         this.juice.popText(WIDTH / 2, ARENA_MID, 'POWER SURGE!', '#ffc93c', 30);
         this.juice.flash(120, 255, 200, 80);
+        audio.sfx('surge', 0.5);
         haptic('medium');
         this.fever.boost(0.6);
         break;
@@ -1197,8 +1245,8 @@ export class Play extends BaseScene {
   }
 
   private grantMystery(x: number, y: number): void {
+    audio.sfx('sfx_mystery', 0.5);
     if (this.abilities.grant()) {
-      audio.sfx('win_jingle', 0.35, 600);
       this.juice.ring(x, y, 0xff5cf0, 60);
       return;
     }
@@ -1228,6 +1276,8 @@ export class Play extends BaseScene {
     if (!save.state.settings.godMode) this.hud.lives--;
     this.hud.combo = 0;
     this.pacing.onLifeLost();
+    this.musicMood.onLifeLost();
+    audio.musicDip();
     if (!breach) {
       this.abilities.clearEffects();
       this.fever.reset();
@@ -1237,7 +1287,7 @@ export class Play extends BaseScene {
       this.removeShield();
       this.paddle.resetSize();
     }
-    audio.sfx('death', 0.3);
+    audio.sfx('death', 0.3, 0, breach ? BREACH_DEATH_DELAY : 0);
     haptic('heavy');
     this.lighting.pulse(0xff2a3a, 0.4);
     this.juice.shake(250, 0.01);
@@ -1314,7 +1364,7 @@ export class Play extends BaseScene {
     head.setX(-WIDTH);
     this.tweens.add({ targets: band, scaleY: 1, duration: 220, ease: 'Cubic.Out' });
     this.tweens.add({ targets: head, x: 0, delay: 120, duration: 360, ease: 'Back.Out' });
-    audio.sfx('ui_select', 0.4, -300);
+    audio.sfx('ui_intro', 0.45);
     this.tweens.add({
       targets: band,
       scaleY: 0,
@@ -1349,7 +1399,8 @@ export class Play extends BaseScene {
     const prevBest = save.state.levels[this.level.id]?.bestScore ?? 0;
     const isBest = save.recordWin(this.levelIndex, stars, this.hud.score, this.levels.length);
     audio.stopMusic();
-    audio.sfx('fanfare', 0.5);
+    audio.loop('brick_mover', false);
+    audio.fanfare();
     haptic('heavy');
     this.lighting.celebrate();
     this.juice.flash(250, 255, 240, 200);
@@ -1362,10 +1413,11 @@ export class Play extends BaseScene {
       isBest,
       coinsEarned: this.hud.coinsEarned,
       bestScore: Math.max(prevBest, this.hud.score),
+      tail: stars === 3 || worldLevels(this.world).last === this.levelIndex,
     };
     if (this.levelIndex >= this.levels.length) {
       this.inputSys.enabled = false;
-      this.time.delayedCall(700, () => this.showResults(data));
+      this.time.delayedCall(RESULTS_DELAY_MS, () => this.showResults(data));
       return;
     }
     this.showClearBanner(data);
@@ -1394,9 +1446,13 @@ export class Play extends BaseScene {
         size: 62,
         delay: 260,
         t,
-        onStar: (i) => audio.sfx('sfx_coin', 0.5, i * 200),
+        onStar: (i) => {
+          audio.sfx(`star_${i + 1}`, 0.5);
+          if (d.tail && i === d.stars - 1) audio.fanfareTail();
+        },
       }),
     );
+    if (d.isBest) this.time.delayedCall(NEW_BEST_MS, () => audio.sfx('new_best', 0.45));
 
     const score = display(this, 0, 28, '0', 40, { t });
     root.add(score);
@@ -1458,7 +1514,8 @@ export class Play extends BaseScene {
     this.inputSys.enabled = false;
     this.fever.reset();
     this.abilities.clearEffects();
-    audio.stopMusic();
+    audio.stopMusic('tape');
+    audio.loop('brick_mover', false);
     audio.sfx('gameover', 0.3);
     this.time.delayedCall(600, () =>
       this.showResults({
@@ -1486,9 +1543,10 @@ export class Play extends BaseScene {
     const key = runKey(config.loop, config.goal.kind);
     const prev = save.state.runs[key] ?? { bestScore: 0, bestReach: 0 };
     const isBest = save.recordRun(key, this.hud.score, state.reach);
-    audio.stopMusic();
+    audio.stopMusic(complete ? 'cut' : 'tape');
+    audio.loop('brick_mover', false);
     if (complete) {
-      audio.sfx('fanfare', 0.5);
+      audio.fanfare(ARCADE_TAIL_AT);
       haptic('heavy');
       this.lighting.celebrate();
       this.juice.flash(250, 255, 240, 200);
@@ -1496,7 +1554,7 @@ export class Play extends BaseScene {
       audio.sfx('gameover', 0.3);
     }
     for (const b of this.ballList) b.body.setVelocity(0, 0);
-    this.time.delayedCall(complete ? 700 : 600, () =>
+    this.time.delayedCall(complete ? RESULTS_DELAY_MS : 600, () =>
       this.showResults({
         win: complete,
         index: 0,
@@ -1580,7 +1638,7 @@ export class Play extends BaseScene {
     this.unsubscribeBackground = undefined;
     this.unsubscribePad?.();
     this.unsubscribePad = undefined;
-    audio.setMusicRate(1);
+    audio.loop('brick_mover', false);
     this.events.off(Phaser.Scenes.Events.RESUME);
     this.input.keyboard?.removeAllKeys(true);
     this.shieldBar = undefined;

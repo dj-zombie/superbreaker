@@ -55,7 +55,7 @@ export class Sheet {
       this.root.setY(y + h);
       scene.tweens.add({ targets: this.root, y, duration: 440, ease: 'Back.Out', easeParams: [1.1] });
     }
-    audio.whoosh(0.12);
+    audio.whoosh(0.2);
 
     if (opts.blur && richFx()) {
       const cam = opts.blur.cameras.main;
@@ -75,6 +75,7 @@ export class Sheet {
     if (this.closing) return;
     this.closing = true;
     const s = this.scene;
+    audio.whoosh(0.18, true);
     s.tweens.add({ targets: this.shade, alpha: 0, duration: 200 });
     if (this.blur) s.tweens.add({ targets: this.blur.fx, strength: 0, duration: 200 });
     s.tweens.add({

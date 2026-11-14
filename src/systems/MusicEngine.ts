@@ -1,0 +1,310 @@
+import { MUSIC_TRACK, type MusicPlaylist, type MusicTrack } from '../art/music';
+import type { MusicCue, MusicMood } from '../core/MusicMood';
+
+/** How the music stops: a quick cut, a fade, or winding down like a stopped tape. */
+export type MusicEnding = 'cut' | 'fade' | 'tape';
+
+/** Fades at the ends of a section (s). The fade out finishes before the next kick, 9 ms out. */
+const FADE_IN = 0.004;
+const FADE_OUT = 0.006;
+/** Changes are scheduled at least this far ahead of the audio clock (s). */
+const SAFETY = 0.06;
+/** Sections are queued this far ahead, so a throttled background timer can't leave a gap (s). */
+const LOOKAHEAD = 4;
+const TICK_MS = 250;
+/** Low-pass corners (Hz): open, ball on the paddle, paused, and the dip when a ball is lost. */
+const OPEN_HZ = 20_000;
+const HELD_HZ = 1_800;
+const DUCK_HZ = 900;
+const DIP_HZ = 260;
+/** The dip holds this long before it opens back up (s). */
+const DIP_S = 0.3;
+/** High-pass range of the pre-drop riser (Hz). */
+const RISER_FLOOR_HZ = 20;
+const RISER_TOP_HZ = 600;
+/** Volume while paused. */
+const DUCK = 0.35;
+/** The tape stop slows to a crawl over this long (s). */
+const TAPE_S = 0.9;
+/** A stopped play-through is silent and released after this long (s). */
+const RELEASE_S = 1.2;
+
+interface Voice {
+  name: string;
+  src: AudioBufferSourceNode;
+  gain: GainNode;
+  /** Audio-clock time of the section's first downbeat. */
+  t0: number;
+  /** When the next voice takes over. */
+  end: number;
+  /** The section's gain. */
+  level: number;
+}
+
+/**
+ * Plays the song a section at a time on the Web Audio clock. Each mood loops its own sections.
+ * A change of mood cuts to the new one on the next bar, or the next beat when it's urgent, so the
+ * groove never stumbles. Filters on the way out sit the music back while the ball waits on the
+ * paddle, sweep up the pre-drop, muffle the pause menu and dip when a ball is lost.
+ */
+export class MusicEngine {
+  /** Everything the music sends out; tapped for beat-synced lighting. */
+  readonly output: GainNode;
+  private readonly highpass: BiquadFilterNode;
+  private readonly lowpass: BiquadFilterNode;
+  /** The current play-through. A stopped one keeps its own gain while it fades out. */
+  private session?: GainNode;
+  private voices: Voice[] = [];
+  private mood?: MusicMood;
+  /** Delay the mp3 decoder added ahead of the file's first sample (s). */
+  private readonly lead: number;
+  private volume = 0;
+  private ducked = false;
+  private held = false;
+  private riser = 0;
+  private dipUntil = 0;
+  private timer?: ReturnType<typeof setInterval>;
+
+  constructor(
+    private readonly ctx: AudioContext,
+    destination: AudioNode,
+    private readonly buffer: AudioBuffer,
+    private readonly track: MusicTrack = MUSIC_TRACK,
+  ) {
+    this.highpass = ctx.createBiquadFilter();
+    this.highpass.type = 'highpass';
+    this.highpass.frequency.value = RISER_FLOOR_HZ;
+    this.lowpass = ctx.createBiquadFilter();
+    this.lowpass.type = 'lowpass';
+    this.lowpass.frequency.value = OPEN_HZ;
+    this.output = ctx.createGain();
+    this.output.gain.value = 0;
+    this.highpass.connect(this.lowpass).connect(this.output).connect(destination);
+    this.lead = decoderLead(buffer, track.click);
+  }
+
+  get playing(): boolean {
+    return this.mood !== undefined;
+  }
+
+  /** Starts the music in `mood`, or moves to `mood` if it is already playing. */
+  play(mood: MusicMood, volume: number): void {
+    this.volume = volume;
+    this.level();
+    if (this.mood) {
+      this.setMood(mood);
+      return;
+    }
+    this.mood = mood;
+    this.session = this.ctx.createGain();
+    this.session.connect(this.highpass);
+    this.held = false;
+    this.riser = 0;
+    this.tone();
+    this.schedule(this.list(mood).play[0]!, this.ctx.currentTime + SAFETY);
+    this.fill();
+    this.timer = setInterval(() => this.fill(), TICK_MS);
+  }
+
+  /** Play's cue, every frame. Cheap when nothing changed. */
+  steer(cue: MusicCue): void {
+    this.setMood(cue.mood, cue.urgent);
+    const riser = Math.round(cue.riser * 50) / 50;
+    if (cue.held === this.held && riser === this.riser) return;
+    this.held = cue.held;
+    this.riser = riser;
+    this.tone();
+  }
+
+  setMood(mood: MusicMood, urgent = false): void {
+    if (!this.mood || mood === this.mood) return;
+    this.mood = mood;
+    const at = this.ctx.currentTime + SAFETY;
+    const ref = this.voiceAt(at);
+    if (ref && ref.end > at && this.list(mood).play.includes(ref.name)) {
+      // The section playing now belongs to the new mood too (menu into a level): carry on.
+      this.cut(ref.end);
+    } else {
+      const step = (urgent ? 1 : 4) * this.track.beat;
+      const t =
+        ref && ref.end > at
+          ? Math.min(ref.end, ref.t0 + Math.ceil((at - ref.t0) / step) * step)
+          : at;
+      this.cut(t);
+      this.schedule(this.list(mood).play[0]!, t);
+    }
+    this.fill();
+  }
+
+  duck(on: boolean): void {
+    if (on === this.ducked) return;
+    this.ducked = on;
+    this.level();
+    this.tone();
+  }
+
+  /** A quick muffle that opens back up, for a lost ball. */
+  dip(): void {
+    if (!this.mood) return;
+    const now = this.ctx.currentTime;
+    const f = this.lowpass.frequency;
+    f.cancelScheduledValues(now);
+    f.setTargetAtTime(DIP_HZ, now, 0.03);
+    this.dipUntil = now + DIP_S;
+    this.tone();
+  }
+
+  stop(ending: MusicEnding = 'cut'): void {
+    const session = this.session;
+    if (!this.mood || !session) return;
+    this.mood = undefined;
+    this.session = undefined;
+    clearInterval(this.timer);
+    const now = this.ctx.currentTime;
+    for (const v of [...this.voices]) {
+      if (v.t0 > now) {
+        this.cancel(v);
+        continue;
+      }
+      if (ending === 'tape') {
+        v.src.playbackRate.setValueAtTime(1, now);
+        v.src.playbackRate.exponentialRampToValueAtTime(0.05, now + TAPE_S);
+      }
+      v.src.stop(now + RELEASE_S);
+    }
+    this.voices = [];
+    const g = session.gain;
+    g.cancelScheduledValues(now);
+    if (ending === 'cut') g.setTargetAtTime(0, now, 0.01);
+    else if (ending === 'fade') g.setTargetAtTime(0, now, 0.25);
+    else g.setTargetAtTime(0, now + TAPE_S * 0.4, 0.15);
+    setTimeout(() => session.disconnect(), (RELEASE_S + 0.1) * 1000);
+  }
+
+  // ---------------------------------------------------------------- scheduling
+
+  private list(mood: MusicMood): MusicPlaylist {
+    return this.track.moods[mood];
+  }
+
+  /** The section that follows `name` in a mood's list. */
+  private follow(mood: MusicMood, name: string): string {
+    const { play, loop } = this.list(mood);
+    const i = play.indexOf(name);
+    if (i < 0) return play[0]!;
+    return i < play.length - 1 ? play[i + 1]! : play[loop]!;
+  }
+
+  /** The voice that is sounding at `t`. */
+  private voiceAt(t: number): Voice | undefined {
+    let found: Voice | undefined;
+    for (const v of this.voices) if (v.t0 <= t) found = v;
+    return found;
+  }
+
+  /** Keeps sections queued ahead of the clock, and restarts the mood if the queue ran dry. */
+  private fill(): void {
+    const mood = this.mood;
+    if (!mood) return;
+    const now = this.ctx.currentTime;
+    let last = this.voices[this.voices.length - 1];
+    if (!last || last.end < now + SAFETY / 2) {
+      last = this.schedule(
+        last ? this.follow(mood, last.name) : this.list(mood).play[0]!,
+        now + SAFETY,
+      );
+    }
+    while (last.end < now + LOOKAHEAD) last = this.schedule(this.follow(mood, last.name), last.end);
+  }
+
+  private schedule(name: string, t0: number): Voice {
+    const seg = this.track.segments[name]!;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.buffer;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(seg.gain, t0 + FADE_IN);
+    src.connect(gain).connect(this.session!);
+    src.start(t0, Math.max(0, this.lead + seg.at));
+    const v: Voice = {
+      name,
+      src,
+      gain,
+      t0,
+      end: t0 + seg.beats * this.track.beat,
+      level: seg.gain,
+    };
+    this.fadeOut(v, v.end);
+    src.onended = () => {
+      gain.disconnect();
+      this.voices = this.voices.filter((x) => x !== v);
+    };
+    this.voices.push(v);
+    return v;
+  }
+
+  /** Ends whatever plays past `t` there, and drops anything queued from `t` on. */
+  private cut(t: number): void {
+    for (const v of [...this.voices]) {
+      if (v.t0 >= t - 1e-4) this.cancel(v);
+      else if (v.end > t) this.fadeOut(v, t);
+    }
+  }
+
+  private fadeOut(v: Voice, t: number): void {
+    const g = v.gain.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(v.level, t);
+    g.linearRampToValueAtTime(0, t + FADE_OUT);
+    v.src.stop(t + FADE_OUT);
+    v.end = t;
+  }
+
+  private cancel(v: Voice): void {
+    v.src.onended = null;
+    v.src.stop();
+    v.gain.disconnect();
+    this.voices = this.voices.filter((x) => x !== v);
+  }
+
+  // ---------------------------------------------------------------- tone
+
+  private level(): void {
+    const g = this.output.gain;
+    const now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setTargetAtTime(this.volume * (this.ducked ? DUCK : 1), now, 0.08);
+  }
+
+  private tone(): void {
+    const now = this.ctx.currentTime;
+    // A dip in progress holds before it opens to the new corner.
+    const from = Math.max(now, this.dipUntil);
+    const lp = this.lowpass.frequency;
+    lp.cancelScheduledValues(from);
+    lp.setTargetAtTime(
+      this.ducked ? DUCK_HZ : this.held ? HELD_HZ : OPEN_HZ,
+      from,
+      from > now ? 0.4 : 0.12,
+    );
+    const hp = this.highpass.frequency;
+    hp.cancelScheduledValues(now);
+    hp.setTargetAtTime(RISER_FLOOR_HZ * (RISER_TOP_HZ / RISER_FLOOR_HZ) ** this.riser, now, 0.15);
+  }
+}
+
+/** How far from its place in the file the decoder put the sync click (s). Zero if it's missing. */
+function decoderLead(buffer: AudioBuffer, click: number): number {
+  const data = buffer.getChannelData(0);
+  const n = Math.min(data.length, Math.round(buffer.sampleRate * 0.2));
+  let peak = 0;
+  let at = 0;
+  for (let i = 0; i < n; i++) {
+    const a = Math.abs(data[i]!);
+    if (a > peak) {
+      peak = a;
+      at = i;
+    }
+  }
+  return peak > 0.1 ? at / buffer.sampleRate - click : 0;
+}

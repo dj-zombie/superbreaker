@@ -38,6 +38,8 @@ export class BrickSystem {
   private remainingCache = -1;
   private targetsCache: Brick[] | null = null;
   private nextCluster = 0;
+  /** A live brick slid along its track on the last update. */
+  moving = false;
 
   constructor(
     private scene: Phaser.Scene,
@@ -146,13 +148,18 @@ export class BrickSystem {
 
   update(dtMs: number): void {
     this.elapsedMs += dtMs;
+    let moving = false;
     for (const b of this.bricks) {
       if (b.life === 'dead') continue;
-      if (b.spec.moveX !== 0 && !b.falling && b.isAlive) this.updateMover(b);
+      if (b.spec.moveX !== 0 && !b.falling && b.isAlive) {
+        this.updateMover(b);
+        moving = true;
+      }
       if (b.life === 'dormant' && this.elapsedMs >= b.regrowAt) this.tryRegrow(b);
       if (b.falling && b.isAlive && b.y >= FALL_SHATTER_Y) this.destroy(b, 'fall', 0);
       if (b.spec.moveX !== 0 || b.falling) b.syncOverlay();
     }
+    this.moving = moving;
     this.checkCollapse();
   }
 

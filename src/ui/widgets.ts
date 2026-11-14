@@ -311,7 +311,7 @@ export class RingTimer extends Phaser.GameObjects.Container {
 
 /** Plays a soft tick for count-ups, pitched by progress. */
 export function tick(progress: number): void {
-  audio.sfx('ui_move', 0.12, Phaser.Math.Clamp(progress, 0, 1) * 600);
+  audio.sfx('ui_tally', 0.2, Phaser.Math.Clamp(progress, 0, 1) * 600);
 }
 
 /** Small tag with a glyph: "Steel", "Lights out". Its width is set for laying out rows. */

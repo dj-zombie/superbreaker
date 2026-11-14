@@ -192,7 +192,7 @@ export class AbilitySystem {
       if (spin.elapsed >= ROULETTE_MS) {
         this.spins[i] = null;
         this.slots[i] = { ability: spin.final, display: spin.final, spinning: false };
-        audio.sfx('ui_on', 0.5);
+        audio.sfx('roulette_lock', 0.5);
         haptic('medium');
         return;
       }
@@ -202,7 +202,7 @@ export class AbilitySystem {
       // Ticks slow down as the roulette winds down.
       const t = spin.elapsed / ROULETTE_MS;
       spin.nextTick = spin.elapsed + 50 + t * t * 180;
-      audio.sfx('ui_move', 0.18, t * 600);
+      audio.sfx('roulette_tick', 0.3, t * 600);
     });
   }
 
@@ -244,7 +244,7 @@ export class AbilitySystem {
           relief: true,
         });
         this.meteors.push({ img, fire, vx: (tx - x) * 0.8, vy: 820, radius: meteorRadius });
-        audio.sfx('sfx_fireball', 0.18, Phaser.Math.Between(-300, 300));
+        audio.sfx('ab_meteor_whoosh', 0.35, Phaser.Math.Between(-300, 300));
       });
     }
   }
@@ -256,9 +256,11 @@ export class AbilitySystem {
       const hit = this.brickAt(m.img.x, m.img.y, 8);
       if (hit) {
         this.blast(m.img.x, m.img.y, m.radius, 0xff7a1f);
+        audio.sfx('ab_meteor_impact', 0.45, Phaser.Math.Between(-150, 150));
         this.removeMeteor(m);
       } else if (m.img.y > PADDLE_Y - 60) {
         this.host.juice.sparkle(m.img.x, m.img.y, 0xff7a1f, 6);
+        audio.sfx('ab_meteor_impact', 0.25, -300);
         this.removeMeteor(m);
       }
     }
@@ -286,7 +288,7 @@ export class AbilitySystem {
       this.scene.time.delayedCall(i * 70, () => {
         this.bolt(a.x, a.y, b.x, b.y);
         if (this.host.bricks.kill(next, 'ability')) this.host.juice.sparkle(b.x, b.y, 0x7fe9ff, 10);
-        audio.sfx('laser_shot', 0.35, 400 + i * 90);
+        audio.sfx('ab_lightning', 0.4, i * 100);
         haptic('light');
       });
       from = b;
@@ -338,7 +340,7 @@ export class AbilitySystem {
       priority: 7,
     });
     this.bombs.push({ img, vy: -760, radius: this.stats.bombRadius });
-    audio.sfx('sfx_balls', 0.4);
+    audio.sfx('ab_bomb_launch', 0.5);
   }
 
   private updateBombs(dt: number): void {
@@ -354,7 +356,7 @@ export class AbilitySystem {
       this.host.juice.shake(300, 0.012);
       this.host.juice.hitStop(60);
       this.host.juice.flash(160, 255, 120, 160);
-      audio.sfx('sfx_fireball', 0.6, -500);
+      audio.sfx('ab_bomb_blast', 0.6);
     }
   }
 
@@ -389,7 +391,7 @@ export class AbilitySystem {
       crossed: new Set(),
       light,
     });
-    audio.sfx('sfx_laser', 0.6);
+    audio.sfx('ab_sweep', 0.5);
   }
 
   private updateBeams(dt: number): void {
@@ -468,7 +470,7 @@ export class AbilitySystem {
       pit,
     });
     this.setGloom(true);
-    audio.sfx('sfx_magnet', 0.6, -600);
+    audio.sfx('ab_blackhole_open', 0.55);
   }
 
   private updateHoles(dtMs: number): void {
@@ -493,6 +495,7 @@ export class AbilitySystem {
       if (h.remainingMs <= 0) {
         this.holes = this.holes.filter((o) => o !== h);
         this.host.juice.ring(h.x, h.y, 0xb05cff, 160);
+        audio.sfx('ab_blackhole_close', 0.45);
         this.removeHole(h);
       }
     }
@@ -505,6 +508,7 @@ export class AbilitySystem {
       ghost.destroy();
       return;
     }
+    audio.sfx('ab_blackhole_swallow', 0.3, Phaser.Math.Between(-200, 200));
     this.scene.tweens.add({
       targets: ghost,
       x: h.x,
@@ -539,7 +543,7 @@ export class AbilitySystem {
 
   private frenzy(): void {
     this.host.spawnFrenzy(this.stats.frenzyBalls);
-    audio.sfx('sfx_balls', 0.6);
+    audio.sfx('ab_frenzy', 0.55);
     this.host.juice.flash(100, 120, 255, 160);
   }
 
