@@ -15,6 +15,7 @@ import {
   HYPER_TIME_SCALE,
   WIDTH,
 } from '../config';
+import { pickHomingTarget, type HomingBox } from '../core/Homing';
 import { PacingDirector, collapseReady, type Intervention } from '../core/Pacing';
 import {
   BALL_OVERFLOW_SCORE,
@@ -124,6 +125,11 @@ const shieldY = () => DECK_TOP - 8;
 /** Arcade passes sprite-vs-group callback args in its own order, so find the ball explicitly. */
 function pickBall(a: unknown, b: unknown): Ball {
   return (a instanceof Ball ? a : b) as Ball;
+}
+
+/** Resting collision box. Hit flashes scale the sprite without resizing the body. */
+function homingBox(b: Brick): HomingBox {
+  return { x: b.x, y: b.y, halfW: b.spec.width / 2, halfH: b.spec.height / 2 };
 }
 
 const AIM_MIN = -2.6;
@@ -1097,17 +1103,16 @@ export class Play extends BaseScene {
     const turn =
       this.nudgeMs > 0 ? NUDGE_TURN : this.pacing.endgameAssist(remaining) ? ENDGAME_TURN : 0;
     if (turn > 0) {
-      const targets = this.bricks.targets;
+      const targets = this.bricks.targets.map(homingBox);
+      const walls: HomingBox[] = [];
+      for (const brick of this.bricks.bricks) {
+        if (brick.isAlive && !brick.breakable) walls.push(homingBox(brick));
+      }
+      // Steel is not a target, and a brick behind it is not either: homing into a wall
+      // pins the ball under the steel instead of letting it through the gaps.
+      const pad = BALL_SIZE / 2;
       for (const b of free) {
-        let best: Brick | undefined;
-        let bestD = Infinity;
-        for (const t of targets) {
-          const d = (t.x - b.x) ** 2 + (t.y - b.y) ** 2;
-          if (d < bestD) {
-            bestD = d;
-            best = t;
-          }
-        }
+        const best = pickHomingTarget(b.x, b.y, targets, walls, pad);
         if (best) b.steerToward(best.x, best.y, turn, dt);
       }
     }
