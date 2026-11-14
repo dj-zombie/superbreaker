@@ -1,0 +1,24 @@
+{
+ "type": "template",
+ "object": {
+  "name": "Cold Light",
+  "type": "Light",
+  "rotation": 0,
+  "visible": true,
+  "width": 0,
+  "height": 0,
+  "point": true,
+  "properties": [
+   {
+    "name": "color",
+    "type": "color",
+    "value": "#ff8cb4ff"
+   },
+   {
+    "name": "radius",
+    "type": "float",
+    "value": 120
+   }
+  ]
+ }
+}

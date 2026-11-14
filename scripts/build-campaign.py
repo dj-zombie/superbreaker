@@ -4,6 +4,12 @@
 Level 24 (Demolition) is hand-authored and is never rewritten. The first run
 copies the previous maps to archive/levels/.
 
+Only the `Bricks` layer and the `title` property are generated. Everything else authored in
+Tiled survives a rebuild: the `Lights` layer and any other layers, extra map properties (such
+as `LevelLighting`'s `lightsOut`), the map class and extra tilesets.
+
+  python3 scripts/build-campaign.py
+
 Curriculum, so a new mechanic is the lesson of one level before it gets mixed:
   1-5   normal bricks only, open shapes
   6-8   steel as bumpers and one real doorway
@@ -127,6 +133,9 @@ class Level:
         bonus: dict[tuple[int, int], str] | None = None,
         regen_delay: float = 4.0,
         armor: dict[tuple[int, int], int] | None = None,
+        glow: dict[tuple[int, int], tuple[str, float, float]] | None = None,
+        lights_out: bool = False,
+        lightning: bool = False,
     ) -> None:
         self.num = num
         self.title = title
@@ -137,6 +146,11 @@ class Level:
         self.bonus = bonus or {}
         self.regen_delay = regen_delay
         self.armor = armor or {}
+        # Emissive bricks: (color #AARRGGBB, radius, intensity). Lights-out levels lean on them.
+        self.glow = glow or {}
+        self.lights_out = lights_out
+        # Strikes show the layout for a moment; the interval is LevelLighting's default.
+        self.lightning = lightning
 
 
 def kind_of(ch: str) -> str:
@@ -420,7 +434,18 @@ def level_bullseye() -> Level:
     drop(g, 19, 4, "f")
     drop(g, 19, 10, "o")
     drop(g, 20, 15, "h")
-    return Level(15, "Bullseye", g, [9, 15, 5, 8], "row")
+    warm = ("#ffffb060", 90.0, 0.6)
+    return Level(
+        15,
+        "Bullseye",
+        g,
+        [9, 15, 5, 8],
+        "row",
+        # The vault in the dark: glowing bricks on the core's corners and the ends of the lower wall.
+        glow={(5, 7): warm, (5, 12): warm, (8, 7): warm, (8, 12): warm, (19, 2): warm, (20, 17): warm},
+        lights_out=True,
+        lightning=True,
+    )
 
 
 def level_skyline() -> Level:
@@ -456,6 +481,10 @@ def level_patrol() -> Level:
         ICE,
         "row",
         moves={(9, 2): (240, 40), (13, 11): (180, 48), (17, 4): (270, 44)},
+        # Night watch: each patrolling brick glows as it moves through the dark.
+        glow={(9, 2): ("#ff9cc4ff", 130.0, 0.65), (13, 11): ("#ff9cc4ff", 130.0, 0.65), (17, 4): ("#ff9cc4ff", 130.0, 0.65)},
+        lights_out=True,
+        lightning=True,
     )
 
 
@@ -669,7 +698,11 @@ def level_highway() -> Level:
     drop(g, 3, 9, "o")
     drop(g, 3, 12, "u")
     drop(g, 4, 8, "y")
-    return Level(28, "Highway", g, [1, 2, 15, 5, 11], "row", moves=moves)
+    # Night traffic: cyan cars start on the left, magenta ones mid-road.
+    glow = {(r, c): ("#ff22d3ff" if c == 1 else "#ffff3ad0", 110.0, 0.6) for r, c in moves}
+    return Level(
+        28, "Highway", g, [1, 2, 15, 5, 11], "row", moves=moves, glow=glow, lights_out=True, lightning=True
+    )
 
 
 def level_crown() -> Level:
@@ -1070,7 +1103,18 @@ def gid_for(level: Level, ch: str, row: int, col: int) -> int:
     return level.palette[i % len(level.palette)]
 
 
-def emit(level: Level) -> dict:
+def emit(level: Level, previous: dict | None = None) -> dict:
+    """The map for `level`, keeping whatever `previous` (the map on disk) has besides bricks."""
+    prev_layers = [l for l in (previous or {}).get("layers", []) if l.get("name") != "Bricks"]
+
+    def object_ids(layers: list[dict]) -> set[int]:
+        out: set[int] = set()
+        for l in layers:
+            out |= {o["id"] for o in l.get("objects", [])}
+            out |= object_ids(l.get("layers", []))
+        return out
+
+    taken = object_ids(prev_layers)
     objects = []
     n = 1
     for r, c, ch in cells(level):
@@ -1087,6 +1131,13 @@ def emit(level: Level) -> dict:
             props.append({"name": "regenDelay", "type": "float", "value": level.regen_delay})
         if (r, c) in level.armor:
             props.append({"name": "armor", "type": "int", "value": level.armor[(r, c)]})
+        if (r, c) in level.glow:
+            color, radius, intensity = level.glow[(r, c)]
+            props.append({"name": "light", "type": "color", "value": color})
+            props.append({"name": "lightRadius", "type": "float", "value": radius})
+            props.append({"name": "lightIntensity", "type": "float", "value": intensity})
+        while n in taken:
+            n += 1
         obj = {
             "id": n,
             "gid": gid_for(level, ch, r, c),
@@ -1103,7 +1154,35 @@ def emit(level: Level) -> dict:
             obj["properties"] = props
         objects.append(obj)
         n += 1
-    return {
+
+    next_id = max([n - 1, *taken]) + 1
+    bricks_layer = {
+        "type": "objectgroup",
+        "id": 1,
+        "name": "Bricks",
+        "draworder": "topdown",
+        "opacity": 1,
+        "visible": True,
+        "x": 0,
+        "y": 0,
+        "objects": objects,
+    }
+    layers = [bricks_layer, *prev_layers]
+    layer_ids = [l["id"] for l in layers if "id" in l]
+
+    tilesets = [{"firstgid": 1, "source": "../tilesets/bricks.tsj"}]
+    for ts in (previous or {}).get("tilesets", []):
+        if ts.get("source") != tilesets[0]["source"]:
+            tilesets.append(ts)
+    properties = [{"name": "title", "type": "string", "value": level.title}]
+    if level.lights_out:
+        properties.append({"name": "lightsOut", "type": "bool", "value": True})
+    if level.lightning:
+        properties.append({"name": "lightning", "type": "bool", "value": True})
+    generated = {p["name"] for p in properties}
+    properties += [p for p in (previous or {}).get("properties", []) if p.get("name") not in generated]
+
+    out = {
         "type": "map",
         "version": "1.10",
         "tiledversion": "1.11.2",
@@ -1115,24 +1194,17 @@ def emit(level: Level) -> dict:
         "tileheight": BH,
         "infinite": False,
         "compressionlevel": -1,
-        "nextlayerid": 2,
-        "nextobjectid": n,
-        "properties": [{"name": "title", "type": "string", "value": level.title}],
-        "tilesets": [{"firstgid": 1, "source": "../tilesets/bricks.tsj"}],
-        "layers": [
-            {
-                "type": "objectgroup",
-                "id": 1,
-                "name": "Bricks",
-                "draworder": "topdown",
-                "opacity": 1,
-                "visible": True,
-                "x": 0,
-                "y": 0,
-                "objects": objects,
-            }
-        ],
+        "nextlayerid": max(layer_ids) + 1,
+        "nextobjectid": next_id,
+        "properties": properties,
+        "tilesets": tilesets,
+        "layers": layers,
     }
+    if level.lights_out or level.lightning:
+        out["class"] = "LevelLighting"
+    elif (previous or {}).get("class"):
+        out["class"] = previous["class"]
+    return out
 
 
 def summarize(level: Level) -> str:
@@ -1221,7 +1293,8 @@ def main() -> None:
     backup_once()
     for lv in levels:
         path = LEVELS / f"level{lv.num:02}.tmj"
-        path.write_text(json.dumps(emit(lv), indent=1) + "\n", encoding="utf-8")
+        previous = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        path.write_text(json.dumps(emit(lv, previous), indent=1) + "\n", encoding="utf-8")
     index = {"levels": [f"level{n:02}.tmj" for n in range(1, 31)]}
     (LEVELS / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {len(levels)} maps; level 24 left untouched")

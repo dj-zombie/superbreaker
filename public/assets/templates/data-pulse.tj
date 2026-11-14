@@ -1,0 +1,42 @@
+{
+ "type": "template",
+ "object": {
+  "name": "Data Pulse",
+  "type": "Light",
+  "rotation": 0,
+  "visible": true,
+  "width": 0,
+  "height": 0,
+  "polyline": [
+   {
+    "x": 0,
+    "y": 0
+   },
+   {
+    "x": 200,
+    "y": 0
+   },
+   {
+    "x": 200,
+    "y": 120
+   }
+  ],
+  "properties": [
+   {
+    "name": "color",
+    "type": "color",
+    "value": "#ff22d3ff"
+   },
+   {
+    "name": "radius",
+    "type": "float",
+    "value": 60
+   },
+   {
+    "name": "speed",
+    "type": "float",
+    "value": 3
+   }
+  ]
+ }
+}

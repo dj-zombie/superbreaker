@@ -22,6 +22,8 @@ export interface PowerupHost {
   onEffectsChanged(): void;
   onPickup(id: PowerupId, x: number, y: number): void;
   grantMystery(x: number, y: number): void;
+  /** A pickup started falling. */
+  onSpawned?(pickup: Pickup): void;
 }
 
 export class Pickup extends Phaser.Physics.Arcade.Sprite {
@@ -91,6 +93,7 @@ export class PowerupSystem {
         ease: 'Sine.InOut',
       });
     }
+    this.host.onSpawned?.(p);
   }
 
   collect(p: Pickup): void {

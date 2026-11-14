@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { fgKey } from '../art/foreground';
+import { fgTexture } from '../art/foreground';
 import type { WorldId } from '../art/backdrops';
 import { BRICK_TINT, LEVEL_OFFSET_Y } from '../config';
 import type { BrickSpec } from '../core/types';
@@ -34,7 +34,7 @@ export class Brick extends Phaser.Physics.Arcade.Image {
       scene,
       spec.x + spec.width / 2,
       spec.y + LEVEL_OFFSET_Y + spec.height / 2,
-      fgKey(world, spec.texture),
+      ...fgTexture(world, spec.texture),
     );
     this.homeX = this.x;
     this.homeY = this.y;
@@ -56,6 +56,18 @@ export class Brick extends Phaser.Physics.Arcade.Image {
 
   get isAlive(): boolean {
     return this.life === 'alive';
+  }
+
+  /** The hit flash owns the tint until it finishes. */
+  get flashing(): boolean {
+    return this.flashTween !== undefined;
+  }
+
+  /** Corner tints from the lighting system, shared with the crack overlay. */
+  applyLight(tl: number, tr: number, bl: number, br: number): void {
+    if (this.flashTween) return;
+    this.setTint(tl, tr, bl, br);
+    this.crack?.setTint(tl, tr, bl, br);
   }
 
   /** Applies a hit. `lethal` ignores health and armor (explosions, falling shatter). */

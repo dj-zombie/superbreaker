@@ -1,0 +1,35 @@
+{
+ "type": "template",
+ "object": {
+  "name": "God Ray",
+  "type": "Light",
+  "rotation": 8,
+  "visible": true,
+  "width": 80,
+  "height": 480,
+  "properties": [
+   {
+    "name": "color",
+    "type": "color",
+    "value": "#ffffe0b0"
+   },
+   {
+    "name": "intensity",
+    "type": "float",
+    "value": 0.35
+   },
+   {
+    "name": "cookie",
+    "type": "string",
+    "value": "shaft",
+    "propertytype": "Cookie"
+   },
+   {
+    "name": "affects",
+    "type": "string",
+    "value": "backdrop",
+    "propertytype": "LightAffects"
+   }
+  ]
+ }
+}

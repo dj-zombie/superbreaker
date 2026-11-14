@@ -10,36 +10,81 @@ export const FG_SPRITES = [
   'ball',
 ] as const;
 
-export function fgKey(world: WorldId, name: string): string {
-  return `${world}_${name}`;
+/**
+ * Each world's sprites share one atlas, so bricks still batch when the High tier lights them per
+ * pixel (lit sprites can't use multi-texture batching).
+ */
+export function fgAtlas(world: WorldId): string {
+  return `fg_${world}`;
 }
 
-export function parseFgKey(key: string): { world: WorldId; name: string } | null {
+/** Texture key and frame of a world sprite, ready to spread into an Image constructor. */
+export function fgTexture(world: WorldId, name: string): [string, string] {
+  return [fgAtlas(world), name];
+}
+
+const normalKey = (world: WorldId) => `${fgAtlas(world)}_n`;
+
+/**
+ * Queues the atlases. Normal maps are separate images, fetched only when per-pixel relief can be
+ * used, so one that fails to load costs the relief and not the world's sprites.
+ */
+export function loadForeground(load: Phaser.Loader.LoaderPlugin, normals: boolean): void {
   for (const world of WORLD_IDS) {
-    const prefix = `${world}_`;
-    if (key.startsWith(prefix)) return { world, name: key.slice(prefix.length) };
+    load.atlas(fgAtlas(world), `images/foreground/${world}.png`, `images/foreground/${world}.json`);
+    if (normals) load.image(normalKey(world), `images/foreground/${world}_n.png`);
   }
-  return null;
 }
 
-export function foregroundImages(): { key: string; path: string }[] {
-  const out: { key: string; path: string }[] = [];
+export function isForegroundKey(key: string): boolean {
+  return WORLD_IDS.some((world) => key === fgAtlas(world) || key === normalKey(world));
+}
+
+/** Hands each loaded normal map to its atlas, which is where Phaser's light shader looks. */
+export function attachNormalMaps(scene: Phaser.Scene): void {
   for (const world of WORLD_IDS) {
-    for (const name of FG_SPRITES) {
-      out.push({ key: fgKey(world, name), path: `images/foreground/${world}/${name}.png` });
+    const key = normalKey(world);
+    if (!scene.textures.exists(key)) continue;
+    if (scene.textures.exists(fgAtlas(world))) {
+      scene.textures.get(fgAtlas(world)).setDataSource(scene.textures.get(key).getSourceImage());
     }
+    scene.textures.remove(key);
   }
-  return out;
 }
 
-/** Points any world sprite that failed to load at the shared sprite of the same name. */
-export function aliasMissingForeground(scene: Phaser.Scene): void {
-  for (const { key } of foregroundImages()) {
+/** True once the world's atlas has a normal map, i.e. relief lighting can be turned on. */
+export function hasNormalMap(scene: Phaser.Scene, world: WorldId): boolean {
+  return (
+    scene.textures.exists(fgAtlas(world)) &&
+    scene.textures.get(fgAtlas(world)).dataSource.length > 0
+  );
+}
+
+/**
+ * A world atlas that failed to load is rebuilt on a canvas from the shared sprites of the same
+ * names, so every `fgTexture` frame still exists.
+ */
+export function rebuildMissingForeground(scene: Phaser.Scene): void {
+  for (const world of WORLD_IDS) {
+    const key = fgAtlas(world);
     if (scene.textures.exists(key)) continue;
-    const name = parseFgKey(key)!.name;
-    if (!scene.textures.exists(name)) continue;
-    const src = scene.textures.get(name).getSourceImage();
-    if (src instanceof HTMLImageElement) scene.textures.addImage(key, src);
-    else if (src instanceof HTMLCanvasElement) scene.textures.addCanvas(key, src);
+    const sources = FG_SPRITES.filter((name) => scene.textures.exists(name)).map((name) => ({
+      name,
+      img: scene.textures.get(name).getSourceImage() as CanvasImageSource & {
+        width: number;
+        height: number;
+      },
+    }));
+    const width = sources.reduce((w, s) => w + s.img.width + 2, 0);
+    const height = Math.max(1, ...sources.map((s) => s.img.height));
+    const tex = scene.textures.createCanvas(key, Math.max(1, width), height);
+    if (!tex) continue;
+    let x = 0;
+    for (const { name, img } of sources) {
+      tex.context.drawImage(img, x, 0);
+      tex.add(name, 0, x, 0, img.width, img.height);
+      x += img.width + 2;
+    }
+    tex.refresh();
   }
 }

@@ -24,6 +24,9 @@ class AudioSystem {
   private gestures = false;
   private lastPlayed = new Map<string, number>();
   private breakTimes: number[] = [];
+  private analyser?: AnalyserNode;
+  private bins?: Uint8Array<ArrayBuffer>;
+  private noise?: AudioBuffer;
 
   init(game: Phaser.Game): void {
     this.sound = game.sound;
@@ -81,6 +84,69 @@ class AudioSystem {
     this.music = this.sound.add(key, { loop: true, volume: MUSIC_VOLUME[key] });
     this.music.play();
     this.musicKey = key;
+    this.tapMusic();
+  }
+
+  private get webAudio(): Phaser.Sound.WebAudioSoundManager | undefined {
+    const s = this.sound as Phaser.Sound.WebAudioSoundManager | undefined;
+    return s && 'context' in s && s.context ? s : undefined;
+  }
+
+  /** Feeds the music (not the sound effects) into an analyser for beat-synced lighting. */
+  private tapMusic(): void {
+    const m = this.music as Phaser.Sound.WebAudioSound | undefined;
+    const ctx = this.webAudio?.context;
+    if (!ctx || !m || !('volumeNode' in m)) return;
+    if (!this.analyser) {
+      this.analyser = ctx.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.5;
+      this.bins = new Uint8Array(this.analyser.frequencyBinCount);
+    }
+    m.volumeNode.connect(this.analyser);
+  }
+
+  /** Low-frequency energy of the music, 0..1, or undefined when it can't be measured. */
+  musicLevel(): number | undefined {
+    if (!this.analyser || !this.bins || !this.music?.isPlaying) return undefined;
+    this.analyser.getByteFrequencyData(this.bins);
+    // Bins are about 170 Hz wide at 44.1 kHz: the first three cover the kick and bass.
+    return (this.bins[0]! + this.bins[1]! + this.bins[2]!) / (3 * 255);
+  }
+
+  /** Rolling thunder synthesized from filtered noise, so storms need no audio asset. */
+  thunder(volume = 0.5): void {
+    const mgr = this.webAudio;
+    if (!mgr || !save.state.settings.sfx || mgr.locked) return;
+    const ctx = mgr.context;
+    const seconds = 2.6;
+    if (!this.noise) {
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      let brown = 0;
+      for (let i = 0; i < data.length; i++) {
+        brown = (brown + (Math.random() * 2 - 1) * 0.08) * 0.985;
+        data[i] = brown * 3;
+      }
+      this.noise = buf;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.playbackRate.value = 0.8 + Math.random() * 0.3;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    const t = ctx.currentTime;
+    lp.frequency.setValueAtTime(900, t);
+    lp.frequency.exponentialRampToValueAtTime(140, t + 1.2);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(volume, t + 0.06);
+    gain.gain.setValueAtTime(volume * 0.7, t + 0.35);
+    gain.gain.exponentialRampToValueAtTime(volume * 0.9, t + 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+    src.connect(lp).connect(gain).connect(mgr.destination);
+    src.start(t);
+    src.stop(t + seconds);
   }
 
   stopMusic(forget = true): void {

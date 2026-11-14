@@ -1,0 +1,20 @@
+{
+ "type": "template",
+ "object": {
+  "name": "Warm Light",
+  "type": "Light",
+  "rotation": 0,
+  "visible": true,
+  "width": 0,
+  "height": 0,
+  "point": true,
+  "properties": [
+   {
+    "name": "flicker",
+    "type": "string",
+    "value": "candle",
+    "propertytype": "Flicker"
+   }
+  ]
+ }
+}

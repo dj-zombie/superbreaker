@@ -17,6 +17,16 @@
    "name": "title",
    "type": "string",
    "value": "Patrol"
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "lightning",
+   "type": "bool",
+   "value": true
   }
  ],
  "tilesets": [
@@ -657,6 +667,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 40
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff9cc4ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 130.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.65
       }
      ]
     },
@@ -681,6 +706,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 48
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff9cc4ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 130.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.65
       }
      ]
     },
@@ -705,6 +745,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 44
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff9cc4ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 130.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.65
       }
      ]
     },
@@ -998,5 +1053,6 @@
     }
    ]
   }
- ]
+ ],
+ "class": "LevelLighting"
 }

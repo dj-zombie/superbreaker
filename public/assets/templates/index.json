@@ -1,0 +1,10 @@
+{
+  "templates": [
+    "cold-light.tj",
+    "data-pulse.tj",
+    "glow-pool.tj",
+    "god-ray.tj",
+    "stained-window.tj",
+    "warm-light.tj"
+  ]
+}

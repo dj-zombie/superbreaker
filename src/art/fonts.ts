@@ -9,8 +9,7 @@ export const POP_FONT = 'ui-pop';
 const BASE = 64;
 const ATLAS_W = 1024;
 const OUTLINE = '#1a0629';
-const CHARS =
-  Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '·×‹›';
+const CHARS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '·×‹›';
 
 /**
  * Bakes UI_FONT into glyph atlases so labels that change often can be BitmapText. A canvas Text

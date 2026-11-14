@@ -11,6 +11,8 @@ export interface BrickEvents {
   onDestroyed(brick: Brick, cause: DestroyCause, chain: number): void;
   onExplosion(x: number, y: number, chain: number): void;
   onRegrow(brick: Brick): void;
+  /** A hit that didn't destroy the brick: damage, armor or a steel ping. */
+  onHit?(brick: Brick, result: HitResult): void;
   onCollapseStart(): void;
   /** True while a ball is close enough that a regrowing brick would trap it. */
   regrowBlocked(brick: Brick): boolean;
@@ -82,9 +84,11 @@ export class BrickSystem {
     cause: DestroyCause,
     opts: { lethal?: boolean; stripArmor?: boolean } = {},
   ): HitResult {
+    const wasAlive = b.isAlive;
     const res = b.takeHit(damage, opts);
     if (res === 'destroyed') this.destroy(b, cause, 0);
     else if (res !== 'immune') b.flash();
+    if (res !== 'destroyed' && wasAlive) this.events.onHit?.(b, res);
     return res;
   }
 

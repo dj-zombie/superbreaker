@@ -135,7 +135,10 @@ export class Hud extends BaseScene {
   }
 
   private makeDeck(): DeckView {
-    const panel = this.add.image(WIDTH / 2, 0, 'deck_panel').setOrigin(0.5, 0).setDepth(1);
+    const panel = this.add
+      .image(WIDTH / 2, 0, 'deck_panel')
+      .setOrigin(0.5, 0)
+      .setDepth(1);
     const track = this.add.rectangle(0, 0, 100, 4, 0xffffff, 0.12).setDepth(2);
     const knob = this.add.image(0, 0, 'deck_knob').setDepth(3).setAlpha(0.85);
     knob.setScale(56 / knob.width);
@@ -149,7 +152,13 @@ export class Hud extends BaseScene {
       })
       .setOrigin(0.5)
       .setDepth(3);
-    this.tweens.add({ targets: hint, alpha: { from: 1, to: 0.35 }, duration: 800, yoyo: true, repeat: -1 });
+    this.tweens.add({
+      targets: hint,
+      alpha: { from: 1, to: 0.35 },
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+    });
     this.deck = { panel, track, knob, hint, left: 0, right: WIDTH };
     this.layoutDeck();
     return this.deck;

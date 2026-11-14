@@ -1,9 +1,21 @@
 {
   "automappingRulesFile": "",
-  "commands": [],
+  "commands": [
+    {
+      "arguments": "\"http://localhost:5173/?map=%mapfile\"",
+      "command": "",
+      "enabled": true,
+      "executable": "open",
+      "name": "Play in dev server",
+      "saveBeforeExecute": true,
+      "shortcut": "Ctrl+R",
+      "showOutput": false,
+      "workingDirectory": "%mappath"
+    }
+  ],
   "compatibilityVersion": 1100,
   "extensionsPath": "extensions",
-  "folders": ["public/assets/levels", "public/assets/tilesets"],
+  "folders": ["public/assets/levels", "public/assets/tilesets", "public/assets/templates"],
   "properties": [],
   "propertyTypes": [
     {
@@ -48,7 +60,84 @@
         { "name": "armor", "type": "int", "value": 2 },
         { "name": "moveX", "type": "float", "value": 0 },
         { "name": "moveSpeed", "type": "float", "value": 60 },
-        { "name": "regenDelay", "type": "float", "value": 4 }
+        { "name": "regenDelay", "type": "float", "value": 4 },
+        { "name": "light", "type": "color", "value": "" },
+        { "name": "lightRadius", "type": "float", "value": 80 },
+        { "name": "lightIntensity", "type": "float", "value": 0.6 }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Flicker",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["steady", "candle", "torch", "pulse", "breathe", "strobe", "glitch"],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 5,
+      "name": "LightAffects",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["both", "backdrop", "bricks"],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 6,
+      "name": "Cookie",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["none", "shaft", "stained", "grille"],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 7,
+      "name": "Mood",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["world", "none", "forge", "storm", "beat"],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 8,
+      "name": "Light",
+      "type": "class",
+      "useAs": ["object"],
+      "color": "#ffffc070",
+      "drawFill": true,
+      "members": [
+        { "name": "color", "type": "color", "value": "#ffffc070" },
+        { "name": "intensity", "type": "float", "value": 0.6 },
+        { "name": "radius", "type": "float", "value": 96 },
+        { "name": "flicker", "type": "string", "propertyType": "Flicker", "value": "steady" },
+        { "name": "speed", "type": "float", "value": 1 },
+        { "name": "phase", "type": "float", "value": 0 },
+        { "name": "affects", "type": "string", "propertyType": "LightAffects", "value": "both" },
+        { "name": "cookie", "type": "string", "propertyType": "Cookie", "value": "none" },
+        { "name": "pingpong", "type": "bool", "value": true },
+        { "name": "relief", "type": "bool", "value": false }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "LevelLighting",
+      "type": "class",
+      "useAs": ["map"],
+      "color": "#ffa0a0a4",
+      "drawFill": true,
+      "members": [
+        { "name": "title", "type": "string", "value": "" },
+        { "name": "ambient", "type": "color", "value": "" },
+        { "name": "backdropStrength", "type": "float", "value": -1 },
+        { "name": "brickFloor", "type": "float", "value": -1 },
+        { "name": "vignette", "type": "float", "value": -1 },
+        { "name": "mood", "type": "string", "propertyType": "Mood", "value": "world" },
+        { "name": "lightsOut", "type": "bool", "value": false },
+        { "name": "darkness", "type": "float", "value": -1 },
+        { "name": "lanternRadius", "type": "float", "value": -1 },
+        { "name": "previewTime", "type": "float", "value": -1 },
+        { "name": "lightning", "type": "bool", "value": false },
+        { "name": "lightningInterval", "type": "float", "value": 10 }
       ]
     }
   ]

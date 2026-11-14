@@ -1,0 +1,35 @@
+{
+ "type": "template",
+ "object": {
+  "name": "Stained Window",
+  "type": "Light",
+  "rotation": -10,
+  "visible": true,
+  "width": 110,
+  "height": 420,
+  "properties": [
+   {
+    "name": "color",
+    "type": "color",
+    "value": "#fffff1dc"
+   },
+   {
+    "name": "intensity",
+    "type": "float",
+    "value": 0.4
+   },
+   {
+    "name": "cookie",
+    "type": "string",
+    "value": "stained",
+    "propertytype": "Cookie"
+   },
+   {
+    "name": "affects",
+    "type": "string",
+    "value": "backdrop",
+    "propertytype": "LightAffects"
+   }
+  ]
+ }
+}

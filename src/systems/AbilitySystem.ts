@@ -17,6 +17,7 @@ import { audio } from './AudioSystem';
 import type { Backdrop } from './Backdrop';
 import type { BrickSystem } from './BrickSystem';
 import type { JuiceSystem } from './JuiceSystem';
+import type { Light, LightingSystem } from './LightingSystem';
 
 export const SLOT_COUNT = 2;
 const ROULETTE_MS = 1_200;
@@ -33,6 +34,7 @@ export interface AbilityHost {
   readonly bricks: BrickSystem;
   readonly juice: JuiceSystem;
   readonly backdrop: Backdrop;
+  readonly lights?: LightingSystem;
   paddlePos(): { x: number; y: number };
   rollContext(): RollContext;
   spawnFrenzy(count: number): void;
@@ -68,6 +70,7 @@ interface Beam {
   /** Bricks chosen to die when the beam crosses them; the rest only lose their armor. */
   victims: Set<Brick>;
   crossed: Set<Brick>;
+  light?: Light;
 }
 
 interface Hole {
@@ -79,6 +82,7 @@ interface Hole {
   nextPull: number;
   gfx: Phaser.GameObjects.Graphics;
   core: Phaser.GameObjects.Image;
+  pit?: Light;
 }
 
 /** Two Mario Kart style item slots plus the six big abilities they can fire. */
@@ -142,7 +146,13 @@ export class AbilitySystem {
     const id = slot.ability;
     this.slots[i] = { ability: null, display: null, spinning: false };
     const info = ABILITY_INFO[id];
-    this.host.juice.popText(WIDTH / 2, ARENA_MID - 60, info.label.toUpperCase() + '!', '#ffffff', 30);
+    this.host.juice.popText(
+      WIDTH / 2,
+      ARENA_MID - 60,
+      info.label.toUpperCase() + '!',
+      '#ffffff',
+      30,
+    );
     haptic('heavy');
     this[id]();
     return id;
@@ -161,7 +171,10 @@ export class AbilitySystem {
   clearEffects(): void {
     for (const m of this.meteors) this.removeMeteor(m);
     for (const b of this.bombs) b.img.destroy();
-    for (const b of this.beams) b.gfx.destroy();
+    for (const b of this.beams) {
+      b.gfx.destroy();
+      b.light?.kill();
+    }
     for (const h of this.holes) this.removeHole(h);
     this.meteors = [];
     this.bombs = [];
@@ -220,6 +233,16 @@ export class AbilitySystem {
           blendMode: Phaser.BlendModes.ADD,
         });
         fire.setDepth(6);
+        this.host.lights?.addLight({
+          follow: img,
+          radius: 110,
+          color: 0xff7a1f,
+          intensity: 0.6,
+          flicker: 'torch',
+          speed: 2,
+          priority: 7,
+          relief: true,
+        });
         this.meteors.push({ img, fire, vx: (tx - x) * 0.8, vy: 820, radius: meteorRadius });
         audio.sfx('sfx_fireball', 0.18, Phaser.Math.Between(-300, 300));
       });
@@ -269,6 +292,7 @@ export class AbilitySystem {
       from = b;
     }
     this.host.juice.flash(90, 160, 240, 255);
+    this.host.lights?.flashAmbient(0x9fdcff, 0.25);
   }
 
   private bolt(x1: number, y1: number, x2: number, y2: number): void {
@@ -294,6 +318,7 @@ export class AbilitySystem {
       g.strokePath();
     }
     this.scene.tweens.add({ targets: g, alpha: 0, duration: 260, onComplete: () => g.destroy() });
+    this.host.lights?.flash(x2, y2, 0x9fe8ff, 90, 260, 0.6, 1, 7);
   }
 
   // ---------------------------------------------------------------- mega bomb
@@ -303,6 +328,15 @@ export class AbilitySystem {
     const img = this.scene.add.image(p.x, p.y - 30, 'ab_bomb').setDepth(7);
     img.setScale(40 / img.width);
     this.scene.tweens.add({ targets: img, angle: 360, duration: 600, repeat: -1 });
+    this.host.lights?.addLight({
+      follow: img,
+      radius: 80,
+      color: 0xff3c6d,
+      intensity: 0.5,
+      flicker: 'pulse',
+      speed: 2.5,
+      priority: 7,
+    });
     this.bombs.push({ img, vy: -760, radius: this.stats.bombRadius });
     audio.sfx('sfx_balls', 0.4);
   }
@@ -339,12 +373,21 @@ export class AbilitySystem {
       count = Math.max(Math.min(share, floor), Math.min(4, targets.length));
     }
     const gfx = this.scene.add.graphics().setDepth(8).setBlendMode(Phaser.BlendModes.ADD);
+    const light = this.host.lights?.addLight({
+      x: -40,
+      y: HUD_HEIGHT,
+      area: { width: 64, height: PADDLE_Y - HUD_HEIGHT - 30 },
+      color: 0xff4d4d,
+      intensity: 0.55,
+      priority: 8,
+    });
     this.beams.push({
       gfx,
       x: -10,
       speed: (WIDTH + 20) / 1.5,
       victims: new Set(targets.slice(0, count)),
       crossed: new Set(),
+      light,
     });
     audio.sfx('sfx_laser', 0.6);
   }
@@ -357,6 +400,7 @@ export class AbilitySystem {
         .fillStyle(0xff4d4d, 0.25)
         .fillRect(b.x - 18, HUD_HEIGHT, 36, PADDLE_Y - HUD_HEIGHT - 30);
       b.gfx.fillStyle(0xffffff, 0.9).fillRect(b.x - 3, HUD_HEIGHT, 6, PADDLE_Y - HUD_HEIGHT - 30);
+      if (b.light) b.light.x = b.x - 32;
       for (const brick of this.host.bricks.targets) {
         if (b.crossed.has(brick) || Math.abs(brick.x - b.x) >= brick.displayWidth / 2 + 6) continue;
         b.crossed.add(brick);
@@ -369,6 +413,7 @@ export class AbilitySystem {
       if (b.x > WIDTH + 20) {
         this.beams = this.beams.filter((o) => o !== b);
         b.gfx.destroy();
+        b.light?.kill();
       }
     }
   }
@@ -394,6 +439,23 @@ export class AbilitySystem {
     });
     const { holeRadius, holeMs } = this.stats;
     this.scene.tweens.add({ targets: core, angle: -720, duration: holeMs });
+    // A violet rim around a pit that swallows the light.
+    this.host.lights?.addLight({
+      follow: core,
+      radius: holeRadius * 2.2,
+      color: 0xb05cff,
+      intensity: 0.4,
+      flicker: 'pulse',
+      speed: 1.2,
+      priority: 8,
+    });
+    const pit = this.host.lights?.addLight({
+      follow: core,
+      radius: 60,
+      negative: true,
+      intensity: 0.9,
+      priority: 8,
+    });
     this.holes.push({
       x: best.x,
       y: best.y,
@@ -403,6 +465,7 @@ export class AbilitySystem {
       nextPull: 0,
       gfx,
       core,
+      pit,
     });
     this.setGloom(true);
     audio.sfx('sfx_magnet', 0.6, -600);
@@ -412,6 +475,7 @@ export class AbilitySystem {
     for (const h of [...this.holes]) {
       h.remainingMs -= dtMs;
       h.radius = Math.min(h.maxRadius, h.radius + dtMs * 0.03);
+      if (h.pit) h.pit.radius = h.radius * 1.5;
       h.nextPull -= dtMs;
       const t = this.scene.time.now / 1000;
       h.gfx.clear();
@@ -435,7 +499,7 @@ export class AbilitySystem {
   }
 
   private suckIn(b: Brick, h: Hole): void {
-    const ghost = this.scene.add.image(b.x, b.y, b.texture.key).setDepth(6);
+    const ghost = this.scene.add.image(b.x, b.y, b.texture.key, b.frame.name).setDepth(6);
     ghost.setDisplaySize(b.displayWidth, b.displayHeight).setTint(b.tintColor);
     if (!this.host.bricks.kill(b, 'ability')) {
       ghost.destroy();
@@ -455,6 +519,7 @@ export class AbilitySystem {
 
   private removeHole(h: Hole): void {
     h.gfx.destroy();
+    h.pit?.kill();
     this.scene.tweens.killTweensOf(h.core);
     this.scene.tweens.add({
       targets: h.core,
@@ -489,6 +554,7 @@ export class AbilitySystem {
     }
     this.host.juice.ring(x, y, tint, radius * 1.2);
     this.host.juice.burst(x, y, tint, 14);
+    this.host.lights?.flash(x, y, tint, radius * 2.4, 520, 0.8, 1.2, 8);
     this.host.juice.shake(120, 0.006);
     haptic('medium');
   }

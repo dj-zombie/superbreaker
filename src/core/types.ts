@@ -1,3 +1,5 @@
+import type { LevelLightingSpec, LightSpec } from './Lighting';
+
 export const BRICK_KINDS = ['normal', 'steel', 'explosive', 'armored', 'regen'] as const;
 export type BrickKind = (typeof BRICK_KINDS)[number];
 
@@ -42,12 +44,17 @@ export interface BrickSpec {
   moveSpeed: number;
   /** Seconds before a regen brick grows back. */
   regenDelay: number;
+  /** Emissive bricks light their surroundings until they break. */
+  light?: { color: number; radius: number; intensity: number };
 }
 
 export interface LevelSpec {
   id: string;
   title: string;
   bricks: BrickSpec[];
+  /** From the `Lights` object layer. */
+  lights: LightSpec[];
+  lighting: LevelLightingSpec;
 }
 
 export const FIELD_WIDTH = 600;

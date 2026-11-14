@@ -22,7 +22,10 @@ export interface Tintable {
   setTint(color: number): unknown;
 }
 
-/** Mood control for the Play background: Fever recolors it, the Black Hole darkens it. */
+/**
+ * Mood control for the Play background: Fever recolors it, the Black Hole darkens it.
+ * With the light map, darkness goes to `onDark` (the ambient) instead of the tint.
+ */
 export class Backdrop {
   private dark = 0;
   private darkTarget = 0;
@@ -32,6 +35,7 @@ export class Backdrop {
   constructor(
     private image: Tintable,
     private dim: number,
+    private onDark?: (dark: number) => void,
   ) {}
 
   setHue(color?: number): void {
@@ -53,9 +57,10 @@ export class Backdrop {
           ? Math.min(this.darkTarget, this.dark + step)
           : Math.max(this.darkTarget, this.dark - step);
       this.dirty = true;
+      this.onDark?.(this.dark);
     }
     if (!this.dirty) return;
     this.dirty = false;
-    this.image.setTint(backdropTint(this.dim, this.dark, this.hue));
+    this.image.setTint(backdropTint(this.dim, this.onDark ? 0 : this.dark, this.hue));
   }
 }

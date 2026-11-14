@@ -1,0 +1,36 @@
+{
+ "type": "template",
+ "object": {
+  "name": "Glow Pool",
+  "type": "Light",
+  "rotation": 0,
+  "visible": true,
+  "width": 160,
+  "height": 160,
+  "ellipse": true,
+  "properties": [
+   {
+    "name": "color",
+    "type": "color",
+    "value": "#ffff6a24"
+   },
+   {
+    "name": "intensity",
+    "type": "float",
+    "value": 0.4
+   },
+   {
+    "name": "flicker",
+    "type": "string",
+    "value": "breathe",
+    "propertytype": "Flicker"
+   },
+   {
+    "name": "affects",
+    "type": "string",
+    "value": "backdrop",
+    "propertytype": "LightAffects"
+   }
+  ]
+ }
+}

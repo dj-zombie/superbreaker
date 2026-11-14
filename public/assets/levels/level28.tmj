@@ -17,6 +17,16 @@
    "name": "title",
    "type": "string",
    "value": "Highway"
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "lightning",
+   "type": "bool",
+   "value": true
   }
  ],
  "tilesets": [
@@ -665,6 +675,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 50
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff22d3ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -689,6 +714,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 56
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffff3ad0"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -713,6 +753,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 66
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff22d3ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -737,6 +792,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 72
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffff3ad0"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -761,6 +831,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 54
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff22d3ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -785,6 +870,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 60
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffff3ad0"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -809,6 +909,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 76
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff22d3ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -833,6 +948,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 82
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffff3ad0"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -857,6 +987,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 60
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff22d3ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -881,6 +1026,21 @@
        "name": "moveSpeed",
        "type": "float",
        "value": 66
+      },
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffff3ad0"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
       }
      ]
     },
@@ -958,5 +1118,6 @@
     }
    ]
   }
- ]
+ ],
+ "class": "LevelLighting"
 }

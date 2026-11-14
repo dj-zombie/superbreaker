@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
-import { fgKey } from '../art/foreground';
+import { fgTexture } from '../art/foreground';
 
 export const BALL_SIZE = 22;
 
@@ -34,7 +34,7 @@ export class Ball extends Phaser.Physics.Arcade.Image {
   private mode: BallMode = 'normal';
 
   constructor(scene: Phaser.Scene, x: number, y: number, world: WorldId) {
-    super(scene, x, y, fgKey(world, 'ball'));
+    super(scene, x, y, ...fgTexture(world, 'ball'));
     scene.add.existing(this);
     scene.physics.add.existing(this);
     const frameSize = Math.min(this.width, this.height);
@@ -49,6 +49,14 @@ export class Ball extends Phaser.Physics.Arcade.Image {
 
   get attached(): boolean {
     return this.attachedOffset !== null;
+  }
+
+  get ballMode(): BallMode {
+    return this.mode;
+  }
+
+  get isHyper(): boolean {
+    return this.hyper;
   }
 
   launch(angleRad: number, speed: number): void {

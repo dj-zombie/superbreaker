@@ -6,6 +6,7 @@ import {
   parseLevel,
   validateLevel,
   type TiledMap,
+  type TiledTemplate,
   type TiledTileset,
 } from '../src/core/LevelParser';
 import { BRICK_KINDS, POWERUP_IDS } from '../src/core/types';
@@ -20,6 +21,12 @@ const tileset = readJson<TiledTileset & { tiles: Array<{ image: string }> }>(
 );
 const resolve = (source: string) =>
   source.endsWith('bricks.tsj') ? (tileset as TiledTileset) : undefined;
+const templates = new Map(
+  readJson<{ templates: string[] }>(join(ASSETS, 'templates', 'index.json')).templates.map(
+    (file) => [file, readJson<TiledTemplate>(join(ASSETS, 'templates', file))],
+  ),
+);
+const resolveTemplate = (path: string) => templates.get(path.split('/').pop()!);
 
 describe('brick tileset', () => {
   it('references images that exist', () => {
@@ -31,7 +38,7 @@ describe('brick tileset', () => {
 
 describe.each(manifest.levels)('%s', (file) => {
   const map = readJson<TiledMap>(join(LEVELS_DIR, file));
-  const { level, warnings } = parseLevel(map, file.replace('.tmj', ''), resolve);
+  const { level, warnings } = parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate);
 
   it('parses without warnings', () => {
     expect(warnings).toEqual([]);
@@ -58,18 +65,31 @@ describe('campaign', () => {
     expect(manifest.levels[23]).toBe('level24.tmj');
     const titles = manifest.levels.map((file) => {
       const map = readJson<TiledMap>(join(LEVELS_DIR, file));
-      return parseLevel(map, file.replace('.tmj', ''), resolve).level.title;
+      return parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate).level.title;
     });
     expect(new Set(titles).size).toBe(titles.length);
     expect(titles[23]).toBe('Demolition');
     expect(titles[0]).toBe('First Light');
     expect(titles[29]).toBe('Supernova');
   });
+
+  it('has lights-out levels with lightning, whose bricks carry the light', () => {
+    const dark = manifest.levels.flatMap((file) => {
+      const map = readJson<TiledMap>(join(LEVELS_DIR, file));
+      const { level } = parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate);
+      return level.lighting.lightsOut ? [level] : [];
+    });
+    expect(dark.map((l) => l.title)).toEqual(['Bullseye', 'Patrol', 'Highway']);
+    for (const level of dark) {
+      expect(level.bricks.filter((b) => b.light).length).toBeGreaterThanOrEqual(3);
+      expect(level.lighting.lightning).toBe(true);
+    }
+  });
 });
 
 describe('level24 Demolition showcase', () => {
   const map = readJson<TiledMap>(join(LEVELS_DIR, 'level24.tmj'));
-  const { level } = parseLevel(map, 'level24', resolve);
+  const { level } = parseLevel(map, 'level24', resolve, resolveTemplate);
 
   it('uses every new brick kind and moving bricks', () => {
     const kinds = new Set(level.bricks.map((b) => b.kind));

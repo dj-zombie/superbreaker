@@ -7,13 +7,22 @@ background is removed with a flood fill from the border. The master's glass is g
 mapped to each of the 16 tile hues so a red brick stays red in every world, and the frame
 keeps the world's material.
 
-Writes public/assets/images/foreground/<world>/. The original brick PNGs under
+The cut sprites go to art-src/foreground/<world>/sprites/. The original brick PNGs under
 public/assets/images/bricks/ are the Tiled tileset and are never touched.
 
-Usage: python3 scripts/build-foreground.py   (Pillow, numpy)
+Each world's sprites are then packed into the one atlas the game loads,
+public/assets/images/foreground/<world>.png + <world>.json, plus a normal map atlas with the same
+layout (<world>_n.png) for the High lighting tier. Normals
+come from a bevel around each sprite's alpha plus a high-pass of its brightness, so the painted
+detail catches moving lights.
+
+Usage: python3 scripts/build-foreground.py              (Pillow, numpy)
+       python3 scripts/build-foreground.py --pack-only  # re-pack the existing sprites
 """
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -175,9 +184,94 @@ def save(img: Image.Image, path: Path) -> None:
     print(f"  {path.relative_to(ROOT)} {img.size[0]}x{img.size[1]}")
 
 
+# ---------------------------------------------------------------- normals and atlas
+
+SPRITES = [f"brick_{n}" for n in BRICK_COLORS] + [f"brick_{k}" for k in SPECIALS] + ["paddle", "ball"]
+GUTTER = 2  # extruded edge pixels around each frame, so filtering never samples a neighbour
+ATLAS_WIDTH = 1024
+BEVEL_PX = 5.0  # at 4x, about a game pixel
+NORMAL_STRENGTH = 4.0
+DETAIL = 1.5
+
+
+def blur(a: np.ndarray, sigma: float) -> np.ndarray:
+    r = max(1, int(sigma * 3))
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    k /= k.sum()
+    p = np.pad(a, ((r, r), (0, 0)), mode="edge")
+    a = sum(k[i] * p[i : i + a.shape[0]] for i in range(2 * r + 1))
+    p = np.pad(a, ((0, 0), (r, r)), mode="edge")
+    return sum(k[i] * p[:, i : i + a.shape[1]] for i in range(2 * r + 1))
+
+
+def normal_map(rgba: np.ndarray) -> np.ndarray:
+    """Tangent-space normals, green up (OpenGL), which is what Phaser's light shader expects."""
+    alpha = rgba[..., 3] / 255
+    padded = np.pad(alpha, int(BEVEL_PX * 3))
+    inner = blur(padded, BEVEL_PX)[int(BEVEL_PX * 3) : -int(BEVEL_PX * 3), int(BEVEL_PX * 3) : -int(BEVEL_PX * 3)]
+    bevel = smooth(0.5, 1.0, inner) * alpha
+    lum = (rgba[..., :3] / 255) @ np.array([0.3, 0.59, 0.11], np.float32)
+    detail = (lum - blur(lum, 3.0)) * alpha
+    height = bevel + detail * DETAIL
+    dy, dx = np.gradient(height)
+    # Rows run down the image while the shader's y runs up, hence +dy.
+    n = np.dstack([-dx * NORMAL_STRENGTH, dy * NORMAL_STRENGTH, np.ones_like(height)])
+    n /= np.linalg.norm(n, axis=2, keepdims=True)
+    flat = np.array([0.0, 0.0, 1.0])
+    n = np.where((alpha > 0.02)[..., None], n, flat)
+    out = np.dstack([(n * 0.5 + 0.5) * 255, np.full_like(height, 255)])
+    return out
+
+
+def extrude(rgba: np.ndarray) -> np.ndarray:
+    return np.pad(rgba, ((GUTTER, GUTTER), (GUTTER, GUTTER), (0, 0)), mode="edge")
+
+
+def pack(world: str) -> None:
+    """Shelf-packs the world's sprites, tallest first, into <world>.png, <world>_n.png and <world>.json."""
+    folder = SRC / world / "sprites"
+    sprites = {name: np.asarray(Image.open(folder / f"{name}.png").convert("RGBA")).astype(np.float32) for name in SPRITES}
+    order = sorted(SPRITES, key=lambda n: (-sprites[n].shape[0], SPRITES.index(n)))
+    places: dict[str, tuple[int, int]] = {}
+    x = y = shelf = 0
+    for name in order:
+        h, w = sprites[name].shape[:2]
+        fw, fh = w + GUTTER * 2, h + GUTTER * 2
+        if x + fw > ATLAS_WIDTH:
+            x, y, shelf = 0, y + shelf, 0
+        places[name] = (x, y)
+        x += fw
+        shelf = max(shelf, fh)
+    height = y + shelf
+    height += -height % 4
+    color = np.zeros((height, ATLAS_WIDTH, 4), np.float32)
+    normal = np.zeros_like(color)
+    normal[...] = (127.5, 127.5, 255, 255)
+    frames = {}
+    for name in SPRITES:
+        rgba = sprites[name]
+        h, w = rgba.shape[:2]
+        fx, fy = places[name]
+        color[fy : fy + h + GUTTER * 2, fx : fx + w + GUTTER * 2] = extrude(rgba)
+        normal[fy : fy + h + GUTTER * 2, fx : fx + w + GUTTER * 2] = extrude(normal_map(rgba))
+        frames[name] = {
+            "frame": {"x": fx + GUTTER, "y": fy + GUTTER, "w": w, "h": h},
+            "rotated": False,
+            "trimmed": False,
+            "spriteSourceSize": {"x": 0, "y": 0, "w": w, "h": h},
+            "sourceSize": {"w": w, "h": h},
+        }
+    save(image(color), OUT / f"{world}.png")
+    save(image(normal), OUT / f"{world}_n.png")
+    meta = {"image": f"{world}.png", "size": {"w": ATLAS_WIDTH, "h": height}, "scale": "1"}
+    path = OUT / f"{world}.json"
+    path.write_text(json.dumps({"frames": frames, "meta": meta}, indent=1) + "\n", encoding="utf-8")
+    print(f"  {path.relative_to(ROOT)} {len(frames)} frames")
+
+
 def build(world: str) -> None:
     print(world)
-    src, out = SRC / world, OUT / world
+    src, out = SRC / world, SRC / world / "sprites"
     master = cut(src / "brick.jpg")
     mask = glass_mask(master, GLASS[world])
     for name, color in BRICK_COLORS.items():
@@ -190,8 +284,11 @@ def build(world: str) -> None:
 
 
 def main() -> None:
+    pack_only = "--pack-only" in sys.argv[1:]
     for world in WORLDS:
-        build(world)
+        if not pack_only:
+            build(world)
+        pack(world)
 
 
 if __name__ == "__main__":

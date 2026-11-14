@@ -18,6 +18,7 @@ import { setupNativeChrome } from './platform/lifecycle';
 import { save } from './services';
 import { audio } from './systems/AudioSystem';
 import { targetZoom } from './systems/Quality';
+import { RELIEF_MAX_LIGHTS } from './systems/ReliefLighting';
 import { Boot } from './scenes/Boot';
 import { Preload } from './scenes/Preload';
 import { Title } from './scenes/Title';
@@ -134,6 +135,7 @@ async function start(): Promise<void> {
       // Phaser drops to one texture per batch on phones by default, which turned every brick
       // colour change into its own draw call (~95 per frame instead of ~14).
       autoMobileTextures: false,
+      maxLights: RELIEF_MAX_LIGHTS,
       maxTextures: IS_TOUCH ? 8 : -1,
     },
     scene: [Boot, Preload, Title, LevelSelect, Play, Hud, Pause, Results, Upgrades, Settings],

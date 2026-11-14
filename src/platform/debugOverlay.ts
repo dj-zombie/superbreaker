@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import { RENDER_ZOOM, SCENES } from '../config';
+import { LightingSystem } from '../systems/LightingSystem';
 
 /**
- * `?debug` in the URL shows frame rate, CPU time per frame, physics bodies, live particles and
- * render zoom, refreshed twice a second. Meant for checking a real phone against `pnpm preview --host`.
+ * `?debug` in the URL shows frame rate, CPU time per frame, physics bodies, live particles, render
+ * zoom and the lighting tier, light count and light map cost, refreshed twice a second. Meant for
+ * checking a real phone against `pnpm preview --host`.
  */
 export function mountDebugOverlay(game: Phaser.Game): void {
   if (!new URLSearchParams(location.search).has('debug')) return;
@@ -50,10 +52,16 @@ export function mountDebugOverlay(game: Phaser.Game): void {
       }
     }
     const avg = frames ? cpu / frames : 0;
+    const lighting = LightingSystem.current;
+    const light = lighting?.enabled
+      ? `\nlight ${lighting.stats.tier}  ${lighting.stats.drawn}/${lighting.stats.lights} drawn  ` +
+        `map ${lighting.stats.map}  ${lighting.stats.ms.toFixed(2)}ms`
+      : '';
     el.textContent =
       `${game.loop.actualFps.toFixed(0)} fps  cpu ${avg.toFixed(1)}ms (max ${worst.toFixed(0)})\n` +
       `bodies ${bodies}  particles ${particles}\n` +
-      `zoom ${RENDER_ZOOM}  canvas ${game.canvas.width}x${game.canvas.height}`;
+      `zoom ${RENDER_ZOOM}  canvas ${game.canvas.width}x${game.canvas.height}` +
+      light;
     frames = 0;
     cpu = 0;
     worst = 0;

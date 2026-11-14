@@ -168,12 +168,17 @@ export function ring(
   color: number,
   alpha = 1,
 ): Phaser.GameObjects.Image {
-  const key = texture(scene, `ring_${radius}_${lineWidth}`, radius * 2 + lineWidth + 2, (ctx, size) => {
-    ctx.lineWidth = lineWidth;
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-    ctx.stroke();
-  });
+  const key = texture(
+    scene,
+    `ring_${radius}_${lineWidth}`,
+    radius * 2 + lineWidth + 2,
+    (ctx, size) => {
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    },
+  );
   return scene.add
     .image(x, y, key)
     .setScale(1 / SCALE)

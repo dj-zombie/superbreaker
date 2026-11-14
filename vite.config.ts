@@ -34,6 +34,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,jpg,webp,json,tmj,tsj,mp3,wav,xml,fnt}'],
+        // Normal maps only serve the desktop High tier, so phones shouldn't precache them.
+        globIgnores: ['**/*_n.png'],
+        runtimeCaching: [
+          {
+            urlPattern: /_n\.png$/,
+            handler: 'CacheFirst',
+            options: { cacheName: 'normal-maps' },
+          },
+        ],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
       },
     }),

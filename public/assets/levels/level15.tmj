@@ -17,6 +17,16 @@
    "name": "title",
    "type": "string",
    "value": "Bullseye"
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "lightning",
+   "type": "bool",
+   "value": true
   }
  ],
  "tilesets": [
@@ -610,7 +620,24 @@
      "rotation": 0,
      "visible": true,
      "name": "",
-     "type": ""
+     "type": "",
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffffb060"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 90.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
     },
     {
      "id": 49,
@@ -670,7 +697,24 @@
      "rotation": 0,
      "visible": true,
      "name": "",
-     "type": ""
+     "type": "",
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffffb060"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 90.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
     },
     {
      "id": 54,
@@ -1042,7 +1086,24 @@
      "rotation": 0,
      "visible": true,
      "name": "",
-     "type": ""
+     "type": "",
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffffb060"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 90.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
     },
     {
      "id": 85,
@@ -1102,7 +1163,24 @@
      "rotation": 0,
      "visible": true,
      "name": "",
-     "type": ""
+     "type": "",
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffffb060"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 90.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
     },
     {
      "id": 90,
@@ -1678,7 +1756,24 @@
      "rotation": 0,
      "visible": true,
      "name": "",
-     "type": ""
+     "type": "",
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffffb060"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 90.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
     },
     {
      "id": 138,
@@ -2074,7 +2169,24 @@
      "rotation": 0,
      "visible": true,
      "name": "",
-     "type": ""
+     "type": "",
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ffffb060"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 90.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
     },
     {
      "id": 169,
@@ -2198,5 +2310,6 @@
     }
    ]
   }
- ]
+ ],
+ "class": "LevelLighting"
 }

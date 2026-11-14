@@ -44,11 +44,7 @@ export class Button extends Phaser.GameObjects.Container {
     const r = height / 2;
     this.side = buttonFace(scene, 0, 0, width, height, 0);
     this.face = buttonFace(scene, 0, 0, width, height - 4, 0);
-    this.add([
-      roundBox(scene, 0, 8, width, height, r, 0x000000, 0.45),
-      this.side,
-      this.face,
-    ]);
+    this.add([roundBox(scene, 0, 8, width, height, r, 0x000000, 0.45), this.side, this.face]);
 
     let textX = 0;
     if (this.opts.icon) {
@@ -117,7 +113,9 @@ export class Button extends Phaser.GameObjects.Container {
   private draw(pressed: boolean): void {
     const { fill } = this.opts;
     const drop = pressed ? 4 : 0;
-    this.side.setTint(Phaser.Display.Color.ValueToColor(fill).darken(35).color).setY(pressed ? -2 : 2);
+    this.side
+      .setTint(Phaser.Display.Color.ValueToColor(fill).darken(35).color)
+      .setY(pressed ? -2 : 2);
     this.face.setTint(fill).setY(drop - 4);
     this.label.setY(pressed ? 0 : -2);
   }

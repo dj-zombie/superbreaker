@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { worldForLevel } from '../art/backdrops';
+import { worldForLevel, type WorldId } from '../art/backdrops';
 import {
   ARENA_MID,
   COLORS,
@@ -32,7 +32,7 @@ import { LASER_BARREL_OFFSETS, powerupStats } from '../core/Economy';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BALL_SIZE, Ball } from '../entities/Ball';
-import type { Brick } from '../entities/Brick';
+import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
 import { haptic } from '../platform/haptics';
 import { onAppBackground } from '../platform/lifecycle';
@@ -46,6 +46,7 @@ import { FrameMonitor, particleDensity } from '../systems/Quality';
 import { FeverSystem } from '../systems/FeverSystem';
 import { InputSystem } from '../systems/InputSystem';
 import { JuiceSystem } from '../systems/JuiceSystem';
+import { LightingSystem, type Light } from '../systems/LightingSystem';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/PowerupSystem';
 import { bodyText, fadeIn } from '../ui/Button';
@@ -118,6 +119,10 @@ export class Play extends BaseScene {
   private fever!: FeverSystem;
   private backdrop!: Backdrop;
   private scenery!: ParallaxBackdrop;
+  private lighting!: LightingSystem;
+  private ballLights = new Map<Ball, Light>();
+  private brickLights: Array<{ brick: Brick; light: Light }> = [];
+  private shieldLight?: Light;
   private ballFx!: BallFx;
   private frameMonitor!: FrameMonitor;
   private pacing!: PacingDirector;
@@ -180,7 +185,14 @@ export class Play extends BaseScene {
     };
 
     this.scenery = new ParallaxBackdrop(this, worldForLevel(this.levelIndex));
-    this.backdrop = new Backdrop(this.scenery, 0.12);
+    this.lighting = new LightingSystem(this, world, this.level, this.scenery);
+    // The light map replaces the flat dim; without WebGL the old tint still darkens the art.
+    this.backdrop = this.lighting.enabled
+      ? new Backdrop(this.scenery, 0, (dark) => this.lighting.setGloom(dark))
+      : new Backdrop(this.scenery, 0.12);
+    this.ballLights = new Map();
+    this.brickLights = [];
+    this.shieldLight = undefined;
     this.setupPhysics();
 
     this.juice = new JuiceSystem(this);
@@ -200,6 +212,7 @@ export class Play extends BaseScene {
         onDestroyed: (b, cause, chain) => this.onBrickDestroyed(b, cause, chain),
         onExplosion: (x, y, chain) => this.onExplosion(x, y, chain),
         onRegrow: (b) => this.juice.sparkle(b.x, b.y, COLORS.good, 8),
+        onHit: (b, res) => this.onBrickHit(b, res),
         onCollapseStart: () => {
           this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'COLLAPSE!', '#ffc93c', 30);
           this.juice.shake(400, 0.006);
@@ -217,6 +230,8 @@ export class Play extends BaseScene {
     );
     this.hud.remaining = this.bricks.remaining;
     this.initialBreakables = Math.max(1, this.bricks.remaining);
+    this.lighting.attach(this.bricks.bricks, this.paddle);
+    this.addBrickLights(world);
     this.pacing = new PacingDirector();
     this.fever = new FeverSystem(this, this.juice, this.backdrop, (active) => {
       this.onEffectsChanged();
@@ -232,12 +247,24 @@ export class Play extends BaseScene {
       onEffectsChanged: () => this.onEffectsChanged(),
       onPickup: (id, x, y) => this.onPickup(id, x, y),
       grantMystery: (x, y) => this.grantMystery(x, y),
+      onSpawned: (p) =>
+        this.lighting.addLight({
+          follow: p,
+          radius: 64,
+          color: POWERUP_INFO[p.kind].color,
+          intensity: 0.4,
+          halo: 26,
+          haloAlpha: 0.3,
+          haloDepth: 5.9,
+          priority: 6,
+        }),
     });
 
     this.abilities = new AbilitySystem(this, {
       bricks: this.bricks,
       juice: this.juice,
       backdrop: this.backdrop,
+      lights: this.lighting,
       paddlePos: () => ({ x: this.paddle.x, y: this.paddle.y }),
       rollContext: () => ({
         remaining: this.bricks.remaining,
@@ -314,6 +341,7 @@ export class Play extends BaseScene {
     this.scenery.setFocus(this.paddle.x);
     this.updateAttachedBalls(dt);
     this.ballFx.update(this.ballList, dt, this.juice.particleScale);
+    this.syncLights();
     this.updateTimeScale();
     this.updateLasers(dt);
     this.updatePacing(dt);
@@ -487,6 +515,16 @@ export class Play extends BaseScene {
 
   private onPaddleHit(ball: Ball): void {
     this.paddle.squash();
+    this.lighting.flash(
+      ball.x,
+      this.paddle.y - 8,
+      this.lighting.look.ball.normal,
+      70,
+      200,
+      0.35,
+      1,
+      5,
+    );
     audio.hit();
     this.hud.combo = 0;
     this.pacing.onPaddleHit();
@@ -588,6 +626,17 @@ export class Play extends BaseScene {
       this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, '#ffc93c', 20);
     }
     this.juice.burst(b.x, b.y, b.tintColor, cause === 'explosion' ? 8 : 12);
+    const glow = b.spec.light;
+    this.lighting.flash(
+      b.x,
+      b.y,
+      glow?.color ?? b.tintColor,
+      glow ? glow.radius * 1.6 : 90,
+      glow ? 900 : 600,
+      glow ? 0.7 : 0.5,
+      1.2,
+      5,
+    );
     audio.breakSound(Math.min(this.hud.combo, 12) * 40);
     haptic('light');
     if (cause === 'fall' || this.bricks.remaining === 0) return;
@@ -608,6 +657,7 @@ export class Play extends BaseScene {
     this.juice.hitStop(45);
     this.juice.flash(80, 255, 140, 60);
     this.scenery.flash(0.12 + chain * 0.04);
+    this.lighting.flash(x, y, 0xff8a3c, EXPLOSION_RADIUS * 2.6, 480, 0.8, 1.3, 8, true);
     audio.sfx('sfx_fireball', 0.45, -200 + chain * 100);
     haptic('heavy');
     if (chain >= 2) this.juice.popText(x, y - 20, `CHAIN x${chain}`, '#ff8a1f', 22);
@@ -618,6 +668,95 @@ export class Play extends BaseScene {
     laser.destroy();
     const res = this.bricks.hit(brick, powerupStats(save.state.upgrades).laserDamage, 'laser');
     this.juice.sparkle(laser.x, laser.y, res === 'immune' ? 0xcfd6e6 : 0xff6a6a, 4);
+  }
+
+  private onBrickHit(b: Brick, res: HitResult): void {
+    const steel = res === 'immune';
+    this.lighting.flash(
+      b.x,
+      b.y,
+      steel ? 0xcfe0ff : b.tintColor,
+      steel ? 60 : 80,
+      180,
+      steel ? 0.3 : 0.4,
+    );
+    this.lighting.onBrickHit();
+  }
+
+  // ---------------------------------------------------------------- lights
+
+  /** Authored emissive bricks glow until they break; TNT smoulders so it reads as dangerous. */
+  private addBrickLights(world: WorldId): void {
+    const flicker = world === 'mainframe' ? 'breathe' : 'candle';
+    for (const b of this.bricks.bricks) {
+      const glow = b.spec.light;
+      const light = glow
+        ? this.lighting.addLight({
+            follow: b,
+            color: glow.color,
+            radius: glow.radius,
+            intensity: glow.intensity,
+            flicker,
+            phase: b.spec.id * 0.37,
+            priority: 5,
+            igniteAt: this.lighting.igniteTime(b.y),
+          })
+        : b.spec.kind === 'explosive'
+          ? this.lighting.addLight({
+              follow: b,
+              color: 0xff5a1f,
+              radius: 72,
+              intensity: 0.3,
+              flicker: 'pulse',
+              speed: 0.8,
+              phase: b.spec.id * 0.13,
+              priority: 4,
+            })
+          : undefined;
+      if (light) this.brickLights.push({ brick: b, light });
+    }
+  }
+
+  /** Ball lanterns follow mode and Fever; shadows lean away from the lead ball. */
+  private syncLights(): void {
+    const look = this.lighting.look.ball;
+    const fever = this.fever.active ? this.fever.trailColor : undefined;
+    let main: Ball | undefined;
+    for (const b of this.ballList) {
+      let l = this.ballLights.get(b);
+      if (!l) {
+        l = this.lighting.addLight({
+          follow: b,
+          halo: look.radius > 150 ? 40 : 30,
+          haloAlpha: 0.6,
+          haloDepth: 4.5,
+          priority: 10,
+          relief: true,
+        });
+        this.ballLights.set(b, l);
+      }
+      const mode = b.ballMode;
+      l.color = fever ?? (b.isHyper ? 0xffe14d : look[mode]);
+      l.flicker = mode === 'fireball' ? 'torch' : 'steady';
+      l.speed = 2;
+      l.radius = look.radius * (mode === 'fireball' ? 1.25 : 1) * (main ? 0.75 : 1);
+      l.intensity = look.intensity * (mode === 'fireball' ? 1.2 : 1);
+      main ??= b;
+    }
+    for (const [b, l] of this.ballLights) {
+      if (b.active) continue;
+      l.kill();
+      this.ballLights.delete(b);
+    }
+    this.brickLights = this.brickLights.filter(({ brick, light }) => {
+      if (brick.life !== 'dead') return true;
+      light.kill();
+      return false;
+    });
+    this.lighting.setShadowFocus(main ?? this.paddle);
+    this.lighting.setCombo(this.hud.combo);
+    this.lighting.setFever(this.fever.active);
+    this.lighting.setRemaining(this.bricks.remaining);
   }
 
   // ---------------------------------------------------------------- powerups
@@ -689,10 +828,21 @@ export class Play extends BaseScene {
       this.removeShield();
     });
     this.shieldBar = bar;
+    this.shieldLight = this.lighting.addLight({
+      x: 0,
+      y: shieldY() - 34,
+      area: { width: WIDTH, height: 44 },
+      color: 0x78dcff,
+      intensity: 0.3,
+      flicker: 'pulse',
+      priority: 6,
+    });
   }
 
   private removeShield(): void {
     this.hud.shield = false;
+    this.shieldLight?.kill();
+    this.shieldLight = undefined;
     const bar = this.shieldBar;
     this.shieldBar = undefined;
     if (!bar) return;
@@ -720,6 +870,13 @@ export class Play extends BaseScene {
       ) as Phaser.Physics.Arcade.Image;
       l.setDisplaySize(6, 20).setTint(0xff5a5a).setBlendMode(Phaser.BlendModes.ADD);
       l.body!.velocity.y = -760;
+      this.lighting.addLight({
+        follow: l,
+        radius: 46,
+        color: 0xff4a4a,
+        intensity: 0.35,
+        priority: 3,
+      });
     }
     audio.sfx('laser_shot', 0.18);
   }
@@ -858,6 +1015,7 @@ export class Play extends BaseScene {
     this.paddle.resetSize();
     audio.sfx('death', 0.3);
     haptic('heavy');
+    this.lighting.pulse(0xff2a3a, 0.4);
     this.juice.shake(250, 0.01);
     this.juice.flash(150, 255, 60, 90);
     if (this.hud.lives <= 0) {
@@ -900,6 +1058,7 @@ export class Play extends BaseScene {
     audio.stopMusic();
     audio.sfx('fanfare', 0.5);
     haptic('heavy');
+    this.lighting.celebrate();
     this.juice.flash(250, 255, 240, 200);
     for (const b of this.ballList) b.body.setVelocity(0, 0);
     this.time.delayedCall(700, () => {
@@ -950,6 +1109,7 @@ export class Play extends BaseScene {
       this.shieldBar.setY(shieldY());
       this.shieldBar.refreshBody();
     }
+    if (this.shieldLight) this.shieldLight.y = shieldY() - 34;
   }
 
   /** Runs after the Arcade plugin has torn down its world, so never touch `this.physics.world` here. */

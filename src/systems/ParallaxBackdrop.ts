@@ -112,6 +112,7 @@ export class ParallaxBackdrop implements Tintable {
   private clock = 0;
   private tint = 0xffffff;
   private readonly still: boolean;
+  private lightProbe?: (x: number, y: number) => number;
 
   /** `pace` scales every scroll speed; menus drift slower than play. */
   constructor(
@@ -203,6 +204,24 @@ export class ParallaxBackdrop implements Tintable {
     this.flare = Math.min(0.6, this.flare + amount);
   }
 
+  /** Dust only shows where light falls: `probe` returns a mote alpha multiplier at (x, y). */
+  setLightProbe(probe?: (x: number, y: number) => number): void {
+    this.lightProbe = probe;
+  }
+
+  /**
+   * Heat shimmer on the nearest painted layer: a displacement filter driven by `noiseKey`,
+   * which the caller scrolls. Costs a full-layer pass, so the lighting system only asks on High.
+   */
+  addHaze(noiseKey: string, amount: number): void {
+    const near = this.tiles[this.tiles.length - 1];
+    if (!near) return;
+    for (const p of near.parts) {
+      p.sprite.enableFilters();
+      p.sprite.filters?.internal.addDisplacement(noiseKey, amount, amount);
+    }
+  }
+
   private addMotes(look: MoteLook, depth: number): MoteLayer {
     const zone = new Phaser.Geom.Rectangle(0, 0, WIDTH, HEIGHT);
     const lifespan = 7000;
@@ -217,8 +236,8 @@ export class ParallaxBackdrop implements Tintable {
         scale: { min: look.scale[0], max: look.scale[1] },
         alpha: {
           onEmit: () => 0,
-          onUpdate: (_p: Phaser.GameObjects.Particles.Particle, _k: string, t: number) =>
-            Math.sin(Math.PI * t) * look.alpha,
+          onUpdate: (p: Phaser.GameObjects.Particles.Particle, _k: string, t: number) =>
+            Math.sin(Math.PI * t) * look.alpha * (this.lightProbe ? this.lightProbe(p.x, p.y) : 1),
         },
         tint: look.colors,
         blendMode: Phaser.BlendModes.ADD,
