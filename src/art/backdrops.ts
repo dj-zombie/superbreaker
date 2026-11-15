@@ -1,3 +1,4 @@
+import hdManifest from './backdrops-hd.json';
 import manifest from './backdrops.json';
 
 /** Each world covers ten levels of the campaign. */
@@ -24,6 +25,8 @@ interface ManifestWorld {
 
 /** Written by scripts/build-backdrops.py. */
 const MANIFEST = manifest as Partial<Record<WorldId, ManifestWorld>>;
+/** 4x sheets for the 16:9 stage. Missing worlds fall back to the phone set. */
+const HD_MANIFEST = hdManifest as Partial<Record<WorldId, ManifestWorld>>;
 
 /** A scrolling painted or fog layer from the manifest. */
 export interface TileLook {
@@ -164,15 +167,17 @@ export const WORLD_LOOKS: Record<WorldId, WorldLook> = {
   },
 };
 
-export function worldLayers(world: WorldId): ManifestWorld | undefined {
-  return MANIFEST[world];
+export function worldLayers(world: WorldId, hd = false): ManifestWorld | undefined {
+  return (hd ? HD_MANIFEST[world] : undefined) ?? MANIFEST[world];
 }
 
 export function partKey(path: string): string {
-  return `bd_${path
-    .replace(/^images\/backdrops\//, '')
+  const hd = path.includes('/backdrops-hd/');
+  const base = path
+    .replace(/^images\/backdrops(-hd)?\//, '')
     .replace(/\.\w+$/, '')
-    .replace(/\//g, '_')}`;
+    .replace(/\//g, '_');
+  return `bd_${base}${hd ? '_hd' : ''}`;
 }
 
 /** Worlds whose art has been built, so missing worlds fall back to one that exists. */
@@ -194,9 +199,9 @@ export function worldForRun(seed: number): WorldId {
   return pool[(seed >>> 0) % pool.length]!;
 }
 
-/** Texture keys and paths (relative to assets/) for one world. */
-export function worldAssets(world: WorldId): { key: string; path: string }[] {
-  const w = MANIFEST[world];
+/** Texture keys and paths (relative to assets/) for one world. `hd` is the 16:9 set. */
+export function worldAssets(world: WorldId, hd = false): { key: string; path: string }[] {
+  const w = worldLayers(world, hd);
   if (!w) return [];
   return [
     { key: partKey(w.sky), path: w.sky },

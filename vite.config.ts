@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -8,6 +10,15 @@ export default defineConfig(({ mode }) => ({
     chunkSizeWarningLimit: 2000,
   },
   plugins: [
+    {
+      // The 16:9 sheets are for the desktop app and the dev server. Phones keep the 720-wide set.
+      name: 'omit-tv-backdrops',
+      apply: 'build',
+      closeBundle() {
+        if (mode === 'desktop') return;
+        fs.rmSync(path.resolve('dist/assets/images/backdrops-hd'), { recursive: true, force: true });
+      },
+    },
     VitePWA({
       // `vite build --mode desktop` feeds the Electron app, which loads from disk and needs no service worker.
       disable: mode === 'desktop',
@@ -39,8 +50,8 @@ export default defineConfig(({ mode }) => ({
         // The plugin treats all of assets/ as hashed, but levels, art and audio from public/assets
         // keep their names there. Without a revision a device keeps the first copy it cached.
         dontCacheBustURLsMatching: /^assets\/[^/]+-[\w-]{8}\.\w+$/,
-        // Normal maps only serve the desktop High tier, so phones shouldn't precache them.
-        globIgnores: ['**/*_n.png'],
+        // Normal maps and the 16:9 backdrops only serve the desktop build.
+        globIgnores: ['**/*_n.png', '**/backdrops-hd/**'],
         runtimeCaching: [
           {
             urlPattern: /_n\.png$/,

@@ -10,7 +10,7 @@ import {
   type TileLook,
   type WorldId,
 } from '../art/backdrops';
-import { HEIGHT, STAGE_W, WIDTH, WING } from '../config';
+import { HEIGHT, STAGE_W, WIDTH, WIDE, WING } from '../config';
 import { save } from '../services';
 import type { Tintable } from './Backdrop';
 import { particleDensity } from './Quality';
@@ -18,6 +18,8 @@ import { particleDensity } from './Quality';
 const DEPTH = -100;
 /** Rows drawn above and below the view so camera shake never exposes an edge. */
 const BLEED = 12;
+/** Set in preload and read in the constructor so both agree on which sheet to use. */
+const HD_REG = 'backdropHd';
 const GLOW_KEY = 'bd_glow';
 const BIT_KEY = 'bd_bit';
 
@@ -87,17 +89,26 @@ function ensureBitTexture(scene: Phaser.Scene): void {
  */
 export class ParallaxBackdrop implements Tintable {
   /**
-   * Call from a scene's preload(). A world's layers take about 18 MB of GPU memory, so only
-   * one world stays resident: the others are released when a scene asks for a different one.
+   * Call from a scene's preload(). A phone world's layers take about 18 MB of GPU memory, and
+   * the 16:9 set is 4x on a side, so only one world at one resolution stays resident.
    */
   static preload(scene: Phaser.Scene, world: WorldId): void {
-    for (const other of WORLD_IDS) {
-      if (other === world) continue;
-      for (const a of worldAssets(other)) {
+    const hd = WIDE && !save.state.settings.batterySaver;
+    scene.registry.set(HD_REG, hd);
+    const drop = (id: WorldId, hi: boolean) => {
+      for (const a of worldAssets(id, hi)) {
         if (scene.textures.exists(a.key)) scene.textures.remove(a.key);
       }
+    };
+    for (const other of WORLD_IDS) {
+      if (other === world) {
+        drop(other, !hd);
+        continue;
+      }
+      drop(other, false);
+      drop(other, true);
     }
-    for (const a of worldAssets(world)) {
+    for (const a of worldAssets(world, hd)) {
       if (!scene.textures.exists(a.key)) scene.load.image(a.key, `assets/${a.path}`);
     }
   }
@@ -126,7 +137,7 @@ export class ParallaxBackdrop implements Tintable {
     this.still = save.state.settings.reducedMotion;
     this.pace = this.paceTarget = this.still ? 0 : pace;
     const look = WORLD_LOOKS[world];
-    const art = worldLayers(world);
+    const art = worldLayers(world, scene.registry.get(HD_REG) === true);
     const skyKey = art ? partKey(art.sky) : '';
     this.skyTint = look.skyTint;
     this.sky = scene.textures.exists(skyKey)

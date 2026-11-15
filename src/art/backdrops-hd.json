@@ -1,0 +1,212 @@
+{
+  "hell": {
+    "sky": "images/backdrops-hd/hell/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/hell/far.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      },
+      "fog1": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/hell/fog1.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "mid": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/hell/mid_l.webp",
+            "x": 0,
+            "width": 1153
+          },
+          {
+            "path": "images/backdrops-hd/hell/mid_r.webp",
+            "x": 1836,
+            "width": 1044
+          }
+        ]
+      },
+      "fog2": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/hell/fog2.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "near": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/hell/near_l.webp",
+            "x": 0,
+            "width": 836
+          },
+          {
+            "path": "images/backdrops-hd/hell/near_r.webp",
+            "x": 2107,
+            "width": 773
+          }
+        ]
+      }
+    }
+  },
+  "crypt": {
+    "sky": "images/backdrops-hd/crypt/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/crypt/far.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      },
+      "fog1": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/crypt/fog1.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "mid": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/crypt/mid_l.webp",
+            "x": 0,
+            "width": 941
+          },
+          {
+            "path": "images/backdrops-hd/crypt/mid_r.webp",
+            "x": 1958,
+            "width": 922
+          }
+        ]
+      },
+      "fog2": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/crypt/fog2.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "near": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/crypt/near_l.webp",
+            "x": 0,
+            "width": 935
+          },
+          {
+            "path": "images/backdrops-hd/crypt/near_r.webp",
+            "x": 2094,
+            "width": 786
+          }
+        ]
+      }
+    }
+  },
+  "mainframe": {
+    "sky": "images/backdrops-hd/mainframe/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/mainframe/far.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      },
+      "fog1": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/mainframe/fog1.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "mid": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/mainframe/mid_l.webp",
+            "x": 0,
+            "width": 1345
+          },
+          {
+            "path": "images/backdrops-hd/mainframe/mid_r.webp",
+            "x": 1726,
+            "width": 1154
+          }
+        ]
+      },
+      "fog2": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/mainframe/fog2.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "near": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/mainframe/near_l.webp",
+            "x": 0,
+            "width": 1208
+          },
+          {
+            "path": "images/backdrops-hd/mainframe/near_r.webp",
+            "x": 1866,
+            "width": 1014
+          }
+        ]
+      }
+    }
+  }
+}

@@ -14,6 +14,13 @@ Usage:
   python3 scripts/build-backdrops.py [world ...]
   python3 scripts/build-backdrops.py --thumbs-only
   python3 scripts/build-backdrops.py hell --stills /tmp/hell.jpg --video /tmp/hell.mp4
+  python3 scripts/build-backdrops.py --hd --src /tmp/backdrop-hd
+
+The phone sheets stay 720 wide. --hd writes a 4x set (2880 wide) for the 16:9 stage, from
+sources that have already been upscaled. Those files live in <src>/<world>/*.png and keep
+the master filenames (near.png, near_b.png, sky.png, ...). The game loads them only on the
+wide stage, so phones keep the small set.
+
 Requires numpy, Pillow and (for --video) ffmpeg.
 """
 import argparse
@@ -30,10 +37,13 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "art-src" / "backdrops"
 OUT = ROOT / "public" / "assets" / "images" / "backdrops"
 MANIFEST = ROOT / "src" / "art" / "backdrops.json"
+REL_ROOT = "images/backdrops"
 BRICKS = ROOT / "public" / "assets" / "images" / "bricks"
 THUMBS = ROOT / "public" / "assets" / "images" / "ui"
 THUMB_SIZE = (540, 960)
 SRC_WIDTH = 720
+# Seam feather and fog tiles are authored in 720-wide pixels, then scaled with the sheet.
+PX = 1.0
 FOG_SIZE = (180, 320)
 
 # Back to front. Painted layers: haze pulls the layer toward the atmosphere color (or the
@@ -124,7 +134,7 @@ def join(upper: np.ndarray, lower: np.ndarray) -> np.ndarray:
     least, lower content below it, with a short feather across the cut."""
     band, w, _ = upper.shape
     cost = np.abs(lower - upper).sum(axis=2)
-    margin = 10
+    margin = max(1, round(10 * PX))
     cost[:margin] = 1e9
     cost[-margin:] = 1e9
     # Dynamic programming over columns: the seam row may move one step per column.
@@ -143,7 +153,7 @@ def join(upper: np.ndarray, lower: np.ndarray) -> np.ndarray:
     seam[-1] = int(acc[:, -1].argmin())
     for x in range(w - 1, 0, -1):
         seam[x - 1] = back[seam[x], x]
-    feather = 8
+    feather = max(1, round(8 * PX))
     y = np.arange(band)[:, None]
     t = np.clip((y - seam[None, :] + feather) / (2 * feather), 0, 1)
     t = t * t * (3 - 2 * t)
@@ -162,8 +172,10 @@ def seamless_loop(images: list[np.ndarray], band_frac: float = 0.22) -> np.ndarr
     return np.concatenate(out)
 
 
-def split_strips(img: np.ndarray, pad: int = 6):
+def split_strips(img: np.ndarray, pad: int | None = None):
     """Returns (left, right) strips when the middle columns are empty, else None."""
+    if pad is None:
+        pad = max(1, round(6 * PX))
     w = img.shape[1]
     empty = img[..., 3].max(axis=0) <= 24
     best = (0, 0)
@@ -204,7 +216,30 @@ def save_rgba(premul: np.ndarray, path: Path) -> None:
     a = premul[..., 3:4]
     rgb = np.where(a > 0, premul[..., :3] * 255 / np.maximum(a, 1e-6), 0)
     out = np.dstack([np.clip(rgb, 0, 255), a]).round().astype(np.uint8)
-    Image.fromarray(out, "RGBA").save(path, "WEBP", quality=88, method=6)
+    # The wide sheets are several times taller than a phone texture; method 6 is the slow encoder.
+    large = premul.shape[1] > 1000
+    Image.fromarray(out, "RGBA").save(
+        path, "WEBP", quality=84 if large else 88, method=4 if large else 6
+    )
+
+
+def find_image(folder: Path, name: str) -> Path:
+    """Painted masters are JPEG. The 4x set is PNG so the chroma stays lossless."""
+    for ext in (".png", ".jpg", ".jpeg", ".webp"):
+        path = folder / f"{name}{ext}"
+        if path.exists():
+            return path
+    raise FileNotFoundError(folder / f"{name}.jpg")
+
+
+def section_paths(folder: Path, name: str) -> list[Path]:
+    paths = [find_image(folder, name)]
+    for letter in "bcdefghijklmnopqrstuvwxyz":
+        try:
+            paths.append(find_image(folder, f"{name}_{letter}"))
+        except FileNotFoundError:
+            break
+    return paths
 
 
 def load(path: Path) -> np.ndarray:
@@ -214,7 +249,7 @@ def load(path: Path) -> np.ndarray:
     return np.asarray(img, dtype=np.float64)
 
 
-def build(world: str) -> tuple[dict, dict]:
+def build(world: str, keep: bool = False) -> tuple[dict, dict]:
     """Writes the world's textures and returns (layer pixels, manifest entry)."""
     spec = WORLDS[world]
     src = SRC / world
@@ -222,25 +257,29 @@ def build(world: str) -> tuple[dict, dict]:
     out.mkdir(parents=True, exist_ok=True)
     for f in out.glob("*"):
         f.unlink()
-    rel = lambda name: f"images/backdrops/{world}/{name}"
-    layers = {}
-    sky = Image.open(src / "sky.jpg").convert("RGB")
+    rel = lambda name: f"{REL_ROOT}/{world}/{name}"
+    layers: dict = {}
+    sky = Image.open(find_image(src, "sky")).convert("RGB")
+    if sky.width != SRC_WIDTH:
+        sky = sky.resize((SRC_WIDTH, round(sky.height * SRC_WIDTH / sky.width)), Image.LANCZOS)
     sky.save(out / "sky.jpg", quality=86)
-    layers["sky"] = np.asarray(sky, dtype=np.float64)
+    if keep:
+        layers["sky"] = np.asarray(sky, dtype=np.float64)
     entry = {"sky": rel("sky.jpg"), "layers": {}}
     for opts in spec["layers"]:
         name = opts["name"]
         if "fog" in opts:
             tile = fog(opts["fog"], opts["alpha"], opts["scale"], opts["seed"])
             save_rgba(tile, out / f"{name}.webp")
-            layers[name] = tile
+            if keep:
+                layers[name] = tile
             entry["layers"][name] = {
                 "width": tile.shape[1], "height": tile.shape[0],
                 "parts": [{"path": rel(f"{name}.webp"), "x": 0, "width": tile.shape[1]}],
             }
             print(f"{world}/{name}: fog {tile.shape[1]}x{tile.shape[0]}")
             continue
-        sections = [src / f"{name}.jpg", *sorted(src.glob(f"{name}_[b-z].jpg"))]
+        sections = section_paths(src, name)
         graded = [
             grade(
                 key_out(load(path), spec["key"], spec["despill"]),
@@ -249,7 +288,9 @@ def build(world: str) -> tuple[dict, dict]:
             for path in sections
         ]
         tile = seamless_loop(graded)
-        layers[name] = tile
+        del graded
+        if keep:
+            layers[name] = tile
         strips = split_strips(tile)
         if strips:
             left, right = strips
@@ -265,6 +306,15 @@ def build(world: str) -> tuple[dict, dict]:
             parts = [{"path": rel(f"{name}.webp"), "x": 0, "width": SRC_WIDTH}]
             print(f"{world}/{name}: {SRC_WIDTH}x{tile.shape[0]}")
         entry["layers"][name] = {"width": SRC_WIDTH, "height": tile.shape[0], "parts": parts}
+    try:
+        key_path = find_image(src, "key")
+    except FileNotFoundError:
+        key_path = None
+    if key_path is not None and REL_ROOT.endswith("-hd"):
+        key = Image.open(key_path).convert("RGB")
+        if key.width != SRC_WIDTH:
+            key = key.resize((SRC_WIDTH, round(key.height * SRC_WIDTH / key.width)), Image.LANCZOS)
+        key.save(out / "key.jpg", quality=86)
     return layers, entry
 
 
@@ -357,20 +407,39 @@ def thumbnail(world: str) -> None:
 
 
 def main() -> None:
+    global SRC, OUT, MANIFEST, REL_ROOT, SRC_WIDTH, PX, FOG_SIZE
     parser = argparse.ArgumentParser()
     parser.add_argument("worlds", nargs="*", default=list(WORLDS))
     parser.add_argument("--stills", help="write a sheet of preview frames (one world)")
     parser.add_argument("--video", help="write a 16 s preview video (one world)")
     parser.add_argument("--thumbs-only", action="store_true", help="only write the carousel cards")
+    parser.add_argument("--hd", action="store_true", help="write the 2880-wide set for the 16:9 stage")
+    parser.add_argument("--src", type=Path, help="parent of the <world>/ source folders (with --hd)")
     args = parser.parse_args()
-    for world in args.worlds:
-        thumbnail(world)
+    if args.hd:
+        SRC = args.src or Path("/tmp/backdrop-hd")
+        OUT = ROOT / "public" / "assets" / "images" / "backdrops-hd"
+        MANIFEST = ROOT / "src" / "art" / "backdrops-hd.json"
+        REL_ROOT = "images/backdrops-hd"
+        SRC_WIDTH = 2880
+        PX = SRC_WIDTH / 720
+        FOG_SIZE = (round(180 * PX), round(320 * PX))
+        missing = [w for w in args.worlds if not (SRC / w).is_dir()]
+        if missing:
+            raise SystemExit(
+                f"missing upscaled sources for {', '.join(missing)} in {SRC}. "
+                "Upscale art-src/backdrops with Real-ESRGAN x4plus first."
+            )
+    else:
+        for world in args.worlds:
+            thumbnail(world)
     if args.thumbs_only:
         return
     manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
+    keep = bool(args.stills or args.video)
     for world in args.worlds:
-        layers, manifest[world] = build(world)
-        if args.stills or args.video:
+        layers, manifest[world] = build(world, keep=keep)
+        if keep:
             preview(world, layers, args.stills, args.video)
     MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
 
