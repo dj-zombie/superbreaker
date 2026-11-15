@@ -253,6 +253,7 @@ export class RunDirector {
     host.juice.popText(WIDTH / 2, this.dangerY - 40, 'BREACH!', '#ff4d6d', 30);
     host.juice.shake(300, 0.012);
     audio.sfx('breach', 0.5);
+    audio.duck(0.4, 250);
     host.breach();
   }
 

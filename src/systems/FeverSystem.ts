@@ -71,6 +71,8 @@ export class FeverSystem {
     this.juice.flash(200, 255, 92, 240);
     this.juice.shake(300, 0.008);
     audio.sfx('fever_start', 0.5);
+    // Light and short: the music cuts to the Fever drop on the next beat.
+    audio.duck(0.6, 150);
     haptic('heavy');
     if (!save.state.settings.reducedMotion && !this.glow) {
       const edge = (x: number, flip: boolean) =>

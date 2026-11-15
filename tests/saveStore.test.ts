@@ -90,6 +90,11 @@ describe('settings', () => {
     expect(normalizeSave({ settings: { godMode: true } }).settings.godMode).toBe(true);
   });
 
+  it('adds mono audio to older saves, off, and keeps a stored choice', () => {
+    expect(normalizeSave({ settings: { music: false } }).settings.monoAudio).toBe(false);
+    expect(normalizeSave({ settings: { monoAudio: true } }).settings.monoAudio).toBe(true);
+  });
+
   it('adds fullscreen to older saves, on, and keeps a stored choice', () => {
     expect(normalizeSave({ settings: { music: false } }).settings.fullscreen).toBe(true);
     expect(normalizeSave({ settings: { fullscreen: false } }).settings.fullscreen).toBe(false);

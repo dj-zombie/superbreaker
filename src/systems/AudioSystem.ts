@@ -1,4 +1,6 @@
 import type Phaser from 'phaser';
+import { WIDTH } from '../config';
+import { panAt, variation } from '../core/AudioMix';
 import type { MusicCue, MusicMood } from '../core/MusicMood';
 import { DEFAULT_VOLUME } from '../core/SaveStore';
 import { save } from '../services';
@@ -18,10 +20,59 @@ const BREAK_WINDOW_MS = 100;
 const RISE_AT = 0.28;
 /** The whoosh played backwards, for sheets and menus that close. */
 const WHOOSH_FALL = 'ui_whoosh_fall';
+/** Master limiter, so a pile of overlapping blasts can't clip. */
+const LIMIT_DB = -3;
+const LIMIT_RATIO = 20;
+const LIMIT_ATTACK_S = 0.002;
+const LIMIT_RELEASE_S = 0.12;
+/** Music gain under a big hit, how long it holds, and its recovery time constant (s). */
+const DUCK_DEPTH = 0.45;
+const DUCK_HOLD_MS = 120;
+const DUCK_RELEASE_TC = 0.12;
+/** The music muffle under a hit-stop (Hz), and how fast it opens after (time constant, s). */
+const HIT_STOP_HZ = 900;
+const HIT_STOP_RELEASE_TC = 0.05;
+/** An open black hole drags the sound effects down: low-pass corner (Hz) and pitch (cents). */
+const GRAVITY_HZ = 1_200;
+const GRAVITY_CENTS = -250;
+const OPEN_HZ = 20_000;
 
 /** A volume slider's position as gain: 1 at the default. Squared so each notch sounds even. */
 function sliderGain(position: number): number {
   return (position / DEFAULT_VOLUME) ** 2;
+}
+
+/** Holds a param where it is now, so a new ramp starts from there instead of jumping. */
+function hold(param: AudioParam, now: number): void {
+  if (typeof param.cancelAndHoldAtTime === 'function') {
+    param.cancelAndHoldAtTime(now);
+    return;
+  }
+  const v = param.value;
+  param.cancelScheduledValues(now);
+  param.setValueAtTime(v, now);
+}
+
+/** Where a sound plays from in the play field, and when. */
+export interface SfxOptions {
+  /** Seconds; the gap check counts from the call, not from when it sounds. */
+  delay?: number;
+  /** Play-field x; the sound pans toward it. Omit for the centre. */
+  x?: number;
+}
+
+/**
+ * The mix ahead of Phaser's master volume: sound effects through a low-pass (the black hole),
+ * music through a ducking gain, both into one limiter that can also fold to mono.
+ */
+interface Mix {
+  ctx: AudioContext;
+  /** The Phaser node this mix feeds; Phaser can replace it, and then the mix is rebuilt. */
+  out: AudioNode;
+  sfx: GainNode;
+  sfxFilter: BiquadFilterNode;
+  duck: GainNode;
+  limiter: DynamicsCompressorNode;
 }
 
 /**
@@ -48,6 +99,9 @@ class AudioSystem {
   /** The music slider, after everything the music engine does. */
   private musicBus?: GainNode;
   private rises = 0;
+  private mixNodes?: Mix;
+  private gravity = false;
+  private paused = false;
 
   init(game: Phaser.Game): void {
     this.game = game;
@@ -89,15 +143,40 @@ class AudioSystem {
     this.playMusic(this.wantedMusic, true);
   }
 
-  /** `delay` is in seconds; the gap check counts from the call, not from when it sounds. */
-  sfx(key: string, volume = 0.5, detune = 0, delay = 0): void {
-    if (!this.sound || !save.state.settings.sfx || this.sound.locked) return;
+  /**
+   * Plays a one-shot, panned toward `opts.x`. Frequent sounds get a little random pitch and
+   * volume so repeats don't sound mechanical. Returns the sound, so a moving source can keep
+   * its pan up to date; undefined when nothing played.
+   */
+  sfx(
+    key: string,
+    volume = 0.5,
+    detune = 0,
+    opts: SfxOptions = {},
+  ): Phaser.Sound.WebAudioSound | undefined {
+    if (!this.sound || !save.state.settings.sfx || this.sound.locked) return undefined;
     const gain = sliderGain(save.state.settings.sfxVolume);
-    if (gain <= 0) return;
+    if (gain <= 0) return undefined;
     const now = performance.now();
-    if (now - (this.lastPlayed.get(key) ?? -Infinity) < SFX_GAP_MS) return;
+    if (now - (this.lastPlayed.get(key) ?? -Infinity) < SFX_GAP_MS) return undefined;
     this.lastPlayed.set(key, now);
-    this.sound.play(key, { volume: volume * gain, detune, delay });
+    const vary = variation(key);
+    const config = {
+      volume: volume * gain * vary.volume,
+      detune: detune + vary.detune + (this.dragged ? GRAVITY_CENTS : 0),
+      delay: opts.delay ?? 0,
+      pan: opts.x === undefined ? 0 : panAt(opts.x, WIDTH),
+    };
+    const bus = this.mix()?.sfx;
+    if (!bus) {
+      this.sound.play(key, config);
+      return undefined;
+    }
+    const s = this.sound.add(key) as Phaser.Sound.WebAudioSound;
+    route(s, bus);
+    s.once('complete', () => s.destroy());
+    s.play(config);
+    return s;
   }
 
   /**
@@ -107,12 +186,12 @@ class AudioSystem {
    */
   fanfare(tailAt?: number): void {
     this.sfx('fanfare_stab', 0.55);
-    this.sfx(this.rises++ % 2 ? 'fanfare_rise_b' : 'fanfare_rise_a', 0.45, 0, RISE_AT);
+    this.sfx(this.rises++ % 2 ? 'fanfare_rise_b' : 'fanfare_rise_a', 0.45, 0, { delay: RISE_AT });
     if (tailAt !== undefined) this.fanfareTail(tailAt);
   }
 
   fanfareTail(delay = 0): void {
-    this.sfx('fanfare_tail', 0.5, 0, delay);
+    this.sfx('fanfare_tail', 0.5, 0, { delay });
   }
 
   /** Starts or stops a looping effect. Cheap to call every frame. */
@@ -130,6 +209,8 @@ class AudioSystem {
       loop: true,
       volume: volume * sliderGain(save.state.settings.sfxVolume),
     });
+    const bus = this.mix()?.sfx;
+    if (bus) route(s as Phaser.Sound.WebAudioSound, bus);
     s.play();
     this.loops.set(key, s);
     this.loopVolumes.set(key, volume);
@@ -173,7 +254,7 @@ class AudioSystem {
     if (!mgr || !(buffer instanceof AudioBuffer)) return undefined;
     this.musicBus = mgr.context.createGain();
     this.musicBus.gain.value = sliderGain(save.state.settings.musicVolume);
-    this.musicBus.connect(mgr.destination);
+    this.musicBus.connect(this.mix()?.duck ?? mgr.destination);
     this.music = new MusicEngine(mgr.context, this.musicBus, buffer);
     // Tapped ahead of the slider, so turning the music down doesn't dim the lights.
     this.analyser = mgr.context.createAnalyser();
@@ -184,6 +265,46 @@ class AudioSystem {
     return this.music;
   }
 
+  /** The mix, built on first use and rebuilt if Phaser swaps its master node. */
+  private mix(): Mix | undefined {
+    const mgr = this.webAudio;
+    if (!mgr) return undefined;
+    if (this.mixNodes?.out === mgr.destination) return this.mixNodes;
+    const ctx = mgr.context;
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = LIMIT_DB;
+    limiter.knee.value = 0;
+    limiter.ratio.value = LIMIT_RATIO;
+    limiter.attack.value = LIMIT_ATTACK_S;
+    limiter.release.value = LIMIT_RELEASE_S;
+    limiter.connect(mgr.destination);
+    const sfxFilter = ctx.createBiquadFilter();
+    sfxFilter.type = 'lowpass';
+    sfxFilter.frequency.value = OPEN_HZ;
+    sfxFilter.connect(limiter);
+    const sfx = ctx.createGain();
+    sfx.connect(sfxFilter);
+    const duck = ctx.createGain();
+    duck.connect(limiter);
+    this.mixNodes = { ctx, out: mgr.destination, sfx, sfxFilter, duck, limiter };
+    if (this.musicBus) {
+      this.musicBus.disconnect();
+      this.musicBus.connect(duck);
+    }
+    this.applyMono();
+    this.applyGravity();
+    return this.mixNodes;
+  }
+
+  /** Mono audio folds everything, music included, to one signal in both ears. */
+  private applyMono(): void {
+    const limiter = this.mixNodes?.limiter;
+    if (!limiter) return;
+    limiter.channelCountMode = 'explicit';
+    limiter.channelInterpretation = 'speakers';
+    limiter.channelCount = save.state.settings.monoAudio ? 1 : 2;
+  }
+
   /** Low-frequency energy of the music, 0..1, or undefined when it can't be measured. */
   musicLevel(): number | undefined {
     if (!this.analyser || !this.bins || !this.music?.playing) return undefined;
@@ -192,9 +313,9 @@ class AudioSystem {
     return (this.bins[0]! + this.bins[1]! + this.bins[2]!) / (3 * 255);
   }
 
-  /** Thunder for a lightning strike, played on its flash. */
-  thunder(volume = 0.4): void {
-    this.sfx('thunder', volume, Math.random() * 300 - 200);
+  /** Thunder for a lightning strike, played on its flash and panned toward the bolt. */
+  thunder(volume = 0.4, x?: number): void {
+    this.sfx('thunder', volume, Math.random() * 300 - 200, { x });
   }
 
   /** Air rush for screen changes and sheets. `fall` plays it backwards, for things that close. */
@@ -252,6 +373,7 @@ class AudioSystem {
         (this.loopVolumes.get(key) ?? 0) * sliderGain(sfxVolume),
       );
     }
+    this.applyMono();
     if (!sfx) {
       for (const key of [...this.loops.keys()]) this.loop(key, false);
     }
@@ -259,17 +381,68 @@ class AudioSystem {
     else if (this.wantedMusic) this.playMusic(this.wantedMusic);
   }
 
-  /** Pause: quieter and muffled. */
+  /** Pause: quieter and muffled. The pause menu's own sounds skip the black hole's drag. */
   duckMusic(duck: boolean): void {
     this.music?.duck(duck);
+    this.paused = duck;
+    this.applyGravity();
   }
 
-  /** Musical hit sound for paddle and unbroken-brick bounces. */
-  hit(): void {
+  /** The music ducks under a big hit and swells back, so the hit punches through. */
+  duck(depth = DUCK_DEPTH, holdMs = DUCK_HOLD_MS): void {
+    const m = this.mixNodes;
+    if (!m) return;
+    const g = m.duck.gain;
+    const now = m.ctx.currentTime;
+    hold(g, now);
+    g.setTargetAtTime(Math.min(depth, g.value), now, 0.015);
+    g.setTargetAtTime(1, now + holdMs / 1000, DUCK_RELEASE_TC);
+  }
+
+  /** A hit-stop muffles the music for its `ms` and lets go quickly after. */
+  dip(ms: number): void {
+    if (this.musicKey === 'music') this.music?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
+  }
+
+  /** While a black hole is open the sound effects drop in pitch and lose their top end. */
+  setGravity(on: boolean): void {
+    if (on === this.gravity) return;
+    this.gravity = on;
+    this.applyGravity();
+  }
+
+  /** Back to an open mix, for leaving a level. */
+  resetMix(): void {
+    this.gravity = false;
+    this.paused = false;
+    this.applyGravity();
+    const m = this.mixNodes;
+    if (!m) return;
+    const g = m.duck.gain;
+    hold(g, m.ctx.currentTime);
+    g.setTargetAtTime(1, m.ctx.currentTime, 0.03);
+  }
+
+  /** The black hole's drag, unless the pause menu is up. */
+  private get dragged(): boolean {
+    return this.gravity && !this.paused;
+  }
+
+  private applyGravity(): void {
+    const m = this.mixNodes;
+    if (!m) return;
+    const f = m.sfxFilter.frequency;
+    const now = m.ctx.currentTime;
+    hold(f, now);
+    f.setTargetAtTime(this.dragged ? GRAVITY_HZ : OPEN_HZ, now, this.dragged ? 0.08 : 0.15);
+  }
+
+  /** Musical hit sound for paddle and unbroken-brick bounces, panned toward `x`. */
+  hit(x?: number): void {
     this.hitCount = (this.hitCount + 1) % 32;
     const chord =
       this.hitCount < 16 ? 'g' : this.hitCount < 24 ? 'c' : this.hitCount < 28 ? 'd' : 'g';
-    this.sfx(`${chord}${this.note}`, 0.15);
+    this.sfx(`${chord}${this.note}`, 0.15, 0, { x });
     this.note = (this.note + 1) % 4;
   }
 
@@ -278,15 +451,22 @@ class AudioSystem {
     this.note = 0;
   }
 
-  breakSound(pitchUp = 0): void {
+  breakSound(pitchUp = 0, x?: number): void {
     const now = performance.now();
     while (this.breakTimes.length && now - this.breakTimes[0]! > BREAK_WINDOW_MS) {
       this.breakTimes.shift();
     }
     if (this.breakTimes.length >= BREAK_VOICES) return;
     this.breakTimes.push(now);
-    this.sfx(`break${Math.floor(Math.random() * 6)}`, 0.5, pitchUp);
+    this.sfx(`break${Math.floor(Math.random() * 6)}`, 0.5, pitchUp, { x });
   }
+}
+
+/** Sends a Phaser sound into `bus` instead of straight to the master. */
+function route(s: Phaser.Sound.WebAudioSound, bus: AudioNode): void {
+  const tail = s.pannerNode ?? s.spatialNode ?? s.volumeNode;
+  tail.disconnect();
+  tail.connect(bus);
 }
 
 export const audio = new AudioSystem();

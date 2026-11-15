@@ -45,6 +45,8 @@ export interface Settings {
   /** Volume slider positions, 0..1. */
   musicVolume: number;
   sfxVolume: number;
+  /** The same sound in both ears: no stereo panning. */
+  monoAudio: boolean;
   haptics: boolean;
   reducedMotion: boolean;
   screenShake: boolean;
@@ -96,6 +98,7 @@ export function defaultSave(): SaveData {
       sfx: true,
       musicVolume: DEFAULT_VOLUME,
       sfxVolume: DEFAULT_VOLUME,
+      monoAudio: false,
       haptics: true,
       reducedMotion: false,
       screenShake: true,

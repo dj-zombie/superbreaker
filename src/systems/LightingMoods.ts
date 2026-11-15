@@ -247,21 +247,23 @@ class Lightning {
     }
     while (this.flashes.length && clock >= this.flashes[0]!) {
       this.flashes.shift();
-      if (this.strike() && !this.thundered) {
+      const x = this.strike();
+      if (x !== undefined && !this.thundered) {
         this.thundered = true;
-        audio.thunder(rand(0.3, 0.45));
+        audio.thunder(rand(0.3, 0.45), x);
       }
     }
   }
 
-  /** False when the flash limit dropped this flash. */
-  private strike(): boolean {
+  /** Where the bolt struck, so the thunder can come from there; undefined when it was dropped. */
+  private strike(): number | undefined {
     const dark = this.sys.look.lightsOut;
-    if (!this.sys.flashAmbient(0xc8d4ff, dark ? 0.15 : 0.3)) return false;
+    if (!this.sys.flashAmbient(0xc8d4ff, dark ? 0.15 : 0.3)) return undefined;
     this.sys.revealLevel(0.8);
-    if (this.sys.calm) return true;
+    if (this.sys.calm) return WIDTH / 2;
+    const x = rand(80, WIDTH - 80);
     this.sys.addLight({
-      x: rand(80, WIDTH - 80),
+      x,
       y: HUD_HEIGHT - 40,
       radius: HEIGHT * 0.9,
       color: 0xbfd0ff,
@@ -270,7 +272,7 @@ class Lightning {
       priority: 9,
     });
     this.scenery?.flash(0.2);
-    return true;
+    return x;
   }
 }
 

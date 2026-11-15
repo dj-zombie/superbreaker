@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { POP_FONT } from '../art/fonts';
 import { save } from '../services';
+import { audio } from './AudioSystem';
 
 /** Shake intensity is a fraction of the view size; these keep it subtle. */
 const SHAKE_SCALE = 0.4;
@@ -87,6 +88,7 @@ export class JuiceSystem {
   /** Freezes physics for a few frames to sell big impacts. */
   hitStop(ms: number): void {
     if (this.calm) return;
+    audio.dip(ms);
     const world = this.scene.physics.world;
     this.stopDepth++;
     world.pause();

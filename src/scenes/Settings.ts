@@ -33,6 +33,7 @@ const SECTIONS: Array<{ title: string; rows: Row[] }> = [
     rows: [
       { key: 'music', label: 'Music', volume: 'musicVolume' },
       { key: 'sfx', label: 'Sound effects', volume: 'sfxVolume' },
+      { key: 'monoAudio', label: 'Mono audio', hint: 'Same sound in both ears' },
     ],
   },
   {

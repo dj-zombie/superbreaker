@@ -17,8 +17,9 @@ const OPEN_HZ = 20_000;
 const HELD_HZ = 1_800;
 const DUCK_HZ = 900;
 const DIP_HZ = 260;
-/** The dip holds this long before it opens back up (s). */
+/** The dip holds this long before it opens back up, with this time constant (s). */
 const DIP_S = 0.3;
+const DIP_RELEASE = 0.4;
 /** High-pass range of the pre-drop riser (Hz). */
 const RISER_FLOOR_HZ = 20;
 const RISER_TOP_HZ = 600;
@@ -63,6 +64,8 @@ export class MusicEngine {
   private held = false;
   private riser = 0;
   private dipUntil = 0;
+  private dipHz = DIP_HZ;
+  private dipRelease = DIP_RELEASE;
   private timer?: ReturnType<typeof setInterval>;
 
   constructor(
@@ -143,14 +146,21 @@ export class MusicEngine {
     this.tone();
   }
 
-  /** A quick muffle that opens back up, for a lost ball. */
-  dip(): void {
+  /**
+   * A quick muffle to `hz` that holds `hold` seconds, then opens back up with time constant
+   * `release`. The defaults are a lost ball; a hit-stop asks for a lighter, shorter one.
+   */
+  dip(hz = DIP_HZ, hold = DIP_S, release = DIP_RELEASE): void {
     if (!this.mood) return;
     const now = this.ctx.currentTime;
+    // A lighter dip never lifts a deeper one that is still holding.
+    if (now < this.dipUntil && hz > this.dipHz) return;
     const f = this.lowpass.frequency;
     f.cancelScheduledValues(now);
-    f.setTargetAtTime(DIP_HZ, now, 0.03);
-    this.dipUntil = now + DIP_S;
+    f.setTargetAtTime(hz, now, Math.min(0.03, hold / 3));
+    this.dipUntil = now + hold;
+    this.dipHz = hz;
+    this.dipRelease = release;
     this.tone();
   }
 
@@ -285,7 +295,7 @@ export class MusicEngine {
     lp.setTargetAtTime(
       this.ducked ? DUCK_HZ : this.held ? HELD_HZ : OPEN_HZ,
       from,
-      from > now ? 0.4 : 0.12,
+      from > now ? this.dipRelease : 0.12,
     );
     const hp = this.highpass.frequency;
     hp.cancelScheduledValues(now);

@@ -97,7 +97,7 @@ These seven already have their own files: coin, magnet, fireball, laser, multiba
   - Notes:
 - [ ] Recorded · [ ] In game · [ ] Signed off — **Wall** `public/assets/audio/wall.mp3` (~0.1s). Softer than the paddle bounce. Side walls, ceiling, and the god-mode floor. Replaces `ui_move`.
   - Notes:
-- [ ] Recorded · [ ] In game · [ ] Signed off — **Countdown** `public/assets/audio/ui/countdown.mp3` (~0.12s). One beep. Pitch it for 3, 2, 1. Replaces `ui_move`.
+- [x] Recorded · [x] In game · [ ] Signed off — **Countdown** `public/assets/audio/ui/3.mp3`, `2.mp3`, `1.mp3`, `go.mp3`. Spoken 3, 2, 1, then go as the ball launches. Replaces `ui/countdown.mp3`.
   - Notes:
 - [ ] Recorded · [ ] In game · [ ] Signed off — **Steel** `public/assets/audio/bricks/steel.mp3` (~0.15s). Metal ping when the ball hits an unbreakable brick. Replaces `ui_toggle`.
   - Notes:

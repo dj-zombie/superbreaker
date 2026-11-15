@@ -159,8 +159,8 @@ const RESULTS_DELAY_MS = 700;
 const ARCADE_TAIL_AT = 1.05;
 /** The banner's "New best" sparkle waits for the stars and the score count. */
 const NEW_BEST_MS = 1_250;
-/** Cents over the countdown beep's C for 1, 2 and 3: G, D, C. */
-const COUNTDOWN_DETUNE = [700, 200, 0];
+/** Spoken calls for the last three seconds, then "go" as the ball launches. Index 0 is "1". */
+const COUNTDOWN_CALLS = ['count_1', 'count_2', 'count_3'] as const;
 /** Cents over the combo callout for combo 5, 10, 15 and 20. A voice, so it only lifts a little. */
 const COMBO_DETUNE = [0, 60, 120, 180];
 /** A Descent breach sounds its alarm first; the life-lost sound follows by this many seconds. */
@@ -307,7 +307,7 @@ export class Play extends BaseScene {
         onExplosion: (x, y, chain) => this.onExplosion(x, y, chain),
         onRegrow: (b) => {
           this.juice.sparkle(b.x, b.y, COLORS.good, 8);
-          audio.sfx('brick_regen', 0.35);
+          audio.sfx('brick_regen', 0.35, 0, { x: b.x });
         },
         onHit: (b, res) => this.onBrickHit(b, res),
         onCollapseStart: () => {
@@ -536,7 +536,7 @@ export class Play extends BaseScene {
   private onWallBounce(ball: Ball): void {
     ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
     this.refillPlow(ball);
-    audio.sfx('wall', 0.2);
+    audio.sfx('wall', 0.2, 0, { x: ball.x });
     this.juice.sparkle(ball.x, ball.y, 0x7fe9ff, 3);
   }
 
@@ -623,7 +623,8 @@ export class Play extends BaseScene {
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
     if (!save.state.seenInstructions) save.update((d) => (d.seenInstructions = true));
-    audio.sfx('launch', 0.45);
+    audio.sfx('count_go', 0.55);
+    audio.sfx('launch', 0.45, 0, { x: held.x });
   }
 
   private updateAttachedBalls(dt: number): void {
@@ -662,7 +663,7 @@ export class Play extends BaseScene {
       duration: 260,
       ease: 'Back.Out',
     });
-    audio.sfx('countdown', 0.4, COUNTDOWN_DETUNE[n - 1]);
+    audio.sfx(COUNTDOWN_CALLS[n - 1]!, 0.55);
   }
 
   private spawnExtraBalls(count: number): void {
@@ -731,7 +732,7 @@ export class Play extends BaseScene {
       1,
       5,
     );
-    audio.hit();
+    audio.hit(ball.x);
     this.hud.combo = 0;
     this.pacing.onPaddleHit();
     this.refillPlow(ball);
@@ -743,7 +744,7 @@ export class Play extends BaseScene {
       this.aim = -Math.PI / 2;
       this.serveMs = MAGNET_HOLD_MS;
       this.powerups.consumeMagnet();
-      audio.sfx('sfx_magnet', 0.4);
+      audio.sfx('sfx_magnet', 0.4, 0, { x: ball.x });
       return;
     }
 
@@ -807,12 +808,12 @@ export class Play extends BaseScene {
     );
     this.refillPlow(ball);
     if (res === 'immune') {
-      audio.sfx('brick_steel', 0.3);
+      audio.sfx('brick_steel', 0.3, 0, { x: brick.x });
       this.juice.sparkle(ball.x, ball.y, 0xcfd6e6, 5);
     } else if (res === 'armor') {
-      audio.sfx('brick_armor', 0.4);
+      audio.sfx('brick_armor', 0.4, 0, { x: brick.x });
     } else if (res !== 'destroyed') {
-      audio.hit();
+      audio.hit(brick.x);
     }
     if (fire && res !== 'immune') this.juice.shake(80, 0.004);
     if (res === 'destroyed') {
@@ -843,7 +844,10 @@ export class Play extends BaseScene {
       this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, color, 18 + tier * 4, 1 + tier * 0.12);
       if (tier >= 4 && save.state.settings.screenShake) this.juice.shake(120, 0.002 * tier);
       const detune = COMBO_DETUNE[tier - 1];
-      if (detune !== undefined) audio.sfx('combo', 0.5, detune);
+      if (detune !== undefined) {
+        audio.sfx('combo', 0.5, detune);
+        audio.duck(0.6, 350);
+      }
     }
     this.juice.burst(b.x, b.y, b.tintColor, cause === 'explosion' ? 8 : 12);
     const glow = b.spec.light;
@@ -857,7 +861,7 @@ export class Play extends BaseScene {
       1.2,
       5,
     );
-    audio.breakSound(Math.min(this.hud.combo, 12) * 40);
+    audio.breakSound(Math.min(this.hud.combo, 12) * 40, b.x);
     haptic('light');
     if (cause === 'fall' || this.bricks.remaining === 0) return;
     // Abilities clear bricks in bulk, so only some of those bricks drop anything.
@@ -878,7 +882,8 @@ export class Play extends BaseScene {
     this.juice.flash(80, 255, 140, 60);
     this.scenery.flash(0.12 + chain * 0.04);
     this.lighting.flash(x, y, 0xff8a3c, EXPLOSION_RADIUS * 2.6, 480, 0.8, 1.3, 8, true);
-    audio.sfx('brick_tnt', 0.5, Math.min(chain - 1, 5) * 100);
+    audio.sfx('brick_tnt', 0.5, Math.min(chain - 1, 5) * 100, { x });
+    if (chain >= 2) audio.duck();
     haptic('heavy');
     if (chain >= 2) this.juice.popText(x, y - 20, `CHAIN x${chain}`, '#ff8a1f', 22);
   }
@@ -1029,7 +1034,7 @@ export class Play extends BaseScene {
       pierce: 'sfx_pierce',
     };
     const key = sfx[id];
-    if (key) audio.sfx(key, 0.5);
+    if (key) audio.sfx(key, 0.5, 0, { x });
   }
 
   private onEffectsChanged(): void {
@@ -1040,7 +1045,7 @@ export class Play extends BaseScene {
   private addCoin(x: number, y: number): void {
     this.hud.coinsEarned++;
     save.addCoins(1);
-    audio.sfx('sfx_coin', 0.45);
+    audio.sfx('sfx_coin', 0.45, 0, { x });
     this.juice.popText(x, y - 20, '+1', '#ffc93c', 16);
   }
 
@@ -1071,7 +1076,7 @@ export class Play extends BaseScene {
       ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
       ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
       this.juice.ring(ball.x, bar.y, 0x78dcff, 60);
-      audio.sfx('sfx_shield_break', 0.5);
+      audio.sfx('sfx_shield_break', 0.5, 0, { x: ball.x });
       haptic('medium');
       this.removeShield();
     });
@@ -1192,7 +1197,7 @@ export class Play extends BaseScene {
         const x = Phaser.Math.Clamp(this.paddle.x + Phaser.Math.Between(-80, 80), 40, WIDTH - 40);
         this.powerups.maybeDrop(x, HUD_HEIGHT + 30, 'mystery');
         this.juice.popText(x, HUD_HEIGHT + 60, 'GIFT!', '#ff5cf0', 22);
-        audio.sfx('gift', 0.5);
+        audio.sfx('gift', 0.5, 0, { x });
         break;
       }
       case 'surge':
@@ -1245,7 +1250,7 @@ export class Play extends BaseScene {
   }
 
   private grantMystery(x: number, y: number): void {
-    audio.sfx('sfx_mystery', 0.5);
+    audio.sfx('sfx_mystery', 0.5, 0, { x });
     if (this.abilities.grant()) {
       this.juice.ring(x, y, 0xff5cf0, 60);
       return;
@@ -1287,7 +1292,7 @@ export class Play extends BaseScene {
       this.removeShield();
       this.paddle.resetSize();
     }
-    audio.sfx('death', 0.3, 0, breach ? BREACH_DEATH_DELAY : 0);
+    audio.sfx('death', 0.3, 0, { delay: breach ? BREACH_DEATH_DELAY : 0 });
     haptic('heavy');
     this.lighting.pulse(0xff2a3a, 0.4);
     this.juice.shake(250, 0.01);
@@ -1639,6 +1644,7 @@ export class Play extends BaseScene {
     this.unsubscribePad?.();
     this.unsubscribePad = undefined;
     audio.loop('brick_mover', false);
+    audio.resetMix();
     this.events.off(Phaser.Scenes.Events.RESUME);
     this.input.keyboard?.removeAllKeys(true);
     this.shieldBar = undefined;
