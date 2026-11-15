@@ -16,6 +16,7 @@ pnpm dev          # http://localhost:5173
 | `pnpm dev`          | Vite dev server with hot reload                              |
 | `pnpm build`        | Typecheck, then build the PWA into `dist/`                   |
 | `pnpm preview`      | Serve the production build (service worker enabled)          |
+| `pnpm web:deploy`   | Build the PWA and deploy it to Cloudflare Workers            |
 | `pnpm test`         | Vitest unit tests, including validation of all levels        |
 | `pnpm lint`         | ESLint (flat config, typescript-eslint)                      |
 | `pnpm format`       | Prettier                                                     |

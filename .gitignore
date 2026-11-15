@@ -8,6 +8,7 @@ release/
 .DS_Store
 ._*
 .vite
+.wrangler
 coverage
 
 # Local Xcode derived data. ios/.gitignore covers App/build, not this path.
