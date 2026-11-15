@@ -64,6 +64,19 @@ These seven already have their own files: coin, magnet, fireball, laser, multiba
 - [ ] Recorded · [ ] In game · [ ] Signed off — **Mystery open** `public/assets/audio/powerups/mystery.mp3` (~0.4s). Box latch and a shimmer, then the roulette. Replaces `win_jingle`.
   - Notes:
 
+The laser rolls one of five firing modes per pickup. These five are copies of other cues in the game, not Kenney cuts, until they are recorded.
+
+- [ ] Recorded · [ ] In game · [ ] Signed off — **Laser spin-up** `public/assets/audio/laser/spinup.mp3` (~0.6s). Rising motor whine as the gun pods slide out and the fire rate revs up. Placeholder: the hyperspeed pickup.
+  - Notes:
+- [ ] Recorded · [ ] In game · [ ] Signed off — **Laser vent** `public/assets/audio/laser/vent.mp3` (~0.5s). Steam hiss and a falling tone as the overheated pods vent and slide back in. Placeholder: the Fever end.
+  - Notes:
+- [ ] Recorded · [ ] In game · [ ] Signed off — **Laser ricochet** `public/assets/audio/laser/ricochet.mp3` (~0.15s). Bright metal ping when a Ricochet bolt bounces off steel, a wall or the ceiling. Pitch varies. Placeholder: the steel hit.
+  - Notes:
+- [ ] Recorded · [ ] In game · [ ] Signed off — **Laser missile** `public/assets/audio/laser/missile.mp3` (~0.2s). Small hissing launch for each Swarm missile, in place of the laser bolt. Placeholder: the meteor whoosh.
+  - Notes:
+- [ ] Recorded · [ ] In game · [ ] Signed off — **Laser impact** `public/assets/audio/laser/impact.mp3` (~0.08s). Quiet tick when a bolt hits a brick without breaking it, or glances off armor or steel. Plays at most every 70 ms, so it must stay clean as a stream. Placeholder: the wall bounce.
+  - Notes:
+
 ## Abilities
 
 - [ ] Recorded · [ ] In game · [ ] Signed off — **Meteor whoosh** `public/assets/audio/abilities/meteor-whoosh.mp3` (~0.25s). Falling whistle, one per meteor. Pitch varies. Replaces `sfx_fireball`.
@@ -194,7 +207,7 @@ No new files. Change one of these only if a later pass still bothers you.
 | Magnet | `audio/powerups/magnet2.mp3` | Magnet pickup and a magnet catch |
 | Fireball | `audio/powerups/fireball.mp3` | Fireball pickup |
 | Laser powerup | `audio/powerups/laser.mp3` | Laser pickup |
-| Laser bolt | `audio/laser.mp3` | Each pair of laser shots |
+| Laser bolt | `audio/laser.mp3` | Laser shots, at most ten a second. Pitch alternates by barrel, climbs as the guns spin up and sags as they overheat |
 | Multiball | `audio/powerups/balls.mp3` | Multiball pickup |
 | Wide paddle | `audio/powerups/bigger.mp3` | Wide paddle pickup |
 | Tiny paddle | `audio/powerups/smaller.mp3` | Tiny paddle pickup |

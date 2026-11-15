@@ -3,7 +3,7 @@ import type { WorldId } from '../art/backdrops';
 import { EXPLOSION_RADIUS, FALL_SHATTER_Y } from '../config';
 import { collapseThreshold } from '../core/Difficulty';
 import type { BrickSpec, LevelSpec } from '../core/types';
-import { Brick, type HitResult } from '../entities/Brick';
+import { Brick, type HitOptions, type HitResult } from '../entities/Brick';
 
 /** `breach`: Descent clearing bricks that crossed the danger line. It never sets off explosives. */
 export type DestroyCause = 'ball' | 'laser' | 'explosion' | 'fall' | 'ability' | 'breach';
@@ -18,7 +18,7 @@ export interface BrickEvents {
   onExplosion(x: number, y: number, chain: number): void;
   onRegrow(brick: Brick): void;
   /** A hit that didn't destroy the brick: damage, armor or a steel ping. */
-  onHit?(brick: Brick, result: HitResult): void;
+  onHit?(brick: Brick, result: HitResult, cause: DestroyCause): void;
   onCollapseStart(): void;
   /** True while a ball is close enough that a regrowing brick would trap it. */
   regrowBlocked(brick: Brick): boolean;
@@ -164,17 +164,12 @@ export class BrickSystem {
   }
 
   /** Applies damage and handles destruction side effects. */
-  hit(
-    b: Brick,
-    damage: number,
-    cause: DestroyCause,
-    opts: { lethal?: boolean; stripArmor?: boolean } = {},
-  ): HitResult {
+  hit(b: Brick, damage: number, cause: DestroyCause, opts: HitOptions = {}): HitResult {
     const wasAlive = b.isAlive;
     const res = b.takeHit(damage, opts);
     if (res === 'destroyed') this.destroy(b, cause, 0);
     else if (res !== 'immune') b.flash();
-    if (res !== 'destroyed' && wasAlive) this.events.onHit?.(b, res);
+    if (res !== 'destroyed' && wasAlive) this.events.onHit?.(b, res, cause);
     return res;
   }
 

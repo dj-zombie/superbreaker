@@ -19,6 +19,9 @@ const SPREAD_CENTS: Record<string, number> = {
   brick_armor: 40,
   ab_blackhole_swallow: 40,
   laser_shot: 40,
+  laser_missile: 60,
+  laser_ricochet: 60,
+  laser_impact: 60,
 };
 const BREAK_CENTS = 30;
 /** Varied sounds play between this share of their volume and full. */

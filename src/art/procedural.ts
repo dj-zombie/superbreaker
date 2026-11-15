@@ -443,16 +443,114 @@ const painters: Record<string, [number, number, Painter]> = {
       ctx.fillRect(0, 0, w, h);
     },
   ],
-  laser: [
-    8,
-    24,
+  // White so the corner tints can paint a hot head (top) fading into a colored tail.
+  laser_tracer: [
+    10,
+    34,
     (ctx, w, h) => {
-      const g = ctx.createLinearGradient(0, 0, w, 0);
-      g.addColorStop(0, 'rgba(255,60,60,0)');
-      g.addColorStop(0.5, 'rgba(255,240,240,1)');
-      g.addColorStop(1, 'rgba(255,60,60,0)');
+      const across = ctx.createLinearGradient(0, 0, w, 0);
+      across.addColorStop(0, 'rgba(255,255,255,0)');
+      across.addColorStop(0.5, 'rgba(255,255,255,1)');
+      across.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = across;
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(w / 2 - 1, 2, 2, h * 0.55);
+      ctx.globalCompositeOperation = 'destination-in';
+      const along = ctx.createLinearGradient(0, 0, 0, h);
+      along.addColorStop(0, 'rgba(0,0,0,0.5)');
+      along.addColorStop(0.1, 'rgba(0,0,0,1)');
+      along.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = along;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'source-over';
+    },
+  ],
+  laser_missile: [
+    10,
+    18,
+    (ctx, w, h) => {
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.6, 'rgba(255,255,255,0.85)');
+      g.addColorStop(1, 'rgba(255,255,255,0.25)');
+      roundRect(ctx, w / 2 - 2.5, 1, 5, h - 4, 2.5);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(w / 2 + s * 2.5, h - 8);
+        ctx.lineTo(w / 2 + s * (w / 2), h - 1);
+        ctx.lineTo(w / 2 + s * 2.5, h - 3);
+        ctx.closePath();
+        ctx.fill();
+      }
+    },
+  ],
+  // Light steel so the heat tint reads; the paddle hides its lower half.
+  laser_pod: [
+    14,
+    22,
+    (ctx, w, h) => {
+      const body = ctx.createLinearGradient(0, 0, w, 0);
+      body.addColorStop(0, '#8d95a6');
+      body.addColorStop(0.45, '#f4f6fb');
+      body.addColorStop(1, '#7a8294');
+      roundRect(ctx, 1, 7, w - 2, h - 7, 3);
+      ctx.fillStyle = body;
+      ctx.fill();
+      roundRect(ctx, w / 2 - 2.5, 0, 5, 10, 2);
+      ctx.fillStyle = '#dfe4ee';
+      ctx.fill();
+      ctx.fillStyle = 'rgba(20,24,36,0.6)';
+      ctx.fillRect(w / 2 - 1, 0, 2, 3);
+      ctx.fillStyle = 'rgba(20,24,36,0.45)';
+      for (const y of [12, 15, 18]) ctx.fillRect(3, y, w - 6, 1.5);
+    },
+  ],
+  laser_flash: [
+    26,
+    26,
+    (ctx, w, h) => {
+      const cx = w / 2;
+      const cy = h / 2;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, w / 2);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const r = i % 2 === 0 ? w / 2 : w * 0.1;
+        ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      }
+      ctx.closePath();
+      ctx.fill();
+    },
+  ],
+  laser_casing: [
+    4,
+    8,
+    (ctx, w, h) => {
+      roundRect(ctx, 0, 0, w, h, 1.5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0, h - 2, w, 2);
+    },
+  ],
+  laser_bit: [
+    6,
+    6,
+    (ctx, w, h) => {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(1, 1, w - 2, h - 2);
     },
   ],
 };
@@ -485,6 +583,12 @@ export const ALWAYS_PROCEDURAL = [
   'deck_knob',
   'edge_glow',
   'rainbow_bar',
+  'laser_tracer',
+  'laser_missile',
+  'laser_pod',
+  'laser_flash',
+  'laser_casing',
+  'laser_bit',
   'pu_mystery',
   'pu_hyper',
   ...ABILITY_IDS.map((id) => `ab_${id}`),

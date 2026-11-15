@@ -36,7 +36,8 @@ import {
   type DifficultyConfig,
 } from '../core/Difficulty';
 import { unlockedAbilities, type AbilityId } from '../core/Abilities';
-import { LASER_BARREL_OFFSETS, powerupStats } from '../core/Economy';
+import { powerupStats } from '../core/Economy';
+import { LASER_MODE_DEFS } from '../core/Laser';
 import { runKey, scaleDifficulty, type RunConfig, type RunOutcome } from '../core/Run';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
 import type { LevelSpec, PowerupId } from '../core/types';
@@ -56,6 +57,7 @@ import { FrameMonitor, particleDensity } from '../systems/Quality';
 import { FeverSystem } from '../systems/FeverSystem';
 import { InputSystem } from '../systems/InputSystem';
 import { JuiceSystem } from '../systems/JuiceSystem';
+import { FORCED_LASER_MODE, LaserSystem } from '../systems/LaserSystem';
 import { LightingSystem, type Light } from '../systems/LightingSystem';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/PowerupSystem';
@@ -165,6 +167,8 @@ const COUNTDOWN_CALLS = ['count_1', 'count_2', 'count_3'] as const;
 const COMBO_DETUNE = [0, 60, 120, 180];
 /** A Descent breach sounds its alarm first; the life-lost sound follows by this many seconds. */
 const BREACH_DEATH_DELAY = 0.35;
+/** Laser hits light the brick at most this often. */
+const LASER_GLOW_GAP_MS = 80;
 
 export class Play extends BaseScene {
   levelIndex = 1;
@@ -178,7 +182,7 @@ export class Play extends BaseScene {
   private diff!: DifficultyConfig;
   private paddle!: Paddle;
   private balls!: Phaser.Physics.Arcade.Group;
-  private lasers!: Phaser.Physics.Arcade.Group;
+  private laser!: LaserSystem;
   private bricks!: BrickSystem;
   private powerups!: PowerupSystem;
   private abilities!: AbilitySystem;
@@ -207,7 +211,7 @@ export class Play extends BaseScene {
   private shieldBar?: Phaser.Physics.Arcade.Image;
   private aim = -Math.PI / 2;
   private aimDir = 1;
-  private laserCooldown = 0;
+  private laserGlowAt = -Infinity;
   private finished = false;
   private cleared = false;
   /** The level-clear banner is counting down to the next level. */
@@ -237,7 +241,7 @@ export class Play extends BaseScene {
     this.skipBanner = undefined;
     this.stockOrigin = Array.from({ length: SLOT_COUNT }, () => null);
     this.aim = -Math.PI / 2;
-    this.laserCooldown = 0;
+    this.laserGlowAt = -Infinity;
     this.nudgeMs = 0;
     this.serveMs = 0;
     this.countdownShown = 0;
@@ -295,7 +299,6 @@ export class Play extends BaseScene {
     this.frameMonitor = new FrameMonitor(this.game);
     this.paddle = new Paddle(this, world);
     this.balls = this.physics.add.group();
-    this.lasers = this.physics.add.group({ allowGravity: false });
     this.arrow = this.add.image(0, 0, 'arrow').setOrigin(0, 0.5).setDepth(4).setAlpha(0.9);
     this.arrow.setScale(56 / this.arrow.width);
 
@@ -309,7 +312,7 @@ export class Play extends BaseScene {
           this.juice.sparkle(b.x, b.y, COLORS.good, 8);
           audio.sfx('brick_regen', 0.35, 0, { x: b.x });
         },
-        onHit: (b, res) => this.onBrickHit(b, res),
+        onHit: (b, res, cause) => this.onBrickHit(b, res, cause),
         onCollapseStart: () => {
           this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'COLLAPSE!', '#ffc93c', 30);
           this.juice.shake(400, 0.006);
@@ -376,6 +379,18 @@ export class Play extends BaseScene {
           priority: 6,
         }),
     });
+    this.laser = new LaserSystem(
+      this,
+      {
+        bricks: this.bricks,
+        juice: this.juice,
+        lights: this.lighting,
+        paddle: this.paddle,
+        powerups: this.powerups,
+        feverTint: () => (this.fever.active ? this.fever.trailColor : undefined),
+      },
+      world,
+    );
 
     this.abilities = new AbilitySystem(this, {
       bricks: this.bricks,
@@ -424,6 +439,8 @@ export class Play extends BaseScene {
     ];
     digits.forEach((code, i) => kb?.addKey(code).on('down', () => this.useStock(i)));
     pads.forEach((code, i) => kb?.addKey(code).on('down', () => this.useStock(i)));
+    // Dev only: with `?laser=<mode>`, L hands out a laser for play-testing that mode.
+    if (FORCED_LASER_MODE) kb?.addKey(Phaser.Input.Keyboard.KeyCodes.L).on('down', () => this.devLaser());
     const stockButtons: number[] = [PadButton.lb, PadButton.rb, PadButton.lt, PadButton.rt];
     this.unsubscribePad = onPadButton((button, down) => {
       if (!down) return;
@@ -470,7 +487,7 @@ export class Play extends BaseScene {
     this.ballFx.update(this.ballList, dt, this.juice.particleScale);
     this.syncLights();
     this.updateTimeScale();
-    this.updateLasers(dt);
+    this.laser.update(dt);
     this.updatePacing(dt);
     this.updateMusic(dt);
     this.checkLostBalls();
@@ -508,6 +525,12 @@ export class Play extends BaseScene {
     this.onPickup(id, x, y);
     this.powerups.apply(id, x, y);
     this.hud.stock = save.state.stock.powerups;
+  }
+
+  private devLaser(): void {
+    if (this.finished || !this.scene.isActive()) return;
+    this.onPickup('laser', this.paddle.x, this.paddle.y);
+    this.powerups.apply('laser', this.paddle.x, this.paddle.y);
   }
 
   requestPause(): void {
@@ -564,9 +587,6 @@ export class Play extends BaseScene {
     );
     this.physics.add.overlap(this.paddle, this.powerups.group, (_p, pickup) =>
       this.powerups.collect(pickup as Pickup),
-    );
-    this.physics.add.overlap(this.lasers, this.bricks.group, (laser, brick) =>
-      this.onLaserBrick(laser as Phaser.Physics.Arcade.Image, brick as Brick),
     );
   }
 
@@ -888,14 +908,12 @@ export class Play extends BaseScene {
     if (chain >= 2) this.juice.popText(x, y - 20, `CHAIN x${chain}`, '#ff8a1f', 22);
   }
 
-  private onLaserBrick(laser: Phaser.Physics.Arcade.Image, brick: Brick): void {
-    if (!brick.isAlive || !laser.active) return;
-    laser.destroy();
-    const res = this.bricks.hit(brick, powerupStats(save.state.upgrades).laserDamage, 'laser');
-    this.juice.sparkle(laser.x, laser.y, res === 'immune' ? 0xcfd6e6 : 0xff6a6a, 4);
-  }
-
-  private onBrickHit(b: Brick, res: HitResult): void {
+  private onBrickHit(b: Brick, res: HitResult, cause: DestroyCause): void {
+    if (cause === 'laser') {
+      // Laser bolts land many times a second; one glow per beat reads the same and costs less.
+      if (this.time.now - this.laserGlowAt < LASER_GLOW_GAP_MS) return;
+      this.laserGlowAt = this.time.now;
+    }
     const steel = res === 'immune';
     this.lighting.flash(
       b.x,
@@ -1017,7 +1035,8 @@ export class Play extends BaseScene {
   private onPickup(id: PowerupId, x: number, y: number): void {
     const info = POWERUP_INFO[id];
     if (id !== 'coin') {
-      this.juice.popText(x, y - 24, info.label.toUpperCase(), '#ffffff', 18);
+      const name = id === 'laser' ? `${LASER_MODE_DEFS[this.laser.nextMode()].label}!` : info.label;
+      this.juice.popText(x, y - 24, name.toUpperCase(), '#ffffff', 18);
       this.juice.ring(x, y, info.color, 40);
       haptic('medium');
     }
@@ -1105,33 +1124,6 @@ export class Play extends BaseScene {
       .forEach((c) => c.destroy());
     this.tweens.killTweensOf(bar);
     this.tweens.add({ targets: bar, alpha: 0, duration: 200, onComplete: () => bar.destroy() });
-  }
-
-  private updateLasers(dt: number): void {
-    for (const l of this.lasers.getChildren() as Phaser.Physics.Arcade.Image[]) {
-      if (l.y < HUD_HEIGHT) l.destroy();
-    }
-    if (!this.powerups.is('laser') || this.juice.inHitStop) return;
-    this.laserCooldown -= dt;
-    if (this.laserCooldown > 0) return;
-    this.laserCooldown = powerupStats(save.state.upgrades).laserIntervalMs;
-    for (const side of LASER_BARREL_OFFSETS) {
-      const l = this.lasers.create(
-        this.paddle.x + side * (this.paddle.halfWidth - 10),
-        this.paddle.y - 16,
-        'laser',
-      ) as Phaser.Physics.Arcade.Image;
-      l.setDisplaySize(6, 20).setTint(0xff5a5a).setBlendMode(Phaser.BlendModes.ADD);
-      l.body!.velocity.y = -760;
-      this.lighting.addLight({
-        follow: l,
-        radius: 46,
-        color: 0xff4a4a,
-        intensity: 0.35,
-        priority: 3,
-      });
-    }
-    audio.sfx('laser_shot', 0.18);
   }
 
   // ---------------------------------------------------------------- pacing and abilities
@@ -1288,7 +1280,7 @@ export class Play extends BaseScene {
       this.fever.reset();
       this.nudgeMs = 0;
       this.powerups.clear();
-      this.lasers.clear(true, true);
+      this.laser.clear();
       this.removeShield();
       this.paddle.resetSize();
     }
@@ -1436,7 +1428,7 @@ export class Play extends BaseScene {
     this.bannerUp = true;
     this.clearHint();
     this.powerups.clear();
-    this.lasers.clear(true, true);
+    this.laser.clear();
     this.physics.world.pause();
 
     const next = d.index + 1;

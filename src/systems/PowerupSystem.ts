@@ -61,6 +61,11 @@ export class PowerupSystem {
     return this.effects.has(id);
   }
 
+  /** The running timer for `id`, if it is active. */
+  effect(id: TimedEffect): Readonly<ActiveEffect> | undefined {
+    return this.effects.get(id);
+  }
+
   get active(): ActiveEffect[] {
     return TIMED_EFFECTS.flatMap((id) => {
       const e = this.effects.get(id);

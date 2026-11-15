@@ -20,7 +20,6 @@ import {
   canPurchase,
   dropWeights,
   heat,
-  laserClearCeiling,
   powerupStats,
   rollDrop,
   upgradeCost,
@@ -43,24 +42,14 @@ describe('powerupStats', () => {
     expect(charges).toEqual([1, 1, 2, 2, 3]);
   });
 
-  it('makes the laser fire faster with upgrades', () => {
-    const a = powerupStats({ magnet: 1, fireball: 1, laser: 1 });
-    const b = powerupStats({ magnet: 1, fireball: 1, laser: 5 });
-    expect(b.laserIntervalMs).toBeLessThan(a.laserIntervalMs);
-    expect(b.laserDurationMs).toBeGreaterThan(a.laserDurationMs);
-    expect(b.laserDamage).toBeGreaterThan(a.laserDamage);
-  });
-
-  it('keeps a full laser from clearing a small level, even fully upgraded', () => {
-    const tiers = [1, 2, 3, 4, 5].map((laser) =>
-      laserClearCeiling(powerupStats({ magnet: 1, fireball: 1, laser })),
-    );
-    expect(tiers[0]).toBeGreaterThanOrEqual(4);
-    expect(tiers[0]).toBeLessThan(12);
-    for (let i = 1; i < tiers.length; i++) expect(tiers[i]).toBeGreaterThan(tiers[i - 1]!);
-    expect(tiers[4]).toBeGreaterThan(tiers[0]! * 2);
-    expect(tiers[4]).toBeLessThan(30);
-    expect(powerupStats({ magnet: 1, fireball: 1, laser: 5 }).laserDamage).toBeLessThan(100);
+  it('makes the laser last longer, hit harder and fire faster with each tier', () => {
+    const tiers = [1, 2, 3, 4, 5].map((laser) => powerupStats({ magnet: 1, fireball: 1, laser }));
+    for (let i = 1; i < tiers.length; i++) {
+      expect(tiers[i]!.laserDurationMs).toBeGreaterThan(tiers[i - 1]!.laserDurationMs);
+      expect(tiers[i]!.laserBudget).toBeGreaterThan(tiers[i - 1]!.laserBudget);
+      expect(tiers[i]!.laserRate).toBeGreaterThan(tiers[i - 1]!.laserRate);
+    }
+    expect(tiers[0]!.laserRate).toBe(1);
   });
 });
 

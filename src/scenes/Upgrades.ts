@@ -10,7 +10,6 @@ import {
   type AbilityStats,
 } from '../core/Abilities';
 import {
-  LASER_BARREL_OFFSETS,
   MAX_UPGRADE_LEVEL,
   UPGRADES,
   canPurchase,
@@ -18,6 +17,7 @@ import {
   upgradeCost,
   type PurchaseResult,
 } from '../core/Economy';
+import { LASER_MODES } from '../core/Laser';
 import { UPGRADE_IDS, type UpgradeId } from '../core/types';
 import {
   MAX_ABILITY_STOCK,
@@ -432,10 +432,8 @@ function powerupLine(id: UpgradeId, levels: Record<UpgradeId, number>): string {
       return `${sec(s.magnetDurationMs)} · ${s.magnetCharges} catch${s.magnetCharges > 1 ? 'es' : ''}`;
     case 'fireball':
       return `${sec(s.fireballDurationMs)} · plows ${s.fireballPlow} bricks per bounce`;
-    case 'laser': {
-      const shots = Math.round((1000 * LASER_BARREL_OFFSETS.length) / s.laserIntervalMs);
-      return `${sec(s.laserDurationMs)} · ${s.laserDamage} dmg · ${shots} shots/s`;
-    }
+    case 'laser':
+      return `${sec(s.laserDurationMs)} · ${s.laserBudget.toLocaleString()} damage · ${LASER_MODES.length} modes`;
   }
 }
 

@@ -13,7 +13,7 @@ export interface UpgradeDef {
 export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   magnet: { label: 'Magnet', description: 'Longer magnet, more catches', baseCost: 8 },
   fireball: { label: 'Fireball', description: 'Burns longer, plows more bricks', baseCost: 10 },
-  laser: { label: 'Machine Gun', description: 'Stronger, longer, faster shots', baseCost: 12 },
+  laser: { label: 'Laser', description: 'Longer bursts, more firepower', baseCost: 12 },
 };
 
 export type UpgradeLevels = Record<UpgradeId, number>;
@@ -31,10 +31,17 @@ export interface PowerupStats {
   /** Bricks a fireball smashes through before it bounces. */
   fireballPlow: number;
   laserDurationMs: number;
-  laserIntervalMs: number;
-  /** Damage per bolt. Standard bricks have 100 health, so this stays under a one-shot. */
-  laserDamage: number;
+  /** Total damage a laser pickup deals, shared out over every bolt its mode fires. */
+  laserBudget: number;
+  /** Fire-rate multiplier, so higher tiers fire more bolts as well as more damage. */
+  laserRate: number;
 }
+
+/**
+ * Sized from the old twin-barrel laser's ceilings (6, 9, 14, 18 and 22 bricks). Its big bolts
+ * wasted damage on overkill, so its raw totals were higher than what it could actually break.
+ */
+const LASER_BUDGET = [650, 950, 1600, 2000, 2300] as const;
 
 /** Derives powerup stats from upgrade tiers (1..5). */
 export function powerupStats(levels: UpgradeLevels): PowerupStats {
@@ -49,23 +56,9 @@ export function powerupStats(levels: UpgradeLevels): PowerupStats {
     fireballPlow: 2 + f,
     // Tier 1 chips about 6 bricks. Tier 5 about 22. A small level has ~50, so it never clears the board.
     laserDurationMs: 4_200 + (l - 1) * 500,
-    laserIntervalMs: 280 - (l - 1) * 25,
-    laserDamage: 22 + (l - 1) * 6,
+    laserBudget: LASER_BUDGET[l - 1]!,
+    laserRate: 1 + (l - 1) * 0.08,
   };
-}
-
-/** Both barrels fire on every volley: -1 is the left muzzle, 1 is the right. */
-export const LASER_BARREL_OFFSETS = [-1, 1] as const;
-
-/**
- * Most standard bricks a full laser can break if every bolt hits a fresh brick.
- * Real levels waste shots on armor, gaps and overkill, so this is a ceiling.
- */
-export function laserClearCeiling(stats: PowerupStats, brickHealth = 100): number {
-  const shots =
-    Math.floor(stats.laserDurationMs / stats.laserIntervalMs) * LASER_BARREL_OFFSETS.length;
-  const hits = Math.ceil(brickHealth / Math.max(1, stats.laserDamage));
-  return Math.floor(shots / hits);
 }
 
 export type PurchaseResult = 'ok' | 'maxed' | 'insufficient';

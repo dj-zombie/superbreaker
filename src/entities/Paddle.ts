@@ -12,6 +12,8 @@ export class Paddle extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
   /** Where input wants the paddle; the paddle eases toward it. */
   targetX = WIDTH / 2;
+  /** Sideways speed over the last step, in px/s. Laser bolts inherit some of it. */
+  vx = 0;
   private factor = 1;
 
   constructor(scene: Phaser.Scene, world: WorldId) {
@@ -54,7 +56,9 @@ export class Paddle extends Phaser.Physics.Arcade.Image {
     this.targetX = clamped;
     // Frame-rate independent ease: closes 99% of the gap in 60ms, so it tracks the finger closely.
     const t = 1 - Math.pow(0.01, dtMs / 60);
+    const prev = this.x;
     this.x = Phaser.Math.Linear(this.x, clamped, t);
+    this.vx = dtMs > 0 ? ((this.x - prev) * 1000) / dtMs : 0;
   }
 
   squash(): void {

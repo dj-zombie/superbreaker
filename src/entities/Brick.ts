@@ -2,16 +2,25 @@ import Phaser from 'phaser';
 import { fgTexture } from '../art/foreground';
 import type { WorldId } from '../art/backdrops';
 import { BRICK_TINT, LEVEL_OFFSET_Y } from '../config';
+import { chipArmor } from '../core/Laser';
 import type { BrickSpec } from '../core/types';
 
 export type BrickState = 'alive' | 'dormant' | 'dead';
 export type HitResult = 'immune' | 'armor' | 'damaged' | 'destroyed';
+
+export interface HitOptions {
+  lethal?: boolean;
+  stripArmor?: boolean;
+  chip?: boolean;
+}
 
 export class Brick extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
   life: BrickState = 'alive';
   health: number;
   armor: number;
+  /** Laser damage banked toward breaking the next armor point. */
+  armorBank = 0;
   readonly maxHealth: number;
   readonly maxArmor: number;
   /** Regen bricks in the same touching group share a cluster id. */
@@ -71,16 +80,29 @@ export class Brick extends Phaser.Physics.Arcade.Image {
     this.crack?.setTint(tl, tr, bl, br);
   }
 
-  /** Applies a hit. `lethal` ignores health and armor (explosions, falling shatter). */
-  takeHit(damage: number, opts: { lethal?: boolean; stripArmor?: boolean } = {}): HitResult {
+  /**
+   * Applies a hit. `lethal` ignores health and armor (explosions, falling shatter). `chip` banks
+   * the damage against armor instead of breaking a point per hit, for many small laser bolts.
+   */
+  takeHit(damage: number, opts: HitOptions = {}): HitResult {
     if (!this.isAlive) return 'immune';
     if (!this.breakable) return 'immune';
     if (opts.lethal) {
       this.health = 0;
       return 'destroyed';
     }
+    if (this.armor > 0 && opts.chip && !opts.stripArmor) {
+      const chipped = chipArmor(this.armor, this.armorBank, damage);
+      this.armorBank = chipped.banked;
+      if (chipped.armor !== this.armor) {
+        this.armor = chipped.armor;
+        this.updateCracks();
+      }
+      return 'armor';
+    }
     if (this.armor > 0) {
       this.armor = opts.stripArmor ? 0 : this.armor - 1;
+      this.armorBank = 0;
       this.updateCracks();
       if (!opts.stripArmor) return 'armor';
     }
@@ -131,6 +153,7 @@ export class Brick extends Phaser.Physics.Arcade.Image {
     this.life = 'alive';
     this.health = this.maxHealth;
     this.armor = this.maxArmor;
+    this.armorBank = 0;
     this.body.enable = true;
     this.setVisible(true).setAlpha(1);
     this.updateCracks();
