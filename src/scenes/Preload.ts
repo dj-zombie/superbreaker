@@ -21,6 +21,7 @@ import {
 import { randomSeed } from '../core/Rng';
 import { GOAL_KINDS, RUN_LOOPS, goalFor, type RunConfig } from '../core/Run';
 import type { LevelSpec } from '../core/types';
+import { save } from '../services';
 import { lightingTier } from '../systems/Quality';
 import { transitioning } from '../ui/fx/transitions';
 import { installBack } from '../ui/nav';
@@ -140,6 +141,8 @@ export class Preload extends BaseScene {
     if (run) this.scene.start(SCENES.play, { run });
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
+    // A new player lands in level 1 with no clicks, and the tutorial runs over real play.
+    else if (save.isNewPlayer()) this.scene.start(SCENES.play, { index: 1 });
     else this.scene.start(SCENES.title);
   }
 

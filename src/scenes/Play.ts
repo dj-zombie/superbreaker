@@ -59,6 +59,7 @@ import { FeverSystem } from '../systems/FeverSystem';
 import { InputSystem } from '../systems/InputSystem';
 import { JuiceSystem } from '../systems/JuiceSystem';
 import { FORCED_LASER_MODE, LaserSystem } from '../systems/LaserSystem';
+import { OnboardingCoach, type CoachHand } from '../systems/OnboardingCoach';
 import { LightingSystem, type Light } from '../systems/LightingSystem';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/PowerupSystem';
@@ -67,7 +68,7 @@ import { framePanel, glowLineTexture } from '../ui/frames';
 import { slam } from '../ui/fx/motion';
 import { onBack } from '../ui/nav';
 import { calm, css, pickWorld, theme, useWorld, worldLevels } from '../ui/theme';
-import { body, display, glowWord, heading, label } from '../ui/type';
+import { display, glowWord, heading, label } from '../ui/type';
 import { Meter, revealStars, RingTimer } from '../ui/widgets';
 import { BaseScene } from './BaseScene';
 
@@ -124,6 +125,10 @@ export interface HudState {
   paddleX: number;
   /** A ball is waiting on the paddle for a launch. */
   ballHeld: boolean;
+  /** The tutorial is showing how to move and launch, so the deck's own drag hint stands aside. */
+  coaching: boolean;
+  /** The tutorial's hand on a touch screen, drawn by the HUD so it shows over the deck. */
+  coachHand: CoachHand | null;
 }
 
 /** Shield bar center, just under the paddle and above the deck panel. */
@@ -148,7 +153,7 @@ const ENDGAME_TURN = 1.1;
 const NUDGE_MS = 4_000;
 /** A held serve launches itself after this long unless the player taps first. */
 const SERVE_COUNTDOWN_MS = 3_000;
-/** The very first serve waits longer, while the instructions are up. */
+/** The tutorial's serve gives longer, and only starts counting once the player has moved. */
 const FIRST_SERVE_MS = 5_000;
 /** A magnet catch lets go by itself after this long. */
 const MAGNET_HOLD_MS = 2_500;
@@ -203,6 +208,9 @@ export class Play extends BaseScene {
   private nudgeMs = 0;
   private juice!: JuiceSystem;
   private inputSys!: InputSystem;
+  /** The first-play tutorial, until it is finished or skipped. */
+  private coach?: OnboardingCoach;
+  private wasCoaching = false;
   private arrow!: Phaser.GameObjects.Image;
   private hint?: Phaser.GameObjects.Text;
   private countdown?: Phaser.GameObjects.Container;
@@ -280,6 +288,8 @@ export class Play extends BaseScene {
       feverActive: false,
       paddleX: WIDTH / 2,
       ballHeld: true,
+      coaching: false,
+      coachHand: null,
     };
 
     this.scenery = new ParallaxBackdrop(this, world);
@@ -368,7 +378,8 @@ export class Play extends BaseScene {
         effects: this.powerups.active.length,
         fever: this.fever.active,
       }),
-      onSpawned: (p) =>
+      onSpawned: (p) => {
+        this.coach?.pickupSpawned(p);
         this.lighting.addLight({
           follow: p,
           radius: 64,
@@ -378,7 +389,8 @@ export class Play extends BaseScene {
           haloAlpha: 0.3,
           haloDepth: 5.9,
           priority: 6,
-        }),
+        });
+      },
     });
     this.laser = new LaserSystem(
       this,
@@ -436,6 +448,10 @@ export class Play extends BaseScene {
       else if (button === PadButton.north) this.fireSlot(1);
       else if (stockButtons.includes(button)) this.useStock(stockButtons.indexOf(button));
     });
+    this.coach = save.state.seenInstructions
+      ? undefined
+      : new OnboardingCoach({ scene: this, input: this.inputSys, juice: this.juice, paddle: this.paddle });
+    this.wasCoaching = this.coaching;
 
     this.resetBall();
     this.showHint();
@@ -472,6 +488,7 @@ export class Play extends BaseScene {
     this.backdrop.update(dt);
     this.scenery.setFocus(this.paddle.x);
     this.updateAttachedBalls(dt);
+    this.updateCoach(dt);
     this.ballFx.update(this.ballList, dt, this.juice.particleScale);
     this.syncLights();
     this.updateTimeScale();
@@ -573,9 +590,10 @@ export class Play extends BaseScene {
         return this.processBallBrick(ball, (ball === a ? b : a) as Brick);
       },
     );
-    this.physics.add.overlap(this.paddle, this.powerups.group, (_p, pickup) =>
-      this.powerups.collect(pickup as Pickup),
-    );
+    this.physics.add.overlap(this.paddle, this.powerups.group, (_p, pickup) => {
+      this.coach?.pickupCaught((pickup as Pickup).kind);
+      this.powerups.collect(pickup as Pickup);
+    });
   }
 
   // ---------------------------------------------------------------- balls
@@ -616,7 +634,7 @@ export class Play extends BaseScene {
     const ball = this.makeBall(this.paddle.x, PADDLE_Y - 24);
     ball.attach(0);
     this.aim = -Math.PI / 2;
-    this.serveMs = save.state.seenInstructions ? SERVE_COUNTDOWN_MS : FIRST_SERVE_MS;
+    this.serveMs = this.coaching ? FIRST_SERVE_MS : SERVE_COUNTDOWN_MS;
   }
 
   /** A tap launches the held ball, or skips the level-clear banner. */
@@ -628,9 +646,10 @@ export class Play extends BaseScene {
   private launch(): void {
     const held = this.ballList.find((b) => b.attached);
     if (!held || this.finished) return;
+    const at = { x: held.x, y: held.y };
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
-    if (!save.state.seenInstructions) save.update((d) => (d.seenInstructions = true));
+    this.coach?.launched(at);
     audio.sfx('count_go', 0.55);
     audio.sfx('launch', 0.45, 0, { x: held.x });
   }
@@ -646,9 +665,31 @@ export class Play extends BaseScene {
     if (this.aim < AIM_MIN) this.aimDir = 1;
     this.aim = Phaser.Math.Clamp(this.aim, AIM_MIN, AIM_MAX);
     this.arrow.setPosition(held.x, held.y).setRotation(this.aim);
-    this.serveMs -= dt;
+    if (!this.coach?.holdServe) this.serveMs -= dt;
     if (this.serveMs <= 0) this.launch();
     else this.tickCountdown();
+  }
+
+  private updateCoach(dt: number): void {
+    const coach = this.coach;
+    if (!coach) return;
+    const held = this.ballList.find((b) => b.attached) ?? null;
+    if (coach.active) {
+      coach.update(dt, held);
+      this.hud.coachHand = coach.hand;
+    } else {
+      this.coach = undefined;
+      this.hud.coachHand = null;
+    }
+    this.hud.coaching = this.coaching;
+    // Skipped with the ball still held: the usual words come back for this serve.
+    if (this.wasCoaching && !this.coaching && held) this.showHint();
+    this.wasCoaching = this.coaching;
+  }
+
+  /** The tutorial is walking the player through moving and launching. */
+  private get coaching(): boolean {
+    return this.coach?.step === 'move' || this.coach?.step === 'launch';
   }
 
   /** Big 3-2-1 over the paddle for the last seconds of a serve. */
@@ -1288,23 +1329,20 @@ export class Play extends BaseScene {
 
   private showHint(): void {
     this.clearHint();
-    const first = !save.state.seenInstructions;
-    const text = first
-      ? 'Drag to move the paddle\nTap to launch the ball\nCatch powerups as they fall!'
-      : 'TAP TO LAUNCH';
     const t = theme();
-    this.hint = first
-      ? body(this, WIDTH / 2, PADDLE_Y - 160, text, 20, { t })
-      : label(this, WIDTH / 2, PADDLE_Y - 160, text, 18, { t, color: t.palette.text });
-    this.hint.setDepth(20).setStroke(css(t.palette.base), 6);
-    if (!calm()) {
-      this.tweens.add({
-        targets: this.hint,
-        alpha: { from: 1, to: 0.4 },
-        duration: 700,
-        yoyo: true,
-        repeat: -1,
-      });
+    // While the tutorial shows the controls, its pictures stand in for the words.
+    if (!this.coaching) {
+      this.hint = label(this, WIDTH / 2, PADDLE_Y - 160, 'TAP TO LAUNCH', 18, { t, color: t.palette.text });
+      this.hint.setDepth(20).setStroke(css(t.palette.base), 6);
+      if (!calm()) {
+        this.tweens.add({
+          targets: this.hint,
+          alpha: { from: 1, to: 0.4 },
+          duration: 700,
+          yoyo: true,
+          repeat: -1,
+        });
+      }
     }
     const ring = new RingTimer(this, 0, 0, 96, t.palette.accent);
     const num = display(this, 0, 2, '', 56, { t });
@@ -1368,15 +1406,16 @@ export class Play extends BaseScene {
     this.countdown = undefined;
   }
 
-  /** Above the hint, clear of the taller first-play instructions. */
+  /** Above the hint, clear of the tutorial's control panel. */
   private countdownY(): number {
-    return PADDLE_Y - (save.state.seenInstructions ? 215 : 255);
+    return PADDLE_Y - (this.coaching ? 265 : 215);
   }
 
   private win(): void {
     if (this.finished) return;
     this.finished = true;
     this.cleared = true;
+    this.coach?.finish();
     this.fever.reset();
     this.abilities.clearEffects();
     runCarry.stage(this.abilities.held(), this.levelIndex + 1);
@@ -1497,6 +1536,7 @@ export class Play extends BaseScene {
     }
     this.finished = true;
     this.inputSys.enabled = false;
+    this.coach?.finish();
     this.fever.reset();
     this.abilities.clearEffects();
     audio.stopMusic('tape');
@@ -1521,6 +1561,7 @@ export class Play extends BaseScene {
     if (this.finished || !director) return;
     this.finished = true;
     this.inputSys.enabled = false;
+    this.coach?.finish();
     this.fever.reset();
     this.abilities.clearEffects();
     const { state, config } = director;

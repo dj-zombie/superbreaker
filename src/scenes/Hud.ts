@@ -6,6 +6,7 @@ import {
   HUD_CENTER,
   HUD_HEIGHT,
   IS_TOUCH,
+  PADDLE_Y,
   POWERUP_INFO,
   RENDER_ZOOM,
   SCENES,
@@ -22,7 +23,9 @@ import { MAX_LIVES } from '../core/Difficulty';
 import type { PowerupId } from '../core/types';
 import { onKeyLabels, slotKeyLabel } from '../platform/keyboard';
 import { iconButton } from '../ui/Button';
+import type { CoachHand } from '../systems/OnboardingCoach';
 import { deckKnobTexture, deckPanelTexture, glowLineTexture, hudStripTexture, rimTexture } from '../ui/frames';
+import { icon } from '../ui/icons';
 import { disc, ring } from '../ui/shapes';
 import { calm, theme, type UiTheme } from '../ui/theme';
 import { RingTimer } from '../ui/widgets';
@@ -74,6 +77,15 @@ interface DeckView {
   right: number;
 }
 
+interface CoachHandView {
+  hand: Phaser.GameObjects.Image;
+  ripple: Phaser.GameObjects.Image;
+  scale: number;
+  tapped: boolean;
+}
+
+const COACH_HAND_SIZE = 58;
+
 /** Runs in parallel above Play and mirrors its public HUD state. */
 export class Hud extends BaseScene {
   private play!: Play;
@@ -94,6 +106,7 @@ export class Hud extends BaseScene {
   private stockKey = '';
   private stockIcons: Phaser.GameObjects.Container[] = [];
   private deck?: DeckView;
+  private coachHand?: CoachHandView;
   /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
   private plates?: WingPlates;
   private wide = false;
@@ -108,6 +121,7 @@ export class Hud extends BaseScene {
     const t = (this.t = theme());
     const p = t.palette;
     this.wide = WIDE;
+    this.coachHand = undefined;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
@@ -214,7 +228,30 @@ export class Hud extends BaseScene {
     const d = this.deck;
     if (!d) return;
     d.knob.setX(d.left + (s.paddleX / WIDTH) * (d.right - d.left));
-    d.hint.setVisible(s.ballHeld);
+    d.hint.setVisible(s.ballHeld && !s.coaching);
+  }
+
+  /** The tutorial's hand just under the paddle, fingertip up, where the thumb drags and taps. */
+  private drawCoachHand(pose: CoachHand | null): void {
+    let v = this.coachHand;
+    if (!pose) {
+      v?.hand.setVisible(false);
+      return;
+    }
+    if (!v) {
+      const color = this.t.palette.accentHi;
+      const hand = icon(this, 0, 0, 'hand', COACH_HAND_SIZE, color).setOrigin(0.5, 0.04).setDepth(35);
+      const ripple = ring(this, 0, 0, 18, 3, color).setDepth(35).setAlpha(0);
+      v = this.coachHand = { hand, ripple, scale: hand.scale, tapped: false };
+      if (!calm()) this.tweens.add({ targets: hand, alpha: { from: 0, to: 1 }, duration: 260 });
+    }
+    const y = PADDLE_Y + 34;
+    v.hand.setVisible(true).setPosition(pose.x, y).setScale(v.scale * (pose.tap ? 0.88 : 1));
+    if (pose.tap && !v.tapped && !calm()) {
+      v.ripple.setPosition(pose.x, y).setScale(0.6).setAlpha(0.9);
+      this.tweens.add({ targets: v.ripple, scale: 1.6, alpha: 0, duration: 420, ease: 'Cubic.Out' });
+    }
+    v.tapped = pose.tap;
   }
 
   private makeSlot(x: number, y: number, index: number): SlotView {
@@ -291,6 +328,7 @@ export class Hud extends BaseScene {
   override update(_t: number, delta: number): void {
     const s = this.play.hud as HudState | undefined;
     if (!s) return;
+    this.drawCoachHand(s.coachHand);
     if (this.plates) {
       this.plates.update(s, delta);
       return;

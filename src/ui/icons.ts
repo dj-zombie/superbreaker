@@ -283,7 +283,87 @@ const GLYPHS: Record<string, (ctx: Ctx) => void> = {
     c.closePath();
     c.fill();
   },
+  /** A pointing hand, fingertip at the top centre: drags and taps. */
+  hand: (c) => {
+    pill(c, 25, 2, 12, 36);
+    pill(c, 37, 22, 11, 16);
+    pill(c, 46, 26, 9, 14);
+    pill(c, 18, 30, 36, 30, 12);
+    c.save();
+    c.translate(17, 40);
+    c.rotate(-0.55);
+    pill(c, -6, -12, 12, 24);
+    c.restore();
+  },
+  mouse: (c) => mouseBody(c, false),
+  /** The mouse with its left button pressed. */
+  click: (c) => mouseBody(c, true),
+  /** A thumbstick from above: the well and the cap. */
+  stick: (c) => {
+    c.lineWidth = 5;
+    c.beginPath();
+    c.arc(32, 32, 25, 0, Math.PI * 2);
+    c.stroke();
+    c.beginPath();
+    c.arc(32, 32, 15, 0, Math.PI * 2);
+    c.fill();
+    c.globalCompositeOperation = 'destination-out';
+    c.lineWidth = 2.5;
+    c.beginPath();
+    c.arc(32, 32, 9, 0, Math.PI * 2);
+    c.stroke();
+    c.globalCompositeOperation = 'source-over';
+  },
 };
+
+/** A filled rounded rectangle; `r` defaults to fully round ends. */
+function pill(c: Ctx, x: number, y: number, w: number, h: number, r = Math.min(w, h) / 2): void {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+  c.fill();
+}
+
+function mouseBody(c: Ctx, pressed: boolean): void {
+  const [x, y, w, h, r] = [17, 5, 30, 54, 15];
+  if (pressed) {
+    c.save();
+    c.beginPath();
+    c.rect(x, y, w / 2, 21);
+    c.clip();
+    pill(c, x, y, w, h, r);
+    c.restore();
+  }
+  c.lineWidth = 5;
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+  c.stroke();
+  line(
+    c,
+    [
+      [x + w / 2, y + 2],
+      [x + w / 2, y + 21],
+    ],
+    4,
+  );
+  line(
+    c,
+    [
+      [x + 2, y + 21],
+      [x + w - 2, y + 21],
+    ],
+    4,
+  );
+}
 
 function line(c: Ctx, pts: ReadonlyArray<readonly [number, number]>, width = 7): void {
   c.lineWidth = width;

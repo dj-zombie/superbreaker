@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { IS_TOUCH } from '../config';
 
 /** W3C standard mapping. Xbox, DualSense and Switch Pro all report it in Chromium. */
 export const PadButton = {
@@ -119,6 +120,16 @@ export function onInputSource(fn: SourceListener): () => void {
 
 export function inputSource(): InputSource {
   return source;
+}
+
+/** Which set of controls to picture: a phone's touch, the desktop's mouse and keys, or a pad. */
+export type ControlDevice = 'touch' | 'desktop' | 'pad';
+
+export function controlDevice(from: InputSource = source): ControlDevice {
+  if (from === 'pad') return 'pad';
+  // Until the first touch lands, a phone still reports the default mouse source.
+  if (from === 'touch' || (IS_TOUCH && from === 'mouse')) return 'touch';
+  return 'desktop';
 }
 
 export function padConnected(): boolean {

@@ -39,6 +39,8 @@ const TOUCH_GAIN = 1.6;
 export class InputSystem {
   /** The scene's game keys; Play adds the ability and stock keys to them. */
   readonly keys: KeyBindings;
+  /** On-screen controls owned by others, such as the tutorial's Skip button. */
+  private blockers = new Set<(x: number, y: number) => boolean>();
   private downAt = 0;
   private downX = 0;
   private downY = 0;
@@ -79,13 +81,20 @@ export class InputSystem {
     if (dir !== 0) this.paddle.targetX = this.paddle.x + dir * KEY_SPEED * (dtMs / 1000) * 2;
   }
 
+  /** Pointers that start where `test` is true are left alone. Returns a removal function. */
+  addBlocker(test: (x: number, y: number) => boolean): () => void {
+    this.blockers.add(test);
+    return () => this.blockers.delete(test);
+  }
+
   private handleDown(p: Phaser.Input.Pointer): void {
     this.downAt = p.downTime;
     this.downX = p.worldX;
     this.downY = p.worldY;
     this.lastTouchX = p.worldX;
     this.moved = false;
-    this.onHud = onHudControl(p.worldX, p.worldY);
+    this.onHud =
+      onHudControl(p.worldX, p.worldY) || [...this.blockers].some((test) => test(p.worldX, p.worldY));
   }
 
   private handleMove(p: Phaser.Input.Pointer): void {

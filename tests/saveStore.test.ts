@@ -131,6 +131,26 @@ describe('unlockAll', () => {
   });
 });
 
+describe('isNewPlayer', () => {
+  it('is true only on an untouched save', async () => {
+    const store = new SaveStore(memoryStorage());
+    await store.load();
+    expect(store.isNewPlayer()).toBe(true);
+    store.update((d) => (d.seenInstructions = true));
+    expect(store.isNewPlayer()).toBe(false);
+
+    const winner = new SaveStore(memoryStorage());
+    await winner.load();
+    winner.recordWin(1, 1, 100, 30);
+    expect(winner.isNewPlayer()).toBe(false);
+
+    const unlocked = new SaveStore(memoryStorage());
+    await unlocked.load();
+    unlocked.unlockAll(30);
+    expect(unlocked.isNewPlayer()).toBe(false);
+  });
+});
+
 describe('arcade run bests', () => {
   it('adds empty run bests to older saves and cleans bad values', () => {
     expect(normalizeSave({ coins: 3 }).runs).toEqual({});

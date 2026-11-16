@@ -7,6 +7,7 @@ import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
 import { Button } from '../ui/Button';
 import { Toggle } from '../ui/controls';
+import { CONTROLS_CARD_W, ControlsCard } from '../ui/ControlsCard';
 import { fadeTexture } from '../ui/frames';
 import { cascade, type Movable } from '../ui/fx/motion';
 import { BehindFx } from '../ui/fx/sceneFx';
@@ -20,7 +21,7 @@ import type { Play } from './Play';
 
 const BTN_W = 300;
 
-/** Left-aligned stack over the blurred game: resume, restart, armory, settings, quit. */
+/** Left-aligned stack over the blurred game (resume, restart, armory, settings, quit), with the controls on the right. */
 export class Pause extends Overlay {
   constructor() {
     super(SCENES.pause);
@@ -57,6 +58,7 @@ export class Pause extends Overlay {
     items.push(display(this, left, y + 112, play.hud.score.toLocaleString(), 30, { originX: 0, t }));
 
     y += 180;
+    const stackTop = y - 33;
     const bx = left + BTN_W / 2;
     const add = (text: string, onClick: () => void, variant: 'primary' | 'secondary' | 'danger', glyph?: 'play' | 'retry' | 'armory' | 'gear' | 'home') => {
       const b = new Button(this, bx, y, text, onClick, {
@@ -98,6 +100,11 @@ export class Pause extends Overlay {
     };
     quick(left + 12, 'music', 'music');
     quick(left + 152, 'sfx', 'sfx');
+
+    const card = new ControlsCard(this, WIDTH - 14 - CONTROLS_CARD_W / 2, stackTop, t);
+    const room = qy - 30 - stackTop;
+    if (card.cardHeight > room) card.setScale(Math.max(0.7, room / card.cardHeight));
+    items.push(card);
 
     cascade(this, items, { dx: -40, dy: 0, stagger: 40, ease: 'Cubic.Out' });
     onBack(this, () => this.close());

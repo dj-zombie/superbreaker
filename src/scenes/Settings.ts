@@ -65,6 +65,9 @@ const DISPLAY: { title: string; rows: Row[] } = {
 const ROW_H = 54;
 const HEAD_H = 40;
 const SLIDER_W = 250;
+/** The replay-tutorial and unlock buttons, side by side above Done. */
+const FOOT_W = 250;
+const FOOT_GAP = 14;
 /** A volume slider while its sound is switched off. */
 const MUTED_ALPHA = 0.4;
 
@@ -146,18 +149,30 @@ export class Settings extends Overlay {
     }
 
     const total = this.levels.length;
-    const unlock = new Button(this, 0, y + 14, '', () => {
+    const pair = { width: FOOT_W, height: 46, variant: 'secondary', fontSize: 16 } as const;
+    const replay = new Button(this, -(FOOT_W + FOOT_GAP) / 2, y + 14, '', () => {
+      save.update((d) => (d.seenInstructions = false));
+      audio.sfx('ui_on', 0.6);
+      paintReplay();
+    }, pair);
+    // Play reads the flag as it builds a level, so the tutorial waits for the next one.
+    const paintReplay = () => {
+      const queued = !save.state.seenInstructions;
+      replay.setText(queued ? 'Tutorial on next level' : 'Replay tutorial').setEnabled(!queued);
+    };
+    paintReplay();
+    const unlock = new Button(this, (FOOT_W + FOOT_GAP) / 2, y + 14, '', () => {
       save.unlockAll(total);
       audio.sfx('ui_on', 0.6);
       paintUnlock();
-    }, { width: 300, height: 46, variant: 'secondary', fontSize: 16 });
+    }, pair);
     const paintUnlock = () => {
       const done = save.state.unlocked >= total;
       unlock.setText(done ? 'All levels unlocked' : 'Unlock all levels').setEnabled(!done);
     };
     paintUnlock();
-    root.add(unlock);
-    items.push(unlock);
+    root.add([replay, unlock]);
+    items.push(replay, unlock);
 
     const doneBtn = new Button(this, 0, this.sheet.top + height - 62, 'Done', () => this.done(), {
       width: 240,

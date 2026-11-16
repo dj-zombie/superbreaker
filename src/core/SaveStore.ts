@@ -74,6 +74,7 @@ export interface SaveData {
   /** Arcade bests, keyed by loop and goal, e.g. "waves-endless". */
   runs: Record<string, RunBest>;
   settings: Settings;
+  /** The first-play tutorial was finished or skipped. */
   seenInstructions: boolean;
 }
 
@@ -321,6 +322,11 @@ export class SaveStore {
       d.unlocked = Math.min(totalLevels, Math.max(d.unlocked, index + 1));
     });
     return isBest;
+  }
+
+  /** Nobody has played on this save: nothing cleared or unlocked, and no tutorial seen or skipped. */
+  isNewPlayer(): boolean {
+    return this.data.unlocked <= 1 && Object.keys(this.data.levels).length === 0 && !this.data.seenInstructions;
   }
 
   /** Opens every campaign level. Stars and best scores are left as they are. */
