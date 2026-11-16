@@ -54,7 +54,7 @@ function goalBlurb(loop: RunLoop, goal: GoalKind): string {
     : 'Survive until the clock runs out.';
 }
 
-/** Starts an Arcade run in the given loop and goal. */
+/** Starts an Arcade run in the given loop and goal, and remembers it for the menu's Play button. */
 export function startRun(
   scene: Phaser.Scene,
   loop: RunLoop,
@@ -63,15 +63,13 @@ export function startRun(
   stop?: string[],
 ): void {
   const run: RunConfig = { loop, goal: goalFor(goal), seed };
+  save.update((d) => (d.arcade = { loop, goal }));
   runCarry.discard();
   transitionTo(scene, SCENES.play, { run }, { stop });
 }
 
 /** Arcade setup: loop cards, goal, difficulty and the best record, then LAUNCH. */
 export class ArcadeSelect extends BaseScene {
-  /** Remembered for the session, so RETRY and MENU land back on the same choice. */
-  private static loop: RunLoop = 'waves';
-  private static goal: GoalKind = 'endless';
   private seed = randomSeed();
   private t!: UiTheme;
 
@@ -112,9 +110,9 @@ export class ArcadeSelect extends BaseScene {
       WIDTH / 2,
       y + 34,
       GOAL_KINDS.map((g) => GOAL_LABELS[g]),
-      GOAL_KINDS.indexOf(ArcadeSelect.goal),
+      GOAL_KINDS.indexOf(save.state.arcade.goal),
       (i) => {
-        ArcadeSelect.goal = GOAL_KINDS[i]!;
+        save.update((d) => (d.arcade.goal = GOAL_KINDS[i]!));
         paint();
       },
       { width: 520, height: 44 },
@@ -167,7 +165,7 @@ export class ArcadeSelect extends BaseScene {
     this.input.keyboard?.on('keydown-ENTER', () => this.launch());
 
     const paint = () => {
-      const { loop, goal: g } = ArcadeSelect;
+      const { loop, goal: g } = save.state.arcade;
       for (const [l, c] of cards) c.setSelected(l === loop);
       blurb.setText(goalBlurb(loop, g));
       const rec = save.state.runs[runKey(loop, g)];
@@ -178,7 +176,7 @@ export class ArcadeSelect extends BaseScene {
     };
     for (const [l, c] of cards) {
       c.setHandler(() => {
-        ArcadeSelect.loop = l;
+        save.update((d) => (d.arcade.loop = l));
         paint();
       });
     }
@@ -237,6 +235,7 @@ export class ArcadeSelect extends BaseScene {
 
   private launch(): void {
     this.input.enabled = false;
-    startRun(this, ArcadeSelect.loop, ArcadeSelect.goal, this.seed);
+    const { loop, goal } = save.state.arcade;
+    startRun(this, loop, goal, this.seed);
   }
 }

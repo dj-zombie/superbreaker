@@ -283,6 +283,32 @@ const GLYPHS: Record<string, (ctx: Ctx) => void> = {
     c.closePath();
     c.fill();
   },
+  /** Three rounds standing up: the paddle's gun burst. */
+  gun: (c) => {
+    for (const x of [12, 27, 42]) {
+      c.beginPath();
+      c.moveTo(x, 24);
+      c.quadraticCurveTo(x + 5, 6, x + 10, 24);
+      c.closePath();
+      c.fill();
+      c.fillRect(x, 27, 10, 22);
+      c.fillRect(x - 1, 52, 12, 5);
+    }
+  },
+  /** An hourglass: bullet time. */
+  slowmo: (c) => {
+    c.fillRect(12, 6, 40, 6);
+    c.fillRect(12, 52, 40, 6);
+    c.beginPath();
+    c.moveTo(16, 14);
+    c.lineTo(48, 14);
+    c.lineTo(34, 32);
+    c.lineTo(48, 50);
+    c.lineTo(16, 50);
+    c.lineTo(30, 32);
+    c.closePath();
+    c.fill();
+  },
   /** A pointing hand, fingertip at the top centre: drags and taps. */
   hand: (c) => {
     pill(c, 25, 2, 12, 36);

@@ -3,6 +3,7 @@ import { fgTexture } from '../art/foreground';
 import { ABILITY_INFO, POWERUP_INFO, WIDE } from '../config';
 import type { AbilityId } from '../core/Abilities';
 import { KEY_BINDINGS } from '../core/KeyLayout';
+import { SKILLS, type SkillId } from '../core/Skills';
 import type { PowerupId } from '../core/types';
 import { controlDevice, onInputSource, type ControlDevice } from '../platform/gamepad';
 import { keyLabel, onKeyLabels, PAUSE_LABEL } from '../platform/keyboard';
@@ -20,6 +21,7 @@ type Item =
   | { kind: 'paddle' }
   | { kind: 'serve' }
   | { kind: 'slot'; id: AbilityId }
+  | { kind: 'skill'; id: SkillId }
   | { kind: 'stock'; id: PowerupId }
   | { kind: 'pause' }
   | { kind: 'gap' };
@@ -53,6 +55,7 @@ function rows(device: ControlDevice): Row[] {
       { title: 'Move', caption: 'Stick or D-pad', items: [chevron(false), pad('L'), chevron(true), gap, glyph('dpad')] },
       { title: 'Launch', caption: 'Press A', items: [pad('A')] },
       { title: 'Abilities', caption: 'Fire a ready slot', items: [pad('X'), pad('Y')] },
+      { title: 'Skills', caption: 'Gun in flight · Slow-mo', items: [pad('A'), pad('B')] },
       { title: 'Stock', caption: 'Bought powerups', items: ['LB', 'RB', 'LT', 'RT'].map((b) => key(b)) },
       { title: 'Pause', caption: 'Opens this menu', items: [key('START')] },
     ];
@@ -68,6 +71,14 @@ function rows(device: ControlDevice): Row[] {
         items: [
           { kind: 'slot', id: 'meteor' },
           { kind: 'slot', id: 'lightning' },
+        ],
+      },
+      {
+        title: 'Skills',
+        caption: 'Tap in flight fires the gun',
+        items: [
+          { kind: 'skill', id: 'gun' },
+          { kind: 'skill', id: 'slowmo' },
         ],
       },
       {
@@ -95,6 +106,17 @@ function rows(device: ControlDevice): Row[] {
       title: 'Abilities',
       caption: 'Fire a ready slot',
       items: [key(keyLabel(KEY_BINDINGS.slot1[0]!)), key(keyLabel(KEY_BINDINGS.slot2[0]!))],
+    },
+    {
+      title: 'Skills',
+      caption: 'Gun · Slow-mo',
+      items: [
+        { kind: 'skill', id: 'gun' },
+        key(keyLabel(KEY_BINDINGS.gun[0]!)),
+        gap,
+        { kind: 'skill', id: 'slowmo' },
+        key(keyLabel(KEY_BINDINGS.slowmo[0]!)),
+      ],
     },
     { title: 'Stock', caption: 'Bought powerups', items: ['1', '2', '3', '4'].map((d) => key(d)) },
     { title: 'Pause', caption: 'Opens this menu', items: [key(PAUSE_LABEL)] },
@@ -190,6 +212,16 @@ export class ControlsCard extends Phaser.GameObjects.Container {
         const art = scene.add.image(0, 0, `ab_${item.id}`);
         art.setScale(((r - 3) * 2) / art.width);
         const parts = [disc(scene, 0, 0, r, t.palette.base, 0.9), art, ring(scene, 0, 0, r, 2, color)];
+        return { obj: scene.add.container(0, 0, parts), w: KEY };
+      }
+      case 'skill': {
+        const color = SKILLS[item.id].color;
+        const r = KEY / 2;
+        const parts = [
+          disc(scene, 0, 0, r, t.palette.base, 0.9),
+          ring(scene, 0, 0, r, 2, color),
+          icon(scene, 0, 0, item.id, r * 1.05, color),
+        ];
         return { obj: scene.add.container(0, 0, parts), w: KEY };
       }
       case 'stock': {

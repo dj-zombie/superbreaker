@@ -49,9 +49,16 @@ describe('PacingDirector', () => {
     expect(d.boredom).toBe(0);
   });
 
+  it('steps in quickly: a nudge by 5s, a gift by 9s and a surge by 16s', () => {
+    const d = new PacingDirector();
+    expect(run(d, 5_000)).toEqual(['nudge']);
+    expect(run(d, 4_000)).toEqual(['gift']);
+    expect(run(d, 7_000)).toEqual(['surge']);
+  });
+
   it('resets escalation when a brick breaks', () => {
     const d = new PacingDirector();
-    expect(run(d, 9_000)).toEqual(['nudge']);
+    expect(run(d, 7_000)).toEqual(['nudge']);
     d.onBreak();
     const next = run(d, 9_000);
     expect(next[0]).toBe('nudge');

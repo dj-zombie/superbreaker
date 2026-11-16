@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
 import { EXPLOSION_RADIUS, FALL_SHATTER_Y } from '../config';
-import { collapseThreshold } from '../core/Difficulty';
+import { MAX_REGROWS, collapseThreshold } from '../core/Difficulty';
 import type { BrickSpec, LevelSpec } from '../core/types';
 import { Brick, type HitOptions, type HitResult } from '../entities/Brick';
 
@@ -187,6 +187,27 @@ export class BrickSystem {
     return this.targetsCache;
   }
 
+  /** Breaks every standing steel brick, for when the player is stuck behind it. Returns them. */
+  shatterSteel(): Brick[] {
+    const out: Brick[] = [];
+    for (const b of this.bricks) {
+      if (!b.isAlive || b.breakable) continue;
+      b.markDead();
+      this.scene.tweens.add({
+        targets: b,
+        alpha: 0,
+        scaleX: b.scaleX * 1.4,
+        scaleY: b.scaleY * 0.2,
+        delay: out.length * 6,
+        duration: 220,
+        onComplete: () => b.setVisible(false),
+      });
+      out.push(b);
+    }
+    this.invalidate();
+    return out;
+  }
+
   /** Instantly destroys a breakable brick, ignoring health and armor. Steel is immune. */
   kill(b: Brick, cause: DestroyCause): boolean {
     if (!b.isAlive || !b.breakable) return false;
@@ -198,10 +219,10 @@ export class BrickSystem {
   private destroy(b: Brick, cause: DestroyCause, chain: number): void {
     if (!b.isAlive) return;
     this.invalidate();
-    if (b.spec.kind === 'regen' && !this.collapsing) {
+    const regen = b.spec.kind === 'regen';
+    if (regen && !this.collapsing && b.regrows < MAX_REGROWS) {
       b.setDormant();
       b.regrowAt = this.elapsedMs + b.spec.regenDelay * 1000;
-      this.settleCluster(b.cluster);
     } else {
       b.markDead();
       this.scene.tweens.add({
@@ -213,6 +234,7 @@ export class BrickSystem {
         onComplete: () => b.setVisible(false),
       });
     }
+    if (regen) this.settleCluster(b.cluster);
     this.events.onDestroyed(b, cause, chain);
     if (b.spec.kind === 'explosive' && cause !== 'breach') this.explode(b, chain + 1);
     this.checkCollapse();
@@ -252,7 +274,7 @@ export class BrickSystem {
     this.events.onRegrow(b);
   }
 
-  /** A regen cluster is gone for good once every member is down at the same time. */
+  /** A regen cluster is gone for good once every member is down at the same time, or worn out. */
   private settleCluster(cluster: number): void {
     const members = this.bricks.filter((m) => m.cluster === cluster && m.life !== 'dead');
     if (members.every((m) => m.life === 'dormant')) {
@@ -260,10 +282,10 @@ export class BrickSystem {
     }
   }
 
+  /** Dormant regen bricks don't count toward the threshold; the collapse clears them anyway. */
   private checkCollapse(): void {
     if (this.collapsing) return;
-    const left = this.remaining;
-    if (left === 0 || left > this.fallThreshold) return;
+    if (this.remaining === 0 || this.targets.length > this.fallThreshold) return;
     if (this.events.collapseReady && !this.events.collapseReady()) return;
     this.collapsing = true;
     this.events.onCollapseStart();

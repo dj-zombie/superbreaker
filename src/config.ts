@@ -1,5 +1,6 @@
 import type { AbilityId } from './core/Abilities';
 import { computeLayout, computeStage } from './core/Layout';
+import { SKILL_IDS } from './core/Skills';
 import { FIELD_HEIGHT, FIELD_WIDTH, type PowerupId } from './core/types';
 
 export const WIDTH = FIELD_WIDTH;
@@ -154,6 +155,9 @@ export const POWERUP_INFO: Record<PowerupId, PowerupInfo> = {
   mystery: { label: 'Mystery Box', texture: 'pu_mystery', color: 0xff5cf0, fallSpeed: 90 },
 };
 
+/** Arcade physics steps per second of game time. */
+export const PHYSICS_FPS = 120;
+
 /** Durations for powerups that aren't upgradeable, in ms. */
 export const HYPER_DURATION_MS = 6_000;
 /** Arcade timeScale below 1 runs physics faster. */
@@ -276,6 +280,16 @@ export function designY(y: number): number {
   const span = bottom - top;
   if (span <= FIELD_HEIGHT) return top + (y / FIELD_HEIGHT) * span;
   return top + (span - FIELD_HEIGHT) / 2 + y;
+}
+
+/** The skill buttons sit in a row inboard of the right slot, mirroring the stock row on the left. */
+export const SKILL_RADIUS = IS_TOUCH ? 26 : 20;
+
+export function skillPositions(): ReadonlyArray<{ x: number; y: number }> {
+  const slot = slotPositions()[1]!;
+  const gap = SKILL_RADIUS * 2 + 10;
+  const x0 = slot.x - SLOT_RADIUS - 12 - SKILL_RADIUS;
+  return SKILL_IDS.map((_, i) => ({ x: x0 - i * gap, y: slot.y }));
 }
 
 export function stockPositions(count: number): Array<{ x: number; y: number }> {

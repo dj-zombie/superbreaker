@@ -22,8 +22,8 @@ export interface PacingConfig {
 export const DEFAULT_PACING: PacingConfig = {
   expectedBreakRate: 0.5,
   rateWindowMs: 15_000,
-  idleGraceMs: 3_000,
-  idleFullMs: 9_000,
+  idleGraceMs: 2_000,
+  idleFullMs: 6_000,
   thresholds: { nudge: 0.35, gift: 0.6, surge: 0.85 },
   cooldownMs: 3_500,
   giftCooldownMs: 18_000,

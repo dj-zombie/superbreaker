@@ -77,8 +77,8 @@ player too. The game covers mouse, touch, keyboard and gamepad.
 > Start — pause
 >
 > New players start with a short tutorial that shows the controls, then pauses the game to show how
-> to keep the ball in play, catch a powerup and fire an ability. Skip it at any time, replay it
-> from Settings, and find every control on the Pause screen.
+> to keep the ball in play, catch a powerup, fire an ability, fire the gun and slow time. Skip it
+> at any time, replay it from Settings, and find every control on the Pause screen.
 
 The in-game version of this list never needs translating for a layout. Keys are bound by position,
 and every label on screen (the tutorial's keycaps, the ability slots, the Pause screen's Controls

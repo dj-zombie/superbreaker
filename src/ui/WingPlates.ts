@@ -12,8 +12,9 @@ import {
 import type { AbilityId } from '../core/Abilities';
 import { MAX_LIVES } from '../core/Difficulty';
 import { MAX_POWERUP_STOCK } from '../core/Session';
+import { SKILLS, SKILL_IDS, type SkillId, type SkillView } from '../core/Skills';
 import { inputSource, onInputSource, type InputSource } from '../platform/gamepad';
-import { PAUSE_LABEL, onKeyLabels, slotKeyLabel } from '../platform/keyboard';
+import { PAUSE_LABEL, onKeyLabels, skillKeyLabel, slotKeyLabel } from '../platform/keyboard';
 import type { HudState, Play } from '../scenes/Play';
 import type { SlotState } from '../systems/AbilitySystem';
 import { iconButton } from './Button';
@@ -36,10 +37,16 @@ const SLOT_RING = 36;
 interface Hints {
   pause: string;
   slots: readonly string[];
+  skills: readonly string[];
   stock: readonly string[];
 }
 
-const PAD_HINTS: Hints = { pause: 'START', slots: ['X', 'Y'], stock: ['LB', 'RB', 'LT', 'RT'] };
+const PAD_HINTS: Hints = {
+  pause: 'START',
+  slots: ['X', 'Y'],
+  skills: ['A', 'B'],
+  stock: ['LB', 'RB', 'LT', 'RT'],
+};
 
 /** Keyboard hints name the keys as the player's layout prints them. */
 function hintsFor(source: InputSource): Hints {
@@ -47,6 +54,7 @@ function hintsFor(source: InputSource): Hints {
   return {
     pause: PAUSE_LABEL,
     slots: [slotKeyLabel(0), slotKeyLabel(1)],
+    skills: SKILL_IDS.map(skillKeyLabel),
     stock: ['1', '2', '3', '4'],
   };
 }
@@ -59,6 +67,15 @@ interface SlotRow {
   hint: Text;
   shown: AbilityId | null;
   ready: boolean;
+}
+
+interface SkillRow {
+  ring: RingTimer;
+  glyph: Phaser.GameObjects.Image;
+  name: Text;
+  hint: Text;
+  ready: boolean;
+  lit: boolean;
 }
 
 interface EffectRow {
@@ -106,6 +123,7 @@ export class WingPlates {
 
   private pauseHint!: Text;
   private slots: SlotRow[] = [];
+  private skills: SkillRow[] = [];
   private effectsTop = 0;
   private effectKey: string | null = null;
   private effects = new Map<string, EffectRow>();
@@ -156,13 +174,17 @@ export class WingPlates {
       const row = this.slots[i];
       if (row) this.drawSlot(row, slot);
     });
+    s.skills.forEach((skill, i) => {
+      const row = this.skills[i];
+      if (row) this.drawSkill(row, skill);
+    });
     this.drawEffects(s);
     this.drawStock(s);
   }
 
-  /** Lights the slot row the tutorial is waiting on, with an arrow in from the field. */
-  spotlight(slot: number | null): void {
-    const row = slot === null ? undefined : this.slots[slot];
+  /** Lights the slot or skill row the tutorial is waiting on, with an arrow in from the field. */
+  spotlight(slot: number | null, skill: SkillId | null): void {
+    const row = skill ? this.skills[SKILL_IDS.indexOf(skill)] : slot === null ? undefined : this.slots[slot];
     let v = this.spot;
     if (!row) {
       v?.ring.setVisible(false);
@@ -214,10 +236,18 @@ export class WingPlates {
 
   private setHints(source: InputSource): void {
     const next = hintsFor(source);
-    if (next.pause === this.hints.pause && next.slots.join() === this.hints.slots.join()) return;
+    const same = (a: readonly string[], b: readonly string[]) => a.join() === b.join();
+    if (
+      next.pause === this.hints.pause &&
+      same(next.slots, this.hints.slots) &&
+      same(next.skills, this.hints.skills)
+    ) {
+      return;
+    }
     this.hints = next;
     this.pauseHint.setText(next.pause);
     this.slots.forEach((row, i) => row.hint.setText(next.slots[i] ?? ''));
+    this.skills.forEach((row, i) => row.hint.setText(next.skills[i] ?? ''));
     this.stockKey = null;
   }
 
@@ -345,6 +375,10 @@ export class WingPlates {
       this.slots.push(this.makeSlot(i, y));
       y += SLOT_ROW;
     }
+    SKILL_IDS.forEach((id, i) => {
+      this.skills.push(this.makeSkill(id, i, y));
+      y += SLOT_ROW;
+    });
     y += 2;
     label(scene, x, y, 'Powerups', 13, { t, originX: 0 }).setDepth(2);
     y += 22;
@@ -417,6 +451,42 @@ export class WingPlates {
     if (ready && !row.ready && !calm()) punch(this.scene, row.ring, 1.3);
     row.shown = id;
     row.ready = ready;
+  }
+
+  private makeSkill(id: SkillId, i: number, y: number): SkillRow {
+    const scene = this.scene;
+    const color = SKILLS[id].color;
+    const x = this.rx + INSET + SLOT_RING / 2;
+    const ringTimer = new RingTimer(scene, x, y, SLOT_RING, color).setDepth(2);
+    ringTimer.set(0);
+    const glyph = icon(scene, x, y, id, SLOT_RING * 0.55, color).setDepth(3);
+    const name = scene.add
+      .text(x + SLOT_RING / 2 + 12, y, SKILLS[id].label, {
+        fontFamily: this.t.fonts.display,
+        fontStyle: '700',
+        fontSize: '17px',
+        color: this.t.palette.textDim,
+        resolution: RENDER_ZOOM,
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(2);
+    const hint = this.hintText(this.rx + this.w - INSET, y, this.hints.skills[i] ?? '');
+    scene.add
+      .zone(this.rx + this.w / 2, y, this.w - 12, SLOT_ROW - 4)
+      .setInteractive({ useHandCursor: true })
+      .on(Phaser.Input.Events.POINTER_DOWN, () => this.play.useSkill(id));
+    return { ring: ringTimer, glyph, name, hint, ready: false, lit: false };
+  }
+
+  private drawSkill(row: SkillRow, s: SkillView): void {
+    const color = SKILLS[s.id].color;
+    const lit = s.ready || s.active;
+    row.ring.setColor(s.active ? 0xffffff : color).set(s.fraction);
+    row.glyph.setTint(s.active ? 0xffffff : color).setAlpha(lit ? 1 : 0.45);
+    if (lit !== row.lit) row.name.setColor(lit ? css(color) : this.t.palette.textDim);
+    if (s.ready && !row.ready && !calm()) punch(this.scene, row.ring, 1.3);
+    row.ready = s.ready;
+    row.lit = lit;
   }
 
   private effectLines(s: HudState): EffectLine[] {

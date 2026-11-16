@@ -75,8 +75,8 @@ level and not on the title screen.
 new player takes none: with nothing cleared and the tutorial unseen, `Preload` starts Level 1
 directly instead of the title, and the first `gameplayStart` fires as soon as the assets are in.
 The tutorial runs over that level, holds the serve until the player launches it, and stops play
-while it points out the line, a powerup and an ability, so nothing is lost while they find the
-controls. Browser audio unlocks on their first touch, click or key, and
+while it points out the line, a powerup, an ability and the two cooldown skills, so nothing is
+lost while they find the controls. Browser audio unlocks on their first touch, click or key, and
 the level's music starts then (`AudioSystem.resume`). Returning players still get the title and
 hub.
 

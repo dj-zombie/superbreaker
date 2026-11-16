@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
 import {
   HUD_HEIGHT,
+  SKILL_RADIUS,
   SLOT_RADIUS,
   STOCK_RADIUS,
   WIDE,
   WIDTH,
+  skillPositions,
   slotPositions,
   stockPositions,
 } from '../config';
@@ -13,12 +15,13 @@ import { KeyBindings } from '../platform/keyboard';
 import { save } from '../services';
 import type { Paddle } from '../entities/Paddle';
 
-/** Pointers that start on the pause button or an ability slot belong to the HUD, not the paddle. */
+/** Pointers that start on the pause button, a slot or a skill belong to the HUD, not the paddle. */
 function onHudControl(x: number, y: number): boolean {
   // The wide stage keeps its HUD in the wing plates, off the board.
   if (WIDE) return x < 0 || x > WIDTH;
   if (y < HUD_HEIGHT + 6 && x < 56) return true;
   if (slotPositions().some((p) => Math.hypot(p.x - x, p.y - y) < SLOT_RADIUS + 8)) return true;
+  if (skillPositions().some((p) => Math.hypot(p.x - x, p.y - y) < SKILL_RADIUS + 8)) return true;
   return stockPositions(save.state.stock.powerups.length).some(
     (p) => Math.hypot(p.x - x, p.y - y) < STOCK_RADIUS + 8,
   );

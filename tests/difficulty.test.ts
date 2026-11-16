@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   CRUISE_SHARE,
   DIFFICULTY,
+  IDLE_BOOST_GRACE_MS,
+  IDLE_BOOST_MAX,
+  IDLE_BOOST_RAMP_MS,
   LEVELS_PER_WORLD,
+  SPEED_CHASE_PER_SEC,
   SPEED_RELAX_PER_SEC,
   campaignSpeedScale,
+  chaseSpeed,
   cruiseSpeed,
+  idleSpeedBoost,
   relaxSpeed,
   scaleSpeeds,
 } from '../src/core/Difficulty';
@@ -23,6 +29,32 @@ describe('cruiseSpeed', () => {
   it('clamps progress outside 0..1', () => {
     expect(cruiseSpeed(normal, -0.5)).toBe(cruiseSpeed(normal, 0));
     expect(cruiseSpeed(normal, 2)).toBe(cruiseSpeed(normal, 1));
+  });
+});
+
+describe('idleSpeedBoost', () => {
+  it('leaves the ball alone through the grace period', () => {
+    expect(idleSpeedBoost(0)).toBe(1);
+    expect(idleSpeedBoost(IDLE_BOOST_GRACE_MS)).toBe(1);
+  });
+
+  it('ramps up to the cap and holds there', () => {
+    const half = idleSpeedBoost(IDLE_BOOST_GRACE_MS + IDLE_BOOST_RAMP_MS / 2);
+    expect(half).toBeCloseTo(1 + (IDLE_BOOST_MAX - 1) / 2);
+    expect(idleSpeedBoost(IDLE_BOOST_GRACE_MS + IDLE_BOOST_RAMP_MS)).toBeCloseTo(IDLE_BOOST_MAX);
+    expect(idleSpeedBoost(60_000)).toBeCloseTo(IDLE_BOOST_MAX);
+  });
+});
+
+describe('chaseSpeed', () => {
+  it('speeds a slow ball up at the chase rate without passing the target', () => {
+    expect(chaseSpeed(400, 600, 1_000)).toBeCloseTo(400 + SPEED_CHASE_PER_SEC);
+    expect(chaseSpeed(590, 600, 1_000)).toBe(600);
+  });
+
+  it('leaves a ball at or above the target alone', () => {
+    expect(chaseSpeed(600, 600, 1_000)).toBe(600);
+    expect(chaseSpeed(700, 600, 1_000)).toBe(700);
   });
 });
 

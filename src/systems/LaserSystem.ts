@@ -117,6 +117,9 @@ interface Target extends HomingBox {
   brick: Brick;
 }
 
+/** What has the pods out: a laser pickup, or the gun skill's short burst. */
+type LaserSource = 'pickup' | 'burst';
+
 function box(b: Brick): Target {
   return { x: b.x, y: b.y, halfW: b.spec.width / 2, halfH: b.spec.height / 2, brick: b };
 }
@@ -132,6 +135,7 @@ function mix(a: number, b: number, t: number): number {
 /**
  * The laser powerup. Each pickup rolls a firing mode, the pods slide out of the paddle and spin
  * up, and every bolt carries an equal share of the pickup's damage budget (see core/Laser).
+ * The gun skill fires a short Machine Gun burst through the same pods.
  */
 export class LaserSystem {
   readonly group: Phaser.Physics.Arcade.Group;
@@ -139,7 +143,10 @@ export class LaserSystem {
   private mode: LaserMode = 'gun';
   private previous?: LaserMode;
   private pending?: LaserMode;
-  private running = false;
+  private source: LaserSource | null = null;
+  private burstMs = 0;
+  private burstLeftMs = 0;
+  private burstBudget = 0;
   private stats: PowerupStats = powerupStats(save.state.upgrades);
   private plan: LaserPlan = { volleys: 0, bolts: 0, damage: 0 };
   private elapsedMs = 0;
@@ -253,26 +260,41 @@ export class LaserSystem {
 
   /** The mode the laser being picked up fires: the running one, or the one that will run next. */
   nextMode(): LaserMode {
-    if (this.running) return this.mode;
+    if (this.source === 'pickup') return this.mode;
     this.pending ??= FORCED_LASER_MODE ?? rollLaserMode(Math.random, this.previous);
     return this.pending;
   }
 
+  /** Fires a Machine Gun burst for `durationMs`, sharing `budget` damage over its bolts. */
+  burst(durationMs: number, budget: number): void {
+    if (this.source === 'pickup') return;
+    this.burstMs = this.burstLeftMs = durationMs;
+    this.burstBudget = budget;
+    if (this.source === 'burst') this.begin('burst');
+  }
+
   update(dtMs: number): void {
-    const effect = this.host.powerups.effect('laser');
-    if (effect && !this.running) this.begin();
-    else if (!effect && this.running) this.finish();
+    const pickup = this.host.powerups.effect('laser');
+    if (pickup) this.burstLeftMs = 0;
+    const source: LaserSource | null = pickup ? 'pickup' : this.burstLeftMs > 0 ? 'burst' : null;
+    if (source && source !== this.source) this.begin(source);
+    else if (!source && this.source) this.finish();
+    const remainingMs = pickup?.remainingMs ?? this.burstLeftMs;
     this.targetBoxes = null;
     const stopped = this.host.juice.inHitStop;
-    if (effect && !stopped) this.updateFire(dtMs, effect.remainingMs);
-    this.updatePods(dtMs, effect?.remainingMs ?? 0);
+    if (source && !stopped) {
+      this.updateFire(dtMs, remainingMs);
+      if (source === 'burst') this.burstLeftMs = Math.max(0, this.burstLeftMs - dtMs);
+    }
+    this.updatePods(dtMs, remainingMs);
     if (!stopped) this.updateBolts(dtMs);
   }
 
   /** Removes every bolt and tucks the pods away, e.g. when a life is lost. */
   clear(): void {
     for (const b of this.group.getChildren() as Bolt[]) if (b.active) this.kill(b);
-    this.running = false;
+    this.source = null;
+    this.burstLeftMs = 0;
     this.pending = undefined;
     this.scene.tweens.killTweensOf(this.deploy);
     this.deploy.t = 1;
@@ -288,13 +310,19 @@ export class LaserSystem {
 
   // ---------------------------------------------------------------- start and end
 
-  private begin(): void {
-    this.mode = this.nextMode();
-    this.pending = undefined;
-    this.previous = this.mode;
-    this.stats = powerupStats(save.state.upgrades);
+  private begin(source: LaserSource): void {
+    const upgrades = powerupStats(save.state.upgrades);
+    if (source === 'pickup') {
+      this.mode = this.nextMode();
+      this.pending = undefined;
+      this.previous = this.mode;
+      this.stats = upgrades;
+    } else {
+      this.mode = 'gun';
+      this.stats = { ...upgrades, laserDurationMs: this.burstMs, laserBudget: this.burstBudget };
+    }
     this.plan = laserSchedule(this.mode, this.stats);
-    this.running = true;
+    this.source = source;
     this.elapsedMs = 0;
     this.cooldown = 0;
     this.volley = 0;
@@ -317,7 +345,7 @@ export class LaserSystem {
 
   /** The barrels vent their heat and the pods tuck back into the paddle. */
   private finish(): void {
-    this.running = false;
+    this.source = null;
     const calm = save.state.settings.reducedMotion;
     for (const p of this.pods) {
       const { x, y } = this.muzzle(p);
@@ -593,7 +621,7 @@ export class LaserSystem {
     const hidden = this.deploy.t >= 1;
     const heat = this.heatColor(remainingMs);
     const flashAlpha = calm ? 0.5 : 1;
-    const cooling = this.running && remainingMs < LASER_COOL_MS;
+    const cooling = this.source !== null && remainingMs < LASER_COOL_MS;
     if (cooling) this.steamAcc += dtMs;
     for (const p of this.pods) {
       p.kick = Math.max(0, p.kick - dtMs * 0.04);
@@ -622,7 +650,7 @@ export class LaserSystem {
 
   /** Cool steel to the world's glow over the run, then white hot as it overheats. */
   private heatColor(remainingMs: number): number {
-    if (!this.running) return STEEL_HEAT;
+    if (!this.source) return STEEL_HEAT;
     const total = this.elapsedMs + remainingMs;
     const p = total > 0 ? this.elapsedMs / total : 0;
     return p < 0.7 ? mix(STEEL_HEAT, this.look.glow, p / 0.7) : mix(this.look.glow, 0xffffff, (p - 0.7) / 0.3);

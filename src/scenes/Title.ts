@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { worldForLevel } from '../art/backdrops';
 import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, STAGE_W, WIDTH, designY } from '../config';
 import { ABILITY_IDS, abilityCost } from '../core/Abilities';
+import { DIFFICULTY } from '../core/Difficulty';
 import { canPurchase } from '../core/Economy';
+import { GOAL_LABELS, LOOP_LABELS, reachLabel, runKey } from '../core/Run';
 import { levelId } from '../core/SaveStore';
 import { runCarry } from '../core/Session';
 import { UPGRADE_IDS } from '../core/types';
@@ -19,9 +20,10 @@ import { cascade } from '../ui/fx/motion';
 import { ambient } from '../ui/fx/particles';
 import { transitionTo } from '../ui/fx/transitions';
 import { icon, type IconName } from '../ui/icons';
-import { calm, css, menuWorld, themeFor, useWorld, worldLevels, type UiTheme } from '../ui/theme';
+import { calm, css, menuWorld, useWorld, type UiTheme } from '../ui/theme';
 import { display, glowWord, heading, label } from '../ui/type';
-import { CurrencyPill, Meter, starRow } from '../ui/widgets';
+import { CurrencyPill } from '../ui/widgets';
+import { startRun } from './ArcadeSelect';
 import { BaseScene } from './BaseScene';
 
 type Item = Phaser.GameObjects.Components.Transform &
@@ -30,7 +32,9 @@ type Item = Phaser.GameObjects.Components.Transform &
 
 const LOGO_W = 540;
 const HUB_LOGO = { w: 340, h: 150 };
-const TILE_W = 178;
+const CARD_W = 560;
+const TILE_GAP = 12;
+const TILE_W = (CARD_W - TILE_GAP) / 2;
 const TILE_H = 156;
 
 /** Starts a campaign level, dropping anything carried from an earlier level. */
@@ -40,8 +44,8 @@ export function startLevel(scene: Phaser.Scene, index: number, stop?: string[]):
 }
 
 /**
- * First launch shows the logo reveal and TAP TO START. The hub then offers one-tap Continue,
- * and the Campaign, Arcade and Armory tiles.
+ * First launch shows the logo reveal and TAP TO START. The hub then offers a one-tap Arcade run
+ * in the last mode played, and the Campaign and Armory tiles.
  */
 export class Title extends BaseScene {
   /** Attract mode plays once per session. */
@@ -205,13 +209,11 @@ export class Title extends BaseScene {
     );
 
     const cardY = Math.max(logoBottom + 128, designY(410));
-    add(this.continueCard(cardY));
+    add(this.arcadeCard(cardY));
 
     const tilesY = cardY + 100 + 30 + TILE_H / 2;
-    const gap = 12;
     const tiles: Array<[IconName, string, string, () => void, boolean?]> = [
       ['campaign', 'Campaign', this.campaignLine(), () => transitionTo(this, SCENES.worlds)],
-      ['arcade', 'Arcade', this.arcadeLine(), () => transitionTo(this, SCENES.arcadeSelect)],
       [
         'armory',
         'Armory',
@@ -221,7 +223,7 @@ export class Title extends BaseScene {
       ],
     ];
     tiles.forEach(([glyph, name, sub, go, badge], i) => {
-      const x = WIDTH / 2 + (i - 1) * (TILE_W + gap);
+      const x = WIDTH / 2 + (i - (tiles.length - 1) / 2) * (TILE_W + TILE_GAP);
       const tile = this.tile(x, tilesY, glyph, name, sub, go, !!badge);
       add(tile);
     });
@@ -229,48 +231,54 @@ export class Title extends BaseScene {
     add(label(this, WIDTH / 2, HEIGHT - Math.max(30, SAFE_BOTTOM + 22), 'Zombie Head Studios', 12));
   }
 
-  private continueCard(y: number): Card {
-    const total = this.levels.length;
-    const done = this.cleared();
-    const index = Math.max(1, Math.min(save.state.unlocked, total));
-    const world = worldForLevel(index);
-    const wt = themeFor(world);
-    const spec = this.levels[index - 1];
-    const complete = done >= total && total > 0;
-    const play = () => startLevel(this, index);
+  /** The main mode: one tap starts a run in the loop and goal played last. */
+  private arcadeCard(y: number): Card {
+    const t = this.t;
+    const { loop, goal } = save.state.arcade;
+    const play = () => {
+      this.input.enabled = false;
+      startRun(this, loop, goal);
+    };
 
-    const card = new Card(this, WIDTH / 2, y, 560, 200, { ornament: true, onClick: play });
+    const card = new Card(this, WIDTH / 2, y, CARD_W, 200, { ornament: true, onClick: play });
     const left = -card.cw / 2 + 30;
-    const kicker = complete ? 'Campaign complete' : save.state.levels[levelId(index)] ? 'Replay' : 'Continue';
     card.add(
-      label(this, left, -62, `${kicker}  ·  ${wt.name}`, 13, {
+      label(this, left, -62, `${LOOP_LABELS[loop]}  ·  ${GOAL_LABELS[goal]}`, 13, {
         originX: 0,
-        color: css(wt.palette.accentHi),
+        color: css(t.palette.accentHi),
       }),
     );
-    card.add(heading(this, left, -24, `Level ${index}`, 42, { originX: 0 }));
-    if (spec) {
-      card.add(
-        display(this, left, 18, spec.title, 20, { originX: 0, color: this.t.palette.textDim }).setFontStyle('700'),
-      );
-    }
-    const stars = save.state.levels[levelId(index)]?.stars ?? 0;
-    card.add(starRow(this, left + 36, 58, stars, 22, 6));
+    card.add(heading(this, left, -24, 'Arcade', 42, { originX: 0 }));
+    const rec = save.state.runs[runKey(loop, goal)];
+    const has = !!rec && rec.bestScore > 0;
+    card.add(
+      display(this, left, 18, has ? `Best ${rec.bestScore.toLocaleString()}` : 'New levels every run', 20, {
+        originX: 0,
+        color: has ? css(t.palette.gold) : t.palette.textDim,
+      }).setFontStyle('700'),
+    );
+    const difficulty = DIFFICULTY[save.state.difficulty].label;
+    const detail = has ? `${reachLabel(loop, rec.bestReach)}  ·  ${difficulty}` : difficulty;
+    card.add(label(this, left, 56, detail, 12, { originX: 0 }));
 
-    const { first } = worldLevels(world);
-    let worldDone = 0;
-    for (let i = first; i < first + 10; i++) if (save.state.levels[levelId(i)]) worldDone++;
-    const meter = new Meter(this, 120, 58, 150, 8, worldDone / 10, wt.palette.accent);
-    card.add([meter, label(this, 210, 58, `${worldDone}/10`, 12, { originX: 0 })]);
-
-    const btn = new Button(this, 160, -20, 'Play', play, {
-      width: 180,
-      height: 70,
-      hero: true,
-      icon: 'play',
-      fontSize: 30,
-    });
-    card.add(btn);
+    card.add(
+      new Button(this, 160, -26, 'Play', play, {
+        width: 180,
+        height: 70,
+        hero: true,
+        icon: 'play',
+        fontSize: 30,
+      }),
+    );
+    card.add(
+      new Button(this, 160, 48, 'Change mode', () => transitionTo(this, SCENES.arcadeSelect), {
+        width: 180,
+        height: 40,
+        fontSize: 13,
+        icon: 'arcade',
+        variant: 'secondary',
+      }),
+    );
     return card;
   }
 
@@ -326,13 +334,11 @@ export class Title extends BaseScene {
   }
 
   private campaignLine(): string {
-    return `${this.cleared()}/${this.levels.length} cleared`;
-  }
-
-  private arcadeLine(): string {
-    let best = 0;
-    for (const r of Object.values(save.state.runs)) best = Math.max(best, r.bestScore);
-    return best > 0 ? `Best ${best.toLocaleString()}` : 'Endless runs';
+    const total = this.levels.length;
+    const done = this.cleared();
+    if (total > 0 && done >= total) return 'Campaign complete';
+    const index = Math.max(1, Math.min(save.state.unlocked, total));
+    return `Level ${index}  ·  ${done}/${total} cleared`;
   }
 
   private upgradeReady(): boolean {

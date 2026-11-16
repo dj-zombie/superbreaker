@@ -158,6 +158,16 @@ describe('arcade run bests', () => {
     expect(s.runs['waves-endless']).toEqual({ bestScore: 900, bestReach: 0 });
   });
 
+  it('remembers the last Arcade mode, falling back to Waves Endless', () => {
+    expect(normalizeSave({}).arcade).toEqual({ loop: 'waves', goal: 'endless' });
+    expect(normalizeSave({ arcade: { loop: 'descent', goal: 'timed' } }).arcade).toEqual({
+      loop: 'descent',
+      goal: 'timed',
+    });
+    const bad = normalizeSave({ arcade: { loop: 'spiral', goal: 'rounds' } } as unknown);
+    expect(bad.arcade).toEqual({ loop: 'waves', goal: 'rounds' });
+  });
+
   it('keeps the best score and the best reach separately', async () => {
     const storage = memoryStorage();
     const store = new SaveStore(storage);
@@ -170,6 +180,15 @@ describe('arcade run bests', () => {
     const s = await new SaveStore(storage).load();
     expect(s.runs['descent-timed']).toEqual({ bestScore: 4000, bestReach: 45 });
     expect(s.runs['waves-endless']).toEqual({ bestScore: 0, bestReach: 0 });
+  });
+});
+
+describe('skill hints', () => {
+  it('keeps known skills once each and drops the rest', () => {
+    expect(normalizeSave({}).seenSkills).toEqual([]);
+    const s = normalizeSave({ seenSkills: ['slowmo', 'jetpack', 'slowmo', 'gun'] } as unknown);
+    expect(s.seenSkills).toEqual(['gun', 'slowmo']);
+    expect(normalizeSave({ seenSkills: 'gun' } as unknown).seenSkills).toEqual([]);
   });
 });
 

@@ -10,6 +10,8 @@ export type KeyAction =
   | 'launch'
   | 'slot1'
   | 'slot2'
+  | 'gun'
+  | 'slowmo'
   | 'stock1'
   | 'stock2'
   | 'stock3'
@@ -22,6 +24,8 @@ export const KEY_BINDINGS: Readonly<Record<Exclude<KeyAction, 'pause'>, readonly
   launch: ['Space', 'ArrowUp', 'KeyW'],
   slot1: ['KeyQ'],
   slot2: ['KeyE'],
+  gun: ['KeyF'],
+  slowmo: ['KeyS', 'ShiftLeft', 'ShiftRight'],
   stock1: ['Digit1', 'Numpad1'],
   stock2: ['Digit2', 'Numpad2'],
   stock3: ['Digit3', 'Numpad3'],
@@ -63,6 +67,8 @@ const FIXED: Readonly<Record<string, string>> = {
   ArrowUp: '↑',
   ArrowDown: '↓',
   Space: 'SPACE',
+  ShiftLeft: 'SHIFT',
+  ShiftRight: 'SHIFT',
 };
 
 /**

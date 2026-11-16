@@ -9,18 +9,21 @@ import {
   POWERUP_INFO,
   RENDER_ZOOM,
   SCENES,
+  SKILL_RADIUS,
   SLOT_RADIUS,
   STOCK_RADIUS,
   WIDE,
   WIDTH,
+  skillPositions,
   slotPositions,
   stockPositions,
 } from '../config';
 import { HUD_FONT } from '../art/fonts';
 import type { SlotState } from '../systems/AbilitySystem';
 import { MAX_LIVES } from '../core/Difficulty';
+import { SKILLS, SKILL_IDS, type SkillId, type SkillView } from '../core/Skills';
 import type { PowerupId } from '../core/types';
-import { onKeyLabels, slotKeyLabel } from '../platform/keyboard';
+import { onKeyLabels, skillKeyLabel, slotKeyLabel } from '../platform/keyboard';
 import { iconButton } from '../ui/Button';
 import type { CoachHand } from '../systems/OnboardingCoach';
 import { deckKnobTexture, deckPanelTexture, glowLineTexture, hudStripTexture, rimTexture } from '../ui/frames';
@@ -54,6 +57,17 @@ interface EffectView {
   timer: RingTimer;
 }
 
+/** A skill button: its cooldown fills the ring, then drains it while the skill runs. */
+interface SkillButton {
+  root: Phaser.GameObjects.Container;
+  glow: Phaser.GameObjects.Image;
+  timer: RingTimer;
+  glyph: Phaser.GameObjects.Image;
+  key: Phaser.GameObjects.Text;
+  ready: boolean;
+  pulse?: Phaser.Tweens.Tween;
+}
+
 interface FeverView {
   track: Phaser.GameObjects.Rectangle;
   fill: Phaser.GameObjects.Rectangle;
@@ -84,7 +98,7 @@ interface CoachHandView {
   tapped: boolean;
 }
 
-/** The tutorial's light on the ability slot it is waiting on. */
+/** The tutorial's light on the ability slot or skill it is waiting on. */
 interface CoachSpotView {
   ring: Phaser.GameObjects.Image;
   arrow: Phaser.GameObjects.Image;
@@ -110,6 +124,7 @@ export class Hud extends BaseScene {
   private last = { lives: -1, score: -1, shownScore: -1 };
   private feverView!: FeverView;
   private slotViews: SlotView[] = [];
+  private skillButtons: SkillButton[] = [];
   private stockKey = '';
   private stockIcons: Phaser.GameObjects.Container[] = [];
   private deck?: DeckView;
@@ -175,7 +190,11 @@ export class Hud extends BaseScene {
       .setVisible(false);
     this.feverView = this.makeFever();
     this.slotViews = slotPositions().map((pos, i) => this.makeSlot(pos.x, pos.y, i));
-    const offKeys = onKeyLabels(() => this.slotViews.forEach((v, i) => v.key.setText(slotKeyLabel(i))));
+    this.skillButtons = skillPositions().map((pos, i) => this.makeSkill(pos.x, pos.y, SKILL_IDS[i]!));
+    const offKeys = onKeyLabels(() => {
+      this.slotViews.forEach((v, i) => v.key.setText(slotKeyLabel(i)));
+      this.skillButtons.forEach((v, i) => v.key.setText(skillKeyLabel(SKILL_IDS[i]!)));
+    });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, offKeys);
   }
 
@@ -187,6 +206,7 @@ export class Hud extends BaseScene {
     }
     if (this.plates) return;
     slotPositions().forEach((p, i) => this.slotViews[i]?.root.setPosition(p.x, p.y));
+    skillPositions().forEach((p, i) => this.skillButtons[i]?.root.setPosition(p.x, p.y));
     this.stockKey = '';
     this.layoutDeck();
     this.layoutFever(this.feverView);
@@ -224,10 +244,11 @@ export class Hud extends BaseScene {
     const d = this.deck;
     if (!d) return;
     d.panel.setPosition(WIDTH / 2, DECK_TOP).setDisplaySize(WIDTH, HEIGHT - DECK_TOP);
-    const [l, r] = slotPositions();
-    const y = l!.y;
-    d.left = l!.x + SLOT_RADIUS + 18;
-    d.right = r!.x - SLOT_RADIUS - 18;
+    // The track stops short of the skill buttons, and by the same amount on the left so it stays centered.
+    const y = slotPositions()[0]!.y;
+    const skills = skillPositions();
+    d.right = skills[skills.length - 1]!.x - SKILL_RADIUS - 18;
+    d.left = WIDTH - d.right;
     d.track.setPosition((d.left + d.right) / 2, y).setDisplaySize(d.right - d.left, 4);
     d.knob.setY(y);
     d.hint.setPosition(WIDTH / 2, y - 26);
@@ -263,10 +284,14 @@ export class Hud extends BaseScene {
     v.tapped = pose.tap;
   }
 
-  /** A pulsing ring and an arrow on the slot the tutorial is waiting on. */
-  private drawCoachSpot(slot: number | null): void {
+  /** A pulsing ring and an arrow on the slot or skill the tutorial is waiting on. */
+  private drawCoachSpot(slot: number | null, skill: SkillId | null): void {
     let v = this.coachSpot;
-    const pos = slot === null ? undefined : slotPositions()[slot];
+    const pos = skill
+      ? skillPositions()[SKILL_IDS.indexOf(skill)]
+      : slot === null
+        ? undefined
+        : slotPositions()[slot];
     if (!pos) {
       v?.ring.setVisible(false);
       v?.arrow.setVisible(false);
@@ -278,9 +303,11 @@ export class Hud extends BaseScene {
       const arrow = icon(this, 0, 0, 'back', 30, color).setAngle(-90).setDepth(34);
       v = this.coachSpot = { ring: r, arrow, scale: r.scale };
     }
+    const radius = skill ? SKILL_RADIUS : SLOT_RADIUS;
+    const size = (radius + 12) / (SLOT_RADIUS + 12);
     const wave = calm() ? 0 : Math.sin(this.time.now / 180);
-    v.ring.setVisible(true).setPosition(pos.x, pos.y).setScale(v.scale * (1 + 0.06 * wave));
-    v.arrow.setVisible(true).setPosition(pos.x, pos.y - SLOT_RADIUS - 34 + wave * 5);
+    v.ring.setVisible(true).setPosition(pos.x, pos.y).setScale(v.scale * size * (1 + 0.06 * wave));
+    v.arrow.setVisible(true).setPosition(pos.x, pos.y - radius - 34 + wave * 5);
   }
 
   private makeSlot(x: number, y: number, index: number): SlotView {
@@ -327,6 +354,58 @@ export class Hud extends BaseScene {
     return { root, glow, ring: edge, rim, icon, empty, key, shown: null, ready: false };
   }
 
+  private makeSkill(x: number, y: number, id: SkillId): SkillButton {
+    const p = this.t.palette;
+    const color = SKILLS[id].color;
+    const r = SKILL_RADIUS;
+    const root = this.add.container(x, y).setDepth(30);
+    const glow = disc(this, 0, 0, r + 8, color).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    const base = disc(this, 0, 0, r, p.base, 0.9);
+    const timer = new RingTimer(this, 0, 0, r * 2 + 4, color);
+    const glyph = icon(this, 0, 0, id, r * 1.05, color);
+    const key = this.add
+      .text(r - 2, r - 2, skillKeyLabel(id), {
+        fontFamily: this.t.fonts.display,
+        fontStyle: '800',
+        fontSize: '11px',
+        color: p.textDim,
+        resolution: RENDER_ZOOM,
+      })
+      .setOrigin(0.5)
+      .setVisible(this.sys.game.device.os.desktop);
+    root.add([glow, base, timer, glyph, key]);
+    root.setSize(r * 2, r * 2);
+    root.setInteractive(new Phaser.Geom.Circle(r, r, r + 6), Phaser.Geom.Circle.Contains);
+    root.on(Phaser.Input.Events.POINTER_DOWN, () => this.play.useSkill(id));
+    return { root, glow, timer, glyph, key, ready: false };
+  }
+
+  private drawSkill(v: SkillButton, s: SkillView): void {
+    const color = SKILLS[s.id].color;
+    const lit = s.ready || s.active;
+    v.timer.set(s.fraction).setColor(s.active ? 0xffffff : color).setAlpha(lit ? 1 : 0.6);
+    v.glyph.setTint(s.active ? 0xffffff : color).setAlpha(lit ? 1 : 0.4);
+    if (s.ready && !v.pulse) {
+      v.glow.setVisible(true).setAlpha(0.15);
+      v.pulse = this.tweens.add({
+        targets: v.glow,
+        alpha: 0.4,
+        duration: 420,
+        ease: 'Sine.InOut',
+        yoyo: true,
+        repeat: -1,
+      });
+    } else if (!s.ready && v.pulse) {
+      v.pulse.stop();
+      v.pulse = undefined;
+      v.glow.setVisible(false);
+    }
+    if (s.ready && !v.ready && !calm()) {
+      this.tweens.add({ targets: v.root, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.Out' });
+    }
+    v.ready = s.ready;
+  }
+
   private makeFever(): FeverView {
     const p = this.t.palette;
     const track = this.add.rectangle(0, 0, WIDTH, FEVER_H, 0x000000, 0.5).setOrigin(0, 0);
@@ -359,7 +438,7 @@ export class Hud extends BaseScene {
     if (!s) return;
     this.drawCoachHand(s.coachHand);
     if (this.plates) {
-      this.plates.spotlight(s.coachSlot);
+      this.plates.spotlight(s.coachSlot, s.coachSkill);
       this.plates.update(s, delta);
       return;
     }
@@ -396,7 +475,11 @@ export class Hud extends BaseScene {
       const v = this.slotViews[i];
       if (v) this.drawSlot(v, slot, delta);
     });
-    this.drawCoachSpot(s.coachSlot);
+    s.skills.forEach((skill, i) => {
+      const v = this.skillButtons[i];
+      if (v) this.drawSkill(v, skill);
+    });
+    this.drawCoachSpot(s.coachSlot, s.coachSkill);
   }
 
   /** Timed runs: m:ss, red and blinking for the last ten seconds. */

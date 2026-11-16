@@ -36,6 +36,33 @@ export function pickHomingTarget(
   return best;
 }
 
+/**
+ * True when walls box the target in on the left, the right and above, like a brick inside a steel
+ * frame. The ball can only get at it through a door.
+ */
+export function isGuarded(t: HomingBox, walls: readonly HomingBox[]): boolean {
+  let left = false;
+  let right = false;
+  let above = false;
+  for (const w of walls) {
+    const sameRow = Math.abs(w.y - t.y) < w.halfH + t.halfH - 0.5;
+    const sameCol = Math.abs(w.x - t.x) < w.halfW + t.halfW - 0.5;
+    if (sameRow && w.x < t.x) left = true;
+    else if (sameRow && w.x > t.x) right = true;
+    if (sameCol && w.y < t.y) above = true;
+    if (left && right && above) return true;
+  }
+  return false;
+}
+
+/** Share of the targets, 0..1, that walls box in. */
+export function guardedShare(targets: readonly HomingBox[], walls: readonly HomingBox[]): number {
+  if (!targets.length || !walls.length) return 0;
+  let n = 0;
+  for (const t of targets) if (isGuarded(t, walls)) n++;
+  return n / targets.length;
+}
+
 /** True when the segment from the ball to the target crosses any wall, padding included. */
 function pathBlocked(
   x0: number,

@@ -1,13 +1,23 @@
 import Phaser from 'phaser';
-import { ABILITY_INFO, ARENA_MID, HUD_HEIGHT, PADDLE_Y, WIDE, WIDTH, slotPositions } from '../config';
+import {
+  ABILITY_INFO,
+  ARENA_MID,
+  HUD_HEIGHT,
+  PADDLE_Y,
+  WIDE,
+  WIDTH,
+  skillPositions,
+  slotPositions,
+} from '../config';
 import type { AbilityId } from '../core/Abilities';
 import { KEY_BINDINGS } from '../core/KeyLayout';
 import { Onboarding, helpfulPickup, pathToLine, type OnboardingStep, type Point } from '../core/Onboarding';
+import { SKILL_IDS, type SkillId } from '../core/Skills';
 import type { PowerupId } from '../core/types';
 import { BALL_SIZE, type Ball } from '../entities/Ball';
 import type { Paddle } from '../entities/Paddle';
 import { controlDevice, onInputSource, onPadButton, PadButton, type ControlDevice } from '../platform/gamepad';
-import { keyLabel, onKeyLabels, slotKeyLabel } from '../platform/keyboard';
+import { keyLabel, onKeyLabels, skillKeyLabel, slotKeyLabel } from '../platform/keyboard';
 import { save } from '../services';
 import { Button } from '../ui/Button';
 import { fadeTexture, framePanel, glowLineTexture } from '../ui/frames';
@@ -35,6 +45,10 @@ export interface CoachHost {
   slots(): readonly SlotState[];
   /** Rolls an ability into a free slot through the usual roulette. */
   grantAbility(): void;
+  /** The skill is charged and free to fire. */
+  skillReady(id: SkillId): boolean;
+  /** Fills a skill's charge, so the tutorial can show it without the wait. */
+  chargeSkill(id: SkillId): void;
 }
 
 /** Where the demo hand is and whether it is mid-tap. Its fingertip is at (x, y). */
@@ -79,6 +93,10 @@ const UNDER = 0.6;
 const GIFT_DELAY_MS = 600;
 /** After this long without a safe moment, the ability step points at the slot anyway. */
 const SAFE_WAIT_MS = 6_000;
+/** A skill step lets the last step's ability or gun burst play out before it charges its skill. */
+const SKILL_DELAY_MS = 2_000;
+/** Bullet time stops play on a falling ball at least this far above the paddle, so the slowdown has room to show. */
+const SLOWMO_ROOM = 120;
 const CALLOUT_W = 470;
 const CALLOUT_H = 92;
 
@@ -150,9 +168,9 @@ interface Focus {
 
 /**
  * The first-play tutorial over level 1. It shows the player's own controls (hand, mouse and keys,
- * or stick and D-pad) with a line of words: move, then launch. Then it stops play three times and waits for
- * the player each time: under a falling ball, under a falling powerup, and on an ability slot.
- * Skip ends it at any time.
+ * or stick and D-pad) with a line of words: move, then launch. Then it stops play five times and waits for
+ * the player each time: under a falling ball, under a falling powerup, on an ability slot, on the
+ * gun, and on bullet time as a ball comes down. Skip ends it at any time.
  */
 export class OnboardingCoach {
   private readonly flow = new Onboarding();
@@ -197,6 +215,7 @@ export class OnboardingCoach {
   };
   private focusSlot: number | null = null;
   private granted = false;
+  private charged: SkillId | null = null;
 
   constructor(private readonly host: CoachHost) {
     const scene = (this.scene = host.scene);
@@ -276,6 +295,11 @@ export class OnboardingCoach {
     return this.flow.step === 'ability' && this.flow.frozen ? this.focusSlot : null;
   }
 
+  /** The skill the tutorial is pointing at, for the HUD to light up. */
+  get skill(): SkillId | null {
+    return this.flow.frozen ? this.flow.skill : null;
+  }
+
   /** Steps the tutorial. `held` is the ball waiting on the paddle, if any. */
   update(dt: number, held: Point | null): void {
     if (this.flow.done) return;
@@ -295,6 +319,7 @@ export class OnboardingCoach {
     else if (this.flow.step === 'guard') this.updateGuard();
     else if (this.flow.step === 'catch') this.updateCatch();
     else if (this.flow.step === 'ability') this.updateAbility(held);
+    else if (this.flow.skill) this.updateSkill(this.flow.skill, held);
   }
 
   /** The held ball launched. */
@@ -322,7 +347,15 @@ export class OnboardingCoach {
   abilityFired(): void {
     if (!this.flow.abilityFired()) return;
     this.cheer(this.host.paddle.x, PADDLE_Y - 40);
-    this.end();
+    this.stepChanged();
+  }
+
+  /** A skill fired. */
+  skillUsed(id: SkillId): void {
+    if (!this.flow.skillUsed(id)) return;
+    this.cheer(this.host.paddle.x, PADDLE_Y - 40);
+    if (this.flow.done) this.end();
+    else this.stepChanged();
   }
 
   /** The level is over; the tutorial has done its job either way. */
@@ -631,12 +664,12 @@ export class OnboardingCoach {
     this.animateLine();
   }
 
-  /** The lowest ball in flight heading down into the paddle's reach, if any. */
-  private fallingBall(): Ball | undefined {
+  /** The lowest ball in flight heading down into the paddle's reach and still `room` above it, if any. */
+  private fallingBall(room = 40): Ball | undefined {
     let best: Ball | undefined;
     for (const b of this.host.balls()) {
       if (b.attached || !b.active || b.body.velocity.y <= 0) continue;
-      if (b.y < PADDLE_Y - GUARD_RANGE || b.y > PADDLE_Y - 40) continue;
+      if (b.y < PADDLE_Y - GUARD_RANGE || b.y > PADDLE_Y - room) continue;
       if (!best || b.y > best.y) best = b;
     }
     return best;
@@ -644,22 +677,27 @@ export class OnboardingCoach {
 
   private freezeOnBall(ball: Ball): void {
     const paddle = this.host.paddle;
-    const r = BALL_SIZE / 2;
-    const top = PADDLE_Y - paddle.displayHeight / 2 - r;
-    const v = ball.body.velocity;
-    const from = { x: ball.x, y: ball.y };
-    this.focus.path = pathToLine(from, v.x, v.y, top, r, WIDTH - r) ?? [from, { x: from.x, y: top }];
-    const land = this.focus.path[this.focus.path.length - 1]!;
-    this.focusBall = ball;
     this.freezeSound();
     this.showShade(true);
     this.buildLine();
+    const land = this.traceBall(ball);
+    this.buildTarget(Phaser.Math.Clamp(land.x, paddle.halfWidth, WIDTH - paddle.halfWidth));
+    this.callout(PADDLE_Y - GUARD_RANGE - 100, 'Keep at least one ball above the line', 'Move under the ball to keep it in play');
+  }
+
+  /** Rings the ball and marches dots down its path to the paddle. Returns where it will land. */
+  private traceBall(ball: Ball): Point {
+    const r = BALL_SIZE / 2;
+    const top = PADDLE_Y - this.host.paddle.displayHeight / 2 - r;
+    const v = ball.body.velocity;
+    const from = { x: ball.x, y: ball.y };
+    this.focus.path = pathToLine(from, v.x, v.y, top, r, WIDTH - r) ?? [from, { x: from.x, y: top }];
+    this.focusBall = ball;
     this.focus.dots = Array.from({ length: PATH_DOTS }, () => disc(this.scene, 0, 0, 3, this.t.palette.accentHi, 0.85));
     this.stage.add(this.focus.dots);
-    this.buildTarget(Phaser.Math.Clamp(land.x, paddle.halfWidth, WIDTH - paddle.halfWidth));
     this.focusRing(ball.x, ball.y, BALL_SIZE);
-    this.callout(PADDLE_Y - GUARD_RANGE - 100, 'Keep at least one ball above the line', 'Move under the ball to keep it in play');
     this.animatePath();
+    return this.focus.path[this.focus.path.length - 1]!;
   }
 
   /** The line under the paddle that a ball is lost past. */
@@ -813,6 +851,78 @@ export class OnboardingCoach {
     const i = this.focusSlot;
     const pos = i === null || WIDE ? undefined : slotPositions()[i];
     if (this.device === 'touch' && pos) this.handPose = { x: pos.x, y: pos.y + 4, tap };
+  }
+
+  // ---------------------------------------------------------------- skills
+
+  /**
+   * Charges the step's skill, then stops play when it is worth using: the gun while the ball is
+   * safely up the field, bullet time as a ball comes down at the paddle.
+   */
+  private updateSkill(id: SkillId, held: Point | null): void {
+    if (this.flow.frozen) {
+      this.animateSkill(id);
+      return;
+    }
+    if (this.flow.shown || this.stepClock < SKILL_DELAY_MS) return;
+    if (this.charged !== id) {
+      this.charged = id;
+      this.host.chargeSkill(id);
+    }
+    if (held || !this.host.skillReady(id)) return;
+    if (id === 'gun') {
+      if ((this.ballSafe() || this.stepClock > SAFE_WAIT_MS) && this.flow.skillReady()) this.freezeOnGun();
+      return;
+    }
+    const ball = this.fallingBall(SLOWMO_ROOM);
+    if (ball && this.flow.skillReady()) this.freezeOnSlowmo(ball);
+  }
+
+  private freezeOnGun(): void {
+    this.freezeSound();
+    this.showShade(true);
+    const head = 'Your gun recharges as you play';
+    const y = PADDLE_Y - 200;
+    if (this.device === 'pad') {
+      this.callout(y, head, 'Press A to fire a burst', { cap: { label: 'A', round: true } });
+    } else if (this.device === 'desktop') {
+      const key = skillKeyLabel('gun');
+      this.callout(y, head, `Click or press ${key} to fire a burst`, { cap: { label: key } });
+    } else {
+      this.callout(y, head, 'Tap anywhere to fire a burst');
+    }
+  }
+
+  private freezeOnSlowmo(ball: Ball): void {
+    this.freezeSound();
+    this.showShade(true);
+    this.traceBall(ball);
+    const head = 'Bullet Time slows everything';
+    const y = PADDLE_Y - GUARD_RANGE - 100;
+    if (this.device === 'pad') {
+      this.callout(y, head, 'Press B to buy time to reach the ball', { cap: { label: 'B', round: true } });
+    } else if (this.device === 'desktop') {
+      const key = skillKeyLabel('slowmo');
+      this.callout(y, head, `Press ${key} or Shift to buy time`, { cap: { label: key } });
+    } else {
+      this.callout(y, head, 'Tap the hourglass to buy time');
+    }
+  }
+
+  /** Taps the key in the callout, and on touch shows where the thumb goes. */
+  private animateSkill(id: SkillId): void {
+    const tap = this.clock % TAP_MS < 200;
+    this.focus.cap?.press(tap);
+    if (id === 'slowmo') this.animatePath();
+    if (this.device !== 'touch') return;
+    if (id === 'gun') {
+      // Any tap in the field fires it; this one sits between the words and the paddle.
+      this.handPose = { x: this.host.paddle.x, y: PADDLE_Y - 110, tap };
+      return;
+    }
+    // On the wide stage the skills sit in the wing plates, which light their own.
+    const pos = WIDE ? undefined : skillPositions()[SKILL_IDS.indexOf(id)];
+    if (pos) this.handPose = { x: pos.x, y: pos.y + 4, tap };
   }
 
   // ---------------------------------------------------------------- move and launch

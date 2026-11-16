@@ -73,7 +73,7 @@ Play keeps working exactly as before for campaign levels. When it is started wit
 2. **Shape.** A weighted pick from the patterns unlocked at this tier draws normal bricks into the grid. Most patterns are mirrored left to right, which is what makes a random layout look designed.
 3. **Near band.** A row of short segments at the bottom, the quick breaks every campaign level opens with. This also makes the formation span the arena instead of hugging the ceiling.
 4. **Fit.** If the shape came out short of its target, mirrored blocks are added in the open space until it isn't. The structure is then lifted to the top of its area, so a short shape doesn't leave a gap under the ceiling. Last, mirrored pairs of plain bricks are removed from the busiest rows until the count is under the tier's maximum, with room left for the movers decoration may add.
-5. **Decorate.** The board features one to three of the unlocked mechanics, and a mechanic that was just unlocked is always featured for its first two tiers. Explosives are spaced apart and pulled back if one chain would clear too much. Regen bricks come in small, separated clusters. Movers only go into empty rows. Armor runs along a row, like the campaign's Plated.
+5. **Decorate.** The board features one to three of the unlocked mechanics, and a mechanic that was just unlocked is always featured for its first two tiers. Explosives are spaced apart and pulled back if one chain would clear too much. Regen bricks come in small, separated clusters. Movers only go into empty rows. Armor runs along a row, like the campaign's Plated. Regen and armor never go inside a steel enclosure (see the rules below).
 6. **Powerups.** Exactly one coin, plus two to four others from the pool unlocked at this tier.
 7. **Check.** The rules below. A board that fails is regenerated from the next forked seed, up to 8 times. If all of them fail, a plain banded board that always passes is used. The fuzz tests make sure the fallback is rare.
 
@@ -87,6 +87,7 @@ These match the campaign builder, so generated boards play like authored ones.
 - The breakable count is inside the tier's budget, and the formation spans at least 16 rows.
 - No single explosion chain clears more than 42% of the breakable bricks.
 - No regen cluster has more than 6 bricks.
+- No regen or armored brick sits behind steel, meaning steel on its left, its right and somewhere above it, like the inside of a frame or a U. The ball only gets in there through a door, and a brick that needs many hits or grows back turns that into a wait the player can't shorten (`isEnclosed` in `checks.ts`).
 - Movers travel 60-270 px at 36-90 px/s, stay in the field, never share a row and never sweep through another brick.
 - Every breakable brick can be reached by a ball-sized flood fill from the paddle, with bricks removed as they are reached. Steel is the only thing that can wall a brick off, so boards without steel skip this check.
 - One coin, three to six powerups in total, and no powerup before its unlock tier.
@@ -100,7 +101,7 @@ Mechanics arrive in the same order the campaign teaches them.
 | 1    | Normal bricks          | 38-52 bricks. Bands, pillars, diamond, lattice, islands.  |
 | 2    |                        | Mirror-noise and stairs patterns.                         |
 | 3    | Steel accents          |                                                           |
-| 4    |                        | Steel frame pattern with a door.                          |
+| 4    |                        | Steel frame pattern with a 6-column door.                 |
 | 5    | Explosives, extra life |                                                           |
 | 6    | Tiny paddle drop       | One more powerup per board.                               |
 | 7    | Armored bricks         |                                                           |
@@ -113,6 +114,8 @@ Mechanics arrive in the same order the campaign teaches them.
 | 15   | Armor takes 3 hits     |                                                           |
 
 Ball speed rises 1.5% per tier up to +20%, on top of the chosen difficulty.
+
+Through tier 10 (`ONE_HIT_TIERS` in `core/Run.ts`) ball hits deal double damage, so a plain brick breaks in one hit on Normal and two on Hard. The first waves go by fast and the run gets to the interesting tiers sooner.
 
 ## Descent
 
@@ -129,6 +132,7 @@ Ball speed rises 1.5% per tier up to +20%, on top of the chosen difficulty.
 | Rule                | Value                                                     |
 | ------------------- | --------------------------------------------------------- |
 | Lives               | 3, plus one every 5 tiers (max 5; at max it's +500 score) |
+| Early tiers         | Double ball damage through tier 10                        |
 | Wave clear bonus    | 250 x tier, also paid for a Descent field clear           |
 | Rounds              | 10                                                        |
 | Timed               | 180 s, +15 s per wave cleared in Waves                    |
@@ -137,6 +141,19 @@ Ball speed rises 1.5% per tier up to +20%, on top of the chosen difficulty.
 | World               | One per run, picked from the seed                         |
 
 Coins drop the same way as in the campaign. Everything here is a constant in `core/Run.ts` or `core/procgen/curve.ts`.
+
+## Keeping it moving
+
+A board that stalls is the worst thing that can happen in an endless mode: a ball bouncing for minutes at the same few bricks. These rules apply to campaign levels and Arcade alike.
+
+- **Regen gives up.** A regen brick grows back at most twice (`MAX_REGROWS` in `core/Difficulty.ts`). The third break is for good, and its cracks show on its last life. The collapse counts only standing bricks, so dormant regen can't hold it back either.
+- **Walls down.** If nothing has broken for 10 seconds and at least half the standing bricks are boxed in by steel (`guardedShare` in `core/Homing.ts`), the steel shatters, once per board, with a "WALLS DOWN!" banner.
+- **Pacing steps in sooner.** The pacing director nudges the ball after about 5 seconds without a break, drops a gift at about 9, and at about 15 fires a power surge that splits the ball into two more and tops up Fever.
+- **The ball speeds up when idle.** After 2 seconds without a break, the cruise speed climbs over the next 8 seconds to 35% faster (never past the difficulty's maximum), and the ball eases toward it. A break resets it.
+- **Skills.** Two buttons are always on hand, beside the right ability slot (or in the right wing plate on the wide stage):
+  - **Gun.** A 1.8 second Machine Gun burst from the paddle pods, about 450 damage spread over its bolts (4-5 plain bricks), plus 60 per Armory laser tier above the first. It readies in 12 seconds. Launch (Space, a click or a tap) fires it whenever no ball is waiting on the paddle; F and pad A (with the ball in flight) do too. It holds its charge while a laser pickup is firing.
+  - **Bullet time.** 2.5 seconds with the world 2.2 times slower and a cool tint over the field. The paddle keeps full speed. It readies in 20 seconds. S or Shift, or pad B.
+  - Both charge only while a ball is in flight, start empty on a fresh level or run, and keep their charge from wave to wave. Every brick a ball breaks (or an explosion it sets off) takes 0.4 seconds off the gun and 0.25 off bullet time. Gun kills don't feed the gun. The first-play tutorial ends by charging each one and stopping play until the player fires it. A player who skipped that gets a one-time hint the first time each one is ready, saying how to fire it. Tuning lives in `core/Skills.ts`.
 
 ## Screens
 
@@ -149,7 +166,7 @@ Stocked abilities are refunded when a run ends, the same as leaving a campaign l
 
 ## Trying it
 
-From the Title screen, tap **ARCADE**. Dev builds also start a run straight from the URL:
+Arcade is the big card on the Title screen. **Play** starts a run with the last loop and goal picked (Waves Endless on a new save), and **Change mode** opens the loop and goal picker. Dev builds also start a run straight from the URL:
 
 ```
 http://localhost:5173/?arcade=waves

@@ -8,6 +8,7 @@ import {
   labelFor,
   type KeyAction,
 } from '../core/KeyLayout';
+import type { SkillId } from '../core/Skills';
 
 interface KeyboardApi {
   getLayoutMap?: () => Promise<ReadonlyMap<string, string>>;
@@ -71,6 +72,11 @@ export function actionLabels(action: Exclude<KeyAction, 'pause'>): string[] {
 /** The key that fires ability slot `i`, e.g. "Q" for the first slot on QWERTY. */
 export function slotKeyLabel(i: number): string {
   return keyLabel(KEY_BINDINGS[SLOT_ACTIONS[i] ?? 'slot1'][0]!);
+}
+
+/** The first key that fires a skill, e.g. "F" for the gun. */
+export function skillKeyLabel(id: SkillId): string {
+  return keyLabel(KEY_BINDINGS[id][0]!);
 }
 
 /** The pause key's label. It follows the P character, so it is the same everywhere. */

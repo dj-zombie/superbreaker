@@ -1,6 +1,13 @@
 import type { Rng } from '../Rng';
 import type { PowerupId } from '../types';
-import { MAX_CHAIN_FRACTION, MOVER_SPEED, MOVER_TRAVEL, chainSize, chainFraction } from './checks';
+import {
+  MAX_CHAIN_FRACTION,
+  MOVER_SPEED,
+  MOVER_TRAVEL,
+  chainSize,
+  chainFraction,
+  isEnclosed,
+} from './checks';
 import { FRESH_TIERS, MECHANIC_UNLOCK, type GenParams, type Mechanic } from './curve';
 import { BW, COLS, type Cell, type Grid, isBreakableCell, isNormalStatic, mirrorCol } from './grid';
 import { type Area, isClear } from './patterns';
@@ -104,7 +111,7 @@ export function placeExplosives(
   }
 }
 
-/** Alternate cells along the fullest rows, like the campaign's Plated. */
+/** Alternate cells along the fullest rows, like the campaign's Plated. Never inside a steel frame. */
 export function placeArmored(g: Grid, rng: Rng, count: number, armor: number, area: Area): void {
   const rows: number[] = [];
   for (let r = area.top; r <= area.bottom; r++) rows.push(r);
@@ -119,6 +126,7 @@ export function placeArmored(g: Grid, rng: Rng, count: number, armor: number, ar
       const cell = g.get(r, c);
       const mirror = g.get(r, mirrorCol(c));
       if (!cell || !mirror || !isNormalStatic(cell) || !isNormalStatic(mirror)) continue;
+      if (isEnclosed(g, r, c) || isEnclosed(g, r, mirrorCol(c))) continue;
       g.setMirrored(r, c, { kind: 'armored', armor });
       placed += 2;
     }
@@ -133,7 +141,7 @@ const REGEN_SHAPES: ReadonlyArray<readonly [number, number]> = [
   [1, 2],
 ];
 
-/** Small regen patches on normal bricks, never touching another patch. */
+/** Small regen patches on normal bricks, never touching another patch or inside a steel frame. */
 export function placeRegen(g: Grid, rng: Rng, clusters: number, area: Area): void {
   let placed = 0;
   for (let tries = 0; tries < 80 && placed < clusters; tries++) {
@@ -146,7 +154,12 @@ export function placeRegen(g: Grid, rng: Rng, clusters: number, area: Area): voi
       for (let x = c - 1; x <= c + w && ok; x++) {
         const cell = g.get(y, x);
         const inside = y >= r && y < r + h && x >= c && x < c + w;
-        if (inside ? !cell || !isNormalStatic(cell) : cell?.kind === 'regen') ok = false;
+        if (inside) {
+          if (!cell || !isNormalStatic(cell)) ok = false;
+          else if (isEnclosed(g, y, x) || isEnclosed(g, y, mirrorCol(x))) ok = false;
+        } else if (cell?.kind === 'regen') {
+          ok = false;
+        }
       }
     }
     if (!ok) continue;

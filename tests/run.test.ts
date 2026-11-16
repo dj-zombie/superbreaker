@@ -4,11 +4,13 @@ import {
   DEFAULT_ROUNDS,
   DEFAULT_TIME_MS,
   DESCENT_ROWS_PER_TIER,
+  ONE_HIT_TIERS,
   RunState,
   WAVE_TIME_BONUS_MS,
   descentStepMs,
   goalFor,
   reachLabel,
+  runHitDamage,
   runKey,
   scaleDifficulty,
   type RunConfig,
@@ -94,6 +96,20 @@ describe('RunState: Descent', () => {
     expect(descentStepMs(1)).toBe(9000);
     expect(descentStepMs(2)).toBeLessThan(descentStepMs(1));
     expect(descentStepMs(100)).toBe(3500);
+  });
+});
+
+describe('runHitDamage', () => {
+  const hitsToBreak = (damage: number) => Math.ceil(100 / damage);
+
+  it('breaks plain bricks in one hit on Normal, and two on Hard, through the early tiers', () => {
+    expect(hitsToBreak(runHitDamage(DIFFICULTY.normal.hitDamage, 1))).toBe(1);
+    expect(hitsToBreak(runHitDamage(DIFFICULTY.normal.hitDamage, ONE_HIT_TIERS))).toBe(1);
+    expect(hitsToBreak(runHitDamage(DIFFICULTY.hard.hitDamage, 1))).toBe(2);
+  });
+
+  it('goes back to the difficulty damage after them', () => {
+    expect(runHitDamage(DIFFICULTY.normal.hitDamage, ONE_HIT_TIERS + 1)).toBe(DIFFICULTY.normal.hitDamage);
   });
 });
 

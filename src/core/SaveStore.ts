@@ -9,6 +9,8 @@ import {
   type AbilityTiers,
 } from './Abilities';
 import { MAX_UPGRADE_LEVEL, canPurchase, upgradeCost, type PurchaseResult } from './Economy';
+import { GOAL_KINDS, RUN_LOOPS, type GoalKind, type RunLoop } from './Run';
+import { SKILL_IDS, type SkillId } from './Skills';
 import {
   SESSION_ABILITY_COST,
   SESSION_POWERUP_COST,
@@ -37,6 +39,12 @@ export interface RunBest {
   bestScore: number;
   /** Waves cleared, or rows survived in Descent. */
   bestReach: number;
+}
+
+/** The Arcade mode the menu's Play button starts. */
+export interface ArcadeChoice {
+  loop: RunLoop;
+  goal: GoalKind;
 }
 
 export interface Settings {
@@ -73,9 +81,13 @@ export interface SaveData {
   unlocked: number;
   /** Arcade bests, keyed by loop and goal, e.g. "waves-endless". */
   runs: Record<string, RunBest>;
+  /** The last Arcade loop and goal picked. */
+  arcade: ArcadeChoice;
   settings: Settings;
   /** The first-play tutorial was finished or skipped. */
   seenInstructions: boolean;
+  /** Skills whose one-time READY hint has shown. */
+  seenSkills: SkillId[];
 }
 
 export const SAVE_KEY = 'superbreaker.save';
@@ -94,6 +106,7 @@ export function defaultSave(): SaveData {
     levels: {},
     unlocked: 1,
     runs: {},
+    arcade: { loop: 'waves', goal: 'endless' },
     settings: {
       music: true,
       sfx: true,
@@ -108,6 +121,7 @@ export function defaultSave(): SaveData {
       fullscreen: true,
     },
     seenInstructions: false,
+    seenSkills: [],
   };
 }
 
@@ -140,6 +154,8 @@ export function normalizeSave(raw: unknown): SaveData {
       d.runs[k] = { bestScore: nonNegInt(v?.bestScore, 0), bestReach: nonNegInt(v?.bestReach, 0) };
     }
   }
+  if (RUN_LOOPS.includes(r.arcade?.loop as RunLoop)) d.arcade.loop = r.arcade!.loop;
+  if (GOAL_KINDS.includes(r.arcade?.goal as GoalKind)) d.arcade.goal = r.arcade!.goal;
   if (r.settings && typeof r.settings === 'object') {
     const raw: Partial<Record<keyof Settings, unknown>> = r.settings;
     const out = d.settings as Record<keyof Settings, boolean | number>;
@@ -153,6 +169,7 @@ export function normalizeSave(raw: unknown): SaveData {
     }
   }
   d.seenInstructions = r.seenInstructions === true;
+  if (Array.isArray(r.seenSkills)) d.seenSkills = SKILL_IDS.filter((id) => r.seenSkills!.includes(id));
   return d;
 }
 

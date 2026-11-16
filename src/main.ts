@@ -12,6 +12,7 @@ import {
   COLORS,
   FONT_FACES,
   IS_TOUCH,
+  PHYSICS_FPS,
   coverScreen,
   setRenderZoom,
   viewportOffsetTop,
@@ -169,7 +170,7 @@ async function start(): Promise<void> {
     physics: {
       default: 'arcade',
       // Rebuilding the RTree every step costs more than brute force at a few hundred bodies.
-      arcade: { fps: 120, gravity: { x: 0, y: 0 }, debug: false, useTree: false },
+      arcade: { fps: PHYSICS_FPS, gravity: { x: 0, y: 0 }, debug: false, useTree: false },
     },
     render: {
       antialias: true,

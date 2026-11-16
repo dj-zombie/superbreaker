@@ -65,6 +65,16 @@ export function descentStepMs(tier: number): number {
   return Math.max(3500, 9000 - 400 * (Math.max(1, tier) - 1));
 }
 
+/** Early tiers keep the pace up: ball hits there deal this much more damage... */
+export const EARLY_TIER_DAMAGE_MULT = 2;
+/** ...up to and including this tier. On Normal a plain brick breaks in one hit; Hard takes two. */
+export const ONE_HIT_TIERS = 10;
+
+/** Damage a plain ball hit deals at a tier of a run. */
+export function runHitDamage(hitDamage: number, tier: number): number {
+  return tier <= ONE_HIT_TIERS ? hitDamage * EARLY_TIER_DAMAGE_MULT : hitDamage;
+}
+
 /** The difficulty's ball speeds, scaled up for a tier. */
 export function scaleDifficulty(diff: DifficultyConfig, tier: number): DifficultyConfig {
   return scaleSpeeds(diff, tierParams(tier).speedScale);

@@ -9,7 +9,7 @@ import {
 } from '../src/core/Onboarding';
 
 /** A tutorial that has reached `step`, by the shortest route. */
-function at(step: 'guard' | 'catch' | 'ability'): Onboarding {
+function at(step: 'guard' | 'catch' | 'ability' | 'gun' | 'slowmo'): Onboarding {
   const o = new Onboarding();
   o.launched();
   if (step === 'guard') return o;
@@ -19,6 +19,10 @@ function at(step: 'guard' | 'catch' | 'ability'): Onboarding {
   o.ballReturned();
   if (step === 'catch') return o;
   o.pickupCaught('fireball');
+  if (step === 'ability') return o;
+  o.abilityFired();
+  if (step === 'gun') return o;
+  o.skillUsed('gun');
   return o;
 }
 
@@ -53,8 +57,23 @@ describe('Onboarding', () => {
     expect(o.abilityReady()).toBe(true);
     expect(o.frozen).toBe(true);
     expect(o.abilityFired()).toBe(true);
+    expect(o.step).toBe('gun');
+    expect(o.frozen).toBe(false);
+
+    expect(o.skill).toBe('gun');
+    expect(o.skillReady()).toBe(true);
+    expect(o.frozen).toBe(true);
+    expect(o.skillUsed('gun')).toBe(true);
+    expect(o.step).toBe('slowmo');
+    expect(o.frozen).toBe(false);
+
+    expect(o.skill).toBe('slowmo');
+    expect(o.skillReady()).toBe(true);
+    expect(o.frozen).toBe(true);
+    expect(o.skillUsed('slowmo')).toBe(true);
     expect(o.done).toBe(true);
     expect(o.frozen).toBe(false);
+    expect(o.skill).toBeNull();
   });
 
   it('skips the move step when the player launches first', () => {
@@ -133,7 +152,29 @@ describe('Onboarding', () => {
   it('counts a fired ability even before it was pointed at', () => {
     const o = at('ability');
     expect(o.abilityFired()).toBe(true);
+    expect(o.step).toBe('gun');
+  });
+
+  it('waits for the skill its step shows, gun first, and counts it even before it was pointed at', () => {
+    const o = at('gun');
+    expect(o.skillUsed('slowmo')).toBe(false);
+    expect(o.step).toBe('gun');
+    expect(o.skillUsed('gun')).toBe(true);
+    expect(o.step).toBe('slowmo');
+    expect(o.skillUsed('gun')).toBe(false);
+    expect(o.skillUsed('slowmo')).toBe(true);
     expect(o.done).toBe(true);
+  });
+
+  it('freezes once per skill step, and only the step skill lets it go', () => {
+    const o = at('slowmo');
+    expect(o.skillReady()).toBe(true);
+    expect(o.skillReady()).toBe(false);
+    o.tick(MIN_READ_MS);
+    expect(o.skillUsed('gun')).toBe(false);
+    expect(o.frozen).toBe(true);
+    expect(o.skillUsed('slowmo')).toBe(true);
+    expect(o.frozen).toBe(false);
   });
 
   it('ignores events from other steps, and skip ends it anywhere, even frozen', () => {
@@ -142,6 +183,9 @@ describe('Onboarding', () => {
     expect(o.ballFalling()).toBe(false);
     expect(o.abilityReady()).toBe(false);
     expect(o.abilityFired()).toBe(false);
+    expect(o.skillReady()).toBe(false);
+    expect(o.skillUsed('gun')).toBe(false);
+    expect(at('ability').skillUsed('gun')).toBe(false);
 
     const frozen = at('guard');
     frozen.ballFalling();

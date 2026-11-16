@@ -13,9 +13,11 @@ import {
   SCENES,
   HYPER_DAMAGE_MULT,
   HYPER_TIME_SCALE,
+  PHYSICS_FPS,
+  STAGE_W,
   WIDTH,
 } from '../config';
-import { pickHomingTarget, type HomingBox } from '../core/Homing';
+import { guardedShare, pickHomingTarget, type HomingBox } from '../core/Homing';
 import { MusicIntensity } from '../core/MusicMood';
 import { PacingDirector, collapseReady, type Intervention } from '../core/Pacing';
 import {
@@ -29,7 +31,9 @@ import {
   PIERCE_DAMAGE,
   START_LIVES,
   campaignSpeedScale,
+  chaseSpeed,
   cruiseSpeed,
+  idleSpeedBoost,
   relaxSpeed,
   scaleSpeeds,
   starsForLives,
@@ -38,15 +42,31 @@ import {
 import { unlockedAbilities, type AbilityId } from '../core/Abilities';
 import { powerupStats } from '../core/Economy';
 import { LASER_MODE_DEFS } from '../core/Laser';
-import { runKey, scaleDifficulty, type RunConfig, type RunOutcome } from '../core/Run';
+import {
+  runHitDamage,
+  runKey,
+  scaleDifficulty,
+  type RunConfig,
+  type RunOutcome,
+} from '../core/Run';
 import { SLOT_ACTIONS, STOCK_ACTIONS } from '../core/KeyLayout';
+import {
+  SKILLS,
+  SKILL_IDS,
+  SLOWMO_TIME_SCALE,
+  SkillCharge,
+  gunBudget,
+  type SkillId,
+  type SkillView,
+} from '../core/Skills';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
 import { celebrate, gameplayStart, gameplayStop, reportProgress } from '../platform/crazygames';
-import { onPadButton, PadButton } from '../platform/gamepad';
+import { controlDevice, onPadButton, PadButton } from '../platform/gamepad';
+import { skillKeyLabel } from '../platform/keyboard';
 import { haptic } from '../platform/haptics';
 import { onAppBackground } from '../platform/lifecycle';
 import { save } from '../services';
@@ -117,6 +137,8 @@ export interface HudState {
   effects: ActiveEffect[];
   remaining: number;
   slots: SlotState[];
+  /** The always-on skills, in SKILL_IDS order. */
+  skills: SkillView[];
   /** One-use powerups bought for this run, tapped from the HUD. */
   stock: SessionPowerupId[];
   /** Fever meter fill, or time left while Fever runs (0..1). */
@@ -132,6 +154,8 @@ export interface HudState {
   coachHand: CoachHand | null;
   /** The ability slot the tutorial is waiting on the player to fire. */
   coachSlot: number | null;
+  /** The skill the tutorial is waiting on the player to use. */
+  coachSkill: SkillId | null;
 }
 
 /** Shield bar center, just under the paddle and above the deck panel. */
@@ -154,6 +178,14 @@ const AIM_SPEED = 2.4;
 const NUDGE_TURN = 1.8;
 const ENDGAME_TURN = 1.1;
 const NUDGE_MS = 4_000;
+/** The steel comes down once per board after this long without a break... */
+const WALLS_DOWN_IDLE_MS = 10_000;
+/** ...when at least this share of the standing bricks is boxed in by it. */
+const WALLS_DOWN_SHARE = 0.5;
+const WALLS_DOWN_CHECK_MS = 500;
+/** A power surge splits the ball into this many more, and tops up the Fever meter. */
+const SURGE_BALLS = 2;
+const SURGE_FEVER = 0.35;
 /** A held serve launches itself after this long unless the player taps first. */
 const SERVE_COUNTDOWN_MS = 3_000;
 /** The tutorial holds the first serve; skipped, it gives this long. */
@@ -178,6 +210,8 @@ const COMBO_DETUNE = [0, 60, 120, 180];
 const BREACH_DEATH_DELAY = 0.35;
 /** Laser hits light the brick at most this often. */
 const LASER_GLOW_GAP_MS = 80;
+/** Bullet time cools the whole field by multiplying it with this. */
+const SLOWMO_TINT = 0xa8c4ff;
 
 export class Play extends BaseScene {
   levelIndex = 1;
@@ -209,6 +243,12 @@ export class Play extends BaseScene {
   private musicMood!: MusicIntensity;
   private initialBreakables = 1;
   private nudgeMs = 0;
+  /** The steel already came down on this board. */
+  private wallsDown = false;
+  private wallsCheckMs = 0;
+  /** Always-on skills. One scene plays a whole run, so their charge carries across waves. */
+  private skills!: Record<SkillId, SkillCharge>;
+  private slowmoVeil!: Phaser.GameObjects.Rectangle;
   private juice!: JuiceSystem;
   private inputSys!: InputSystem;
   /** The first-play tutorial, until it is finished or skipped. */
@@ -257,6 +297,8 @@ export class Play extends BaseScene {
     this.aim = -Math.PI / 2;
     this.laserGlowAt = -Infinity;
     this.nudgeMs = 0;
+    this.wallsDown = false;
+    this.wallsCheckMs = 0;
     this.serveMs = 0;
     this.countdownShown = 0;
   }
@@ -288,6 +330,7 @@ export class Play extends BaseScene {
       effects: [],
       remaining: 0,
       slots: [],
+      skills: [],
       stock: [],
       fever: 0,
       feverActive: false,
@@ -296,6 +339,7 @@ export class Play extends BaseScene {
       coaching: false,
       coachHand: null,
       coachSlot: null,
+      coachSkill: null,
     };
 
     this.scenery = new ParallaxBackdrop(this, world);
@@ -430,6 +474,14 @@ export class Play extends BaseScene {
     });
     this.hud.slots = this.abilities.slots;
     this.loadRunAbilities();
+    this.skills = { gun: new SkillCharge(SKILLS.gun), slowmo: new SkillCharge(SKILLS.slowmo) };
+    this.slowmoVeil = this.add
+      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, SLOWMO_TINT)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
+      .setDepth(19)
+      .setAlpha(0)
+      .setVisible(false);
+    this.hud.skills = this.skillViews();
 
     this.setupColliders();
     this.runDirector?.attach(this.runHost());
@@ -443,6 +495,7 @@ export class Play extends BaseScene {
     const keys = this.inputSys.keys;
     SLOT_ACTIONS.forEach((action, i) => keys.on(action, () => this.fireSlot(i)));
     STOCK_ACTIONS.forEach((action, i) => keys.on(action, () => this.useStock(i)));
+    for (const id of SKILL_IDS) keys.on(id, () => this.useSkill(id));
     // Dev only: with `?laser=<mode>`, L hands out a laser for play-testing that mode.
     const kb = this.input.keyboard;
     if (FORCED_LASER_MODE) kb?.addKey(Phaser.Input.Keyboard.KeyCodes.L).on('down', () => this.devLaser());
@@ -451,6 +504,7 @@ export class Play extends BaseScene {
       if (!down) return;
       if (button === PadButton.west) this.fireSlot(0);
       else if (button === PadButton.north) this.fireSlot(1);
+      else if (button === PadButton.east) this.useSkill('slowmo');
       else if (stockButtons.includes(button)) this.useStock(stockButtons.indexOf(button));
     });
     this.coach = save.state.seenInstructions
@@ -464,6 +518,8 @@ export class Play extends BaseScene {
           pickups: () => this.powerups.group.getChildren() as Pickup[],
           slots: () => this.abilities.slots,
           grantAbility: () => this.abilities.grant(),
+          skillReady: (id) => this.skillReady(id),
+          chargeSkill: (id) => (this.skills[id].charge = 1),
         });
     this.wasCoaching = this.coaching;
     this.frozen = false;
@@ -517,6 +573,7 @@ export class Play extends BaseScene {
     this.updateCoach(dt);
     this.ballFx.update(this.ballList, dt, this.juice.particleScale);
     this.syncLights();
+    this.updateSkills(dt);
     this.updateTimeScale();
     this.laser.update(dt);
     this.updatePacing(dt);
@@ -551,13 +608,86 @@ export class Play extends BaseScene {
   /** Fires an ability slot (HUD tap, Q/E or pad X/Y). */
   fireSlot(i: number): void {
     if (this.finished || !this.scene.isActive()) return;
-    // The tutorial's last stop waits on exactly this; the others leave the slots alone.
+    // The tutorial's ability stop waits on exactly this; the others leave the slots alone.
     if (this.coach?.frozen && this.coach.step !== 'ability') return;
     if (!this.abilities.activate(i)) return;
     this.stockOrigin[i] = null;
     this.fillAbilityStock();
     this.hud.slots = this.abilities.slots;
     this.coach?.abilityFired();
+  }
+
+  /** Fires a skill: its HUD button, F or Shift, pad A in flight or B, or a launch with no ball held. */
+  useSkill(id: SkillId): void {
+    if (this.finished || this.cleared || !this.scene.isActive()) return;
+    // The tutorial's skill stops wait on their own skill; the others leave the skills alone.
+    if (this.coach?.frozen && this.coach.step !== id) return;
+    if (!this.skillReady(id) || !this.skills[id].use()) return;
+    // Used is known: its first READY call-out has nothing left to teach.
+    if (!save.state.seenSkills.includes(id)) save.update((d) => d.seenSkills.push(id));
+    if (id === 'gun') {
+      this.laser.burst(SKILLS.gun.durationMs, gunBudget(save.state.upgrades.laser));
+      haptic('light');
+    } else {
+      this.slowmoVeil.setVisible(true);
+      this.tweens.killTweensOf(this.slowmoVeil);
+      this.tweens.add({ targets: this.slowmoVeil, alpha: 1, duration: 180, ease: 'Cubic.Out' });
+      this.juice.ring(this.paddle.x, this.paddle.y, SKILLS.slowmo.color, 140);
+      audio.whoosh(0.4);
+      haptic('medium');
+    }
+    this.hud.skills = this.skillViews();
+    this.coach?.skillUsed(id);
+  }
+
+  /** Charged, and for the gun, no laser pickup already firing: that holds its charge. */
+  private skillReady(id: SkillId): boolean {
+    return this.skills[id].ready && (id !== 'gun' || !this.powerups.is('laser'));
+  }
+
+  private skillViews(): SkillView[] {
+    return SKILL_IDS.map((id) => {
+      const s = this.skills[id];
+      return { id, fraction: s.fraction, ready: this.skillReady(id), active: s.active };
+    });
+  }
+
+  /** Skills charge while a ball is in flight, and say so the first time each is ready. */
+  private updateSkills(dt: number): void {
+    const charging = this.freeBallCount > 0 && !this.cleared;
+    if (this.powerups.is('laser')) this.skills.gun.stop();
+    this.skills.gun.update(dt, charging);
+    if (this.skills.slowmo.update(dt, charging) === 'end') this.endSlowmo();
+    this.hud.skills = this.skillViews();
+    if (!this.coach) this.skillReadyHint();
+  }
+
+  private endSlowmo(): void {
+    this.skills.slowmo.stop();
+    this.tweens.killTweensOf(this.slowmoVeil);
+    this.tweens.add({
+      targets: this.slowmoVeil,
+      alpha: 0,
+      duration: 260,
+      ease: 'Cubic.In',
+      onComplete: () => this.slowmoVeil.setVisible(false),
+    });
+    audio.whoosh(0.3, true);
+  }
+
+  private skillReadyHint(): void {
+    const id = SKILL_IDS.find((s) => this.skillReady(s) && !save.state.seenSkills.includes(s));
+    if (!id) return;
+    save.update((d) => d.seenSkills.push(id));
+    const def = SKILLS[id];
+    const device = controlDevice();
+    const how =
+      id === 'gun'
+        ? { pad: 'PRESS A', touch: 'TAP ANYWHERE', desktop: `CLICK OR PRESS ${skillKeyLabel(id)}` }
+        : { pad: 'PRESS B', touch: 'TAP THE HOURGLASS', desktop: `PRESS ${skillKeyLabel(id)} OR SHIFT` };
+    this.juice.popText(WIDTH / 2, ARENA_MID + 40, `${def.label.toUpperCase()} READY`, css(def.color), 26);
+    this.juice.popText(WIDTH / 2, ARENA_MID + 74, how[device], '#ffffff', 16);
+    audio.sfx('ui_on', 0.45);
   }
 
   /** Uses a bought powerup (HUD tap, number key, or pad bumper/trigger). */
@@ -594,6 +724,7 @@ export class Play extends BaseScene {
     const world = this.physics.world;
     world.setBounds(0, HUD_HEIGHT, WIDTH, HEIGHT - HUD_HEIGHT + 200);
     world.setBoundsCollision(true, true, true, false);
+    world.setFPS(PHYSICS_FPS);
     world.timeScale = 1;
     world.resume();
     world.on(Phaser.Physics.Arcade.Events.WORLD_BOUNDS, (body: Phaser.Physics.Arcade.Body) => {
@@ -678,10 +809,11 @@ export class Play extends BaseScene {
     this.serveMs = this.coaching ? FIRST_SERVE_MS : SERVE_COUNTDOWN_MS;
   }
 
-  /** A tap launches the held ball, or skips the level-clear banner. */
+  /** A tap launches the held ball, fires the gun with every ball in flight, or skips the banner. */
   private onTap(): void {
     if (this.skipBanner) this.skipBanner();
-    else this.launch();
+    else if (this.ballList.some((b) => b.attached)) this.launch();
+    else this.useSkill('gun');
   }
 
   private launch(): void {
@@ -719,10 +851,12 @@ export class Play extends BaseScene {
       coach.update(dt, held);
       this.hud.coachHand = coach.hand;
       this.hud.coachSlot = coach.slot;
+      this.hud.coachSkill = coach.skill;
     } else {
       this.coach = undefined;
       this.hud.coachHand = null;
       this.hud.coachSlot = null;
+      this.hud.coachSkill = null;
     }
     this.hud.coaching = this.coaching;
     // Skipped with the ball still held: the usual words come back for this serve.
@@ -816,8 +950,15 @@ export class Play extends BaseScene {
     return 'normal' as const;
   }
 
+  /** Bullet time wins over hyperspeed. The paddle steps on real time, so it keeps full speed. */
   private updateTimeScale(): void {
-    this.physics.world.timeScale = this.powerups.is('hyper') ? HYPER_TIME_SCALE : 1;
+    const world = this.physics.world;
+    const hyper = this.powerups.is('hyper') ? HYPER_TIME_SCALE : 1;
+    const scale = this.skills.slowmo.active ? SLOWMO_TIME_SCALE : hyper;
+    if (world.timeScale === scale) return;
+    // Slowed down, the world takes smaller steps as often as ever rather than skipping frames, so the ball glides.
+    world.setFPS(PHYSICS_FPS * Math.max(1, scale));
+    world.timeScale = scale;
   }
 
   // ---------------------------------------------------------------- collisions
@@ -898,12 +1039,18 @@ export class Play extends BaseScene {
     return true;
   }
 
+  /** A plain ball hit: the difficulty's damage, raised in an Arcade run's early tiers. */
+  private get hitDamage(): number {
+    const run = this.runDirector;
+    return run ? runHitDamage(this.diff.hitDamage, run.state.tier) : this.diff.hitDamage;
+  }
+
   private onBallBrick(ball: Ball, brick: Brick): void {
     const fire = this.fireActive;
     const hyper = this.powerups.is('hyper') ? HYPER_DAMAGE_MULT : 1;
     const res = this.bricks.hit(
       brick,
-      fire ? FIREBALL_DAMAGE : this.diff.hitDamage * hyper,
+      fire ? FIREBALL_DAMAGE : this.hitDamage * hyper,
       'ball',
       {
         stripArmor: fire,
@@ -937,6 +1084,7 @@ export class Play extends BaseScene {
       this.musicMood.onBreak();
       this.fever.onBreak(this.hud.combo, this.freeBallCount);
     }
+    if (cause === 'ball' || cause === 'explosion') for (const id of SKILL_IDS) this.skills[id].onBreak();
     const base = cause === 'laser' ? LASER_BRICK_SCORE : BRICK_SCORE;
     const bonus = Math.min(this.hud.combo, 20) * 10 + chain * 20;
     this.addScore((base + bonus) * this.fever.scoreMultiplier);
@@ -1216,6 +1364,7 @@ export class Play extends BaseScene {
     const remaining = this.bricks.remaining;
     const step = this.pacing.update(dt, remaining, free.length > 0);
     if (step) this.intervene(step);
+    this.checkWallsDown(dt);
 
     this.nudgeMs = Math.max(0, this.nudgeMs - dt);
     const turn =
@@ -1236,11 +1385,31 @@ export class Play extends BaseScene {
     }
     const hyper = this.powerups.is('hyper');
     const cruise = cruiseSpeed(this.diff, 1 - remaining / this.initialBreakables);
+    const target = Math.min(this.diff.maxSpeed, cruise * idleSpeedBoost(this.pacing.idleMs));
     for (const b of free) {
-      b.speed = relaxSpeed(b.speed, cruise, dt);
+      b.speed = relaxSpeed(chaseSpeed(b.speed, target, dt), target, dt);
       b.setHyper(hyper);
       if (this.fever.active) b.setTrailTint(this.fever.trailColor);
     }
+  }
+
+  /** Knocks the steel down, once per board, when the player is stuck outside the bricks it boxes in. */
+  private checkWallsDown(dt: number): void {
+    if (this.wallsDown || this.pacing.idleMs < WALLS_DOWN_IDLE_MS) return;
+    this.wallsCheckMs -= dt;
+    if (this.wallsCheckMs > 0) return;
+    this.wallsCheckMs = WALLS_DOWN_CHECK_MS;
+    const walls: HomingBox[] = [];
+    for (const b of this.bricks.bricks) if (b.isAlive && !b.breakable) walls.push(homingBox(b));
+    if (!walls.length) return;
+    if (guardedShare(this.bricks.targets.map(homingBox), walls) < WALLS_DOWN_SHARE) return;
+    this.wallsDown = true;
+    for (const b of this.bricks.shatterSteel()) this.juice.burst(b.x, b.y, 0xcfd6e6, 4);
+    this.juice.popText(WIDTH / 2, ARENA_MID, 'WALLS DOWN!', '#7fe9ff', 30);
+    this.juice.flash(120, 200, 230, 255);
+    this.juice.shake(400, 0.006);
+    audio.sfx('brick_collapse', 0.5);
+    haptic('heavy');
   }
 
   /** Tells the music how hot the moment is. */
@@ -1280,7 +1449,8 @@ export class Play extends BaseScene {
         this.juice.flash(120, 255, 200, 80);
         audio.sfx('surge', 0.5);
         haptic('medium');
-        this.fever.boost(0.6);
+        this.spawnExtraBalls(SURGE_BALLS);
+        this.fever.boost(SURGE_FEVER);
         break;
     }
   }
@@ -1364,6 +1534,8 @@ export class Play extends BaseScene {
       this.nudgeMs = 0;
       this.powerups.clear();
       this.laser.clear();
+      this.skills.gun.stop();
+      if (this.skills.slowmo.active) this.endSlowmo();
       this.removeShield();
       this.paddle.resetSize();
       this.coach?.ballReturned(false);
@@ -1473,6 +1645,7 @@ export class Play extends BaseScene {
     this.coach?.finish();
     this.fever.reset();
     this.abilities.clearEffects();
+    if (this.skills.slowmo.active) this.endSlowmo();
     runCarry.stage(this.abilities.held(), this.levelIndex + 1);
     const stars = starsForLives(this.hud.lives);
     const prevBest = save.state.levels[this.level.id]?.bestScore ?? 0;
@@ -1691,6 +1864,7 @@ export class Play extends BaseScene {
     if (board) {
       this.pacing = new PacingDirector();
       this.initialBreakables = Math.max(1, remaining);
+      this.wallsDown = false;
     } else {
       this.initialBreakables = Math.max(this.initialBreakables, remaining);
     }

@@ -1,12 +1,14 @@
+import type { SkillId } from './Skills';
 import type { PowerupId } from './types';
 
 /**
  * The first-play tutorial, run over level 1: move the paddle, launch the ball, keep a ball above
- * the line, catch a powerup, fire an ability. The serve waits for the first two. The last three
- * each freeze the game at the right moment and wait for the player to do the thing. Launching
- * early skips the move step, and Skip ends it at any point.
+ * the line, catch a powerup, fire an ability, fire the gun, then slow time. The serve waits for
+ * the first two. The rest each freeze the game at the right moment and wait for the player to do
+ * the thing. Launching early skips the move step, and Skip ends it at any point.
  */
-export type OnboardingStep = 'move' | 'launch' | 'guard' | 'catch' | 'ability' | 'done';
+export type OnboardingStep =
+  'move' | 'launch' | 'guard' | 'catch' | 'ability' | 'gun' | 'slowmo' | 'done';
 
 /** Paddle travel, in playfield units, that shows the player has found the controls. */
 export const MOVE_TRAVEL = 200;
@@ -175,10 +177,29 @@ export class Onboarding {
     return true;
   }
 
-  /** An ability fired, pointed at or not. Returns true when this finished the tutorial. */
+  /** An ability fired, pointed at or not. Returns true when this finished the step. */
   abilityFired(): boolean {
     if (this.step !== 'ability') return false;
-    this.next('done');
+    this.next('gun');
+    return true;
+  }
+
+  /** The skill the current step shows, if it shows one. */
+  get skill(): SkillId | null {
+    return this.step === 'gun' || this.step === 'slowmo' ? this.step : null;
+  }
+
+  /** The step's skill is charged and the moment is right. Returns true when this froze play to point at it. */
+  skillReady(): boolean {
+    if (this.skill === null || this.pointed) return false;
+    this.freeze();
+    return true;
+  }
+
+  /** A skill fired, pointed at or not. Returns true when this finished the step. */
+  skillUsed(id: SkillId): boolean {
+    if (this.skill !== id) return false;
+    this.next(id === 'gun' ? 'slowmo' : 'done');
     return true;
   }
 

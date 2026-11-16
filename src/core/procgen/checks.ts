@@ -73,6 +73,29 @@ export function regenClusterSizes(g: Grid): number[] {
   return [...sizes.values()].sort((a, b) => b - a);
 }
 
+/**
+ * True when steel walls the cell in on the left, the right and above, like the inside of a frame.
+ * The ball only gets in through a door, so bricks that hold it up (regen, armor) don't belong here.
+ */
+export function isEnclosed(g: Grid, r: number, c: number): boolean {
+  const steel = (y: number, x: number) => g.get(y, x)?.kind === 'steel';
+  let left = false;
+  for (let x = c - 1; x >= 0 && !left; x--) left = steel(r, x);
+  if (!left) return false;
+  let right = false;
+  for (let x = c + 1; x < COLS && !right; x++) right = steel(r, x);
+  if (!right) return false;
+  for (let y = r - 1; y >= 0; y--) if (steel(y, c)) return true;
+  return false;
+}
+
+/** Regen and armored bricks that sit inside a steel enclosure. */
+export function enclosedStubborn(g: Grid): Array<[number, number]> {
+  return g.positions(
+    (cell, r, c) => (cell.kind === 'regen' || cell.kind === 'armored') && isEnclosed(g, r, c),
+  );
+}
+
 /** Movers stay in the field, keep to their own row and never sweep through another brick. */
 export function moverProblems(g: Grid): string[] {
   const problems: string[] = [];
@@ -235,6 +258,10 @@ export function checkGrid(g: Grid, rules: CheckRules = {}): string[] {
   }
   const cluster = regenClusterSizes(g)[0] ?? 0;
   if (cluster > MAX_REGEN_CLUSTER) problems.push(`regen cluster of ${cluster}`);
+  const stubborn = enclosedStubborn(g);
+  if (stubborn.length) {
+    problems.push(`${stubborn.length} regen or armored bricks behind steel, first at ${stubborn[0]!.join(',')}`);
+  }
   problems.push(...moverProblems(g));
 
   const powerups = g.positions((cell) => !!cell.powerup).map(([r, c]) => g.get(r, c)!);

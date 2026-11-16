@@ -56,6 +56,8 @@ export const MAX_LIVES = 5;
 export const MAX_BALLS = 10;
 /** Paid when a multiball or frenzy would go over the ball cap. */
 export const BALL_OVERFLOW_SCORE = 250;
+/** A regen brick grows back this many times; the break after that is for good. */
+export const MAX_REGROWS = 2;
 /** The rest of the level may collapse once this many breakable bricks remain. */
 export function collapseThreshold(initialBreakables: number): number {
   return Math.max(6, Math.min(18, Math.round(initialBreakables * 0.15)));
@@ -82,6 +84,26 @@ export function cruiseSpeed(diff: SpeedRange, cleared: number): number {
 export function relaxSpeed(speed: number, cruise: number, dtMs: number): number {
   if (speed <= cruise) return speed;
   return Math.max(cruise, speed - (SPEED_RELAX_PER_SEC * dtMs) / 1000);
+}
+
+/** A dry spell this long is normal play; after it the ball starts to speed up. */
+export const IDLE_BOOST_GRACE_MS = 2_000;
+/** The speed-up reaches its peak this long after the grace runs out. */
+export const IDLE_BOOST_RAMP_MS = 8_000;
+export const IDLE_BOOST_MAX = 1.35;
+/** How fast a ball below its target speed catches up, in px/s per second. */
+export const SPEED_CHASE_PER_SEC = 70;
+
+/** Cruise multiplier for time without a break: slow stretches turn into fast ones. */
+export function idleSpeedBoost(idleMs: number): number {
+  const t = Math.max(0, Math.min(1, (idleMs - IDLE_BOOST_GRACE_MS) / IDLE_BOOST_RAMP_MS));
+  return 1 + (IDLE_BOOST_MAX - 1) * t;
+}
+
+/** Raises a speed below `target` toward it. Speeds at or above it are left alone. */
+export function chaseSpeed(speed: number, target: number, dtMs: number): number {
+  if (speed >= target) return speed;
+  return Math.min(target, speed + (SPEED_CHASE_PER_SEC * dtMs) / 1000);
 }
 
 /** The same difficulty with both ball speeds multiplied by `s`. */

@@ -5,6 +5,8 @@ import { Rng, hashSeed } from '../src/core/Rng';
 import {
   chainSize,
   checkGrid,
+  enclosedStubborn,
+  isEnclosed,
   moverProblems,
   regenClusterSizes,
   unreachableBricks,
@@ -18,7 +20,7 @@ import {
   generateChunk,
 } from '../src/core/procgen/generate';
 import { BH, COLS, Grid, toBricks } from '../src/core/procgen/grid';
-import { PATTERNS } from '../src/core/procgen/patterns';
+import { FRAME_DOOR, PATTERNS } from '../src/core/procgen/patterns';
 import { FIELD_WIDTH } from '../src/core/types';
 
 const TEXTURES = new Set([...BRICK_COLORS, ...NEW_BRICK_KINDS].map((c) => `brick_${c}`));
@@ -83,6 +85,35 @@ describe('checks', () => {
     expect(regenClusterSizes(g)).toEqual([5, 1]);
   });
 
+  it('finds cells walled in by steel on the left, the right and above', () => {
+    const g = new Grid(8);
+    g.fill(0, 4, 1, 8, 'steel');
+    g.fill(1, 4, 5, 1, 'steel');
+    g.fill(1, 11, 5, 1, 'steel');
+    expect(isEnclosed(g, 3, 7)).toBe(true);
+    expect(isEnclosed(g, 5, 5)).toBe(true);
+    expect(isEnclosed(g, 7, 7)).toBe(false);
+    expect(isEnclosed(g, 3, 14)).toBe(false);
+    expect(isEnclosed(g, 3, 1)).toBe(false);
+  });
+
+  it('flags regen and armored bricks inside a steel U, but not plain ones', () => {
+    const g = new Grid(8);
+    g.fill(0, 4, 1, 8, 'steel');
+    g.fill(1, 4, 5, 1, 'steel');
+    g.fill(1, 11, 5, 1, 'steel');
+    g.set(3, 6, 'normal');
+    expect(enclosedStubborn(g)).toEqual([]);
+    g.set(3, 7, 'regen');
+    g.set(4, 8, { kind: 'armored', armor: 2 });
+    g.set(7, 0, 'regen');
+    expect(enclosedStubborn(g)).toEqual([
+      [3, 7],
+      [4, 8],
+    ]);
+    expect(checkGrid(g, {}).some((p) => p.includes('behind steel'))).toBe(true);
+  });
+
   it('flags movers that leave the field or sweep into a brick', () => {
     const g = new Grid(2);
     g.set(0, 0, { kind: 'normal', moveX: 120, moveSpeed: 60 });
@@ -126,6 +157,35 @@ describe('generateBoard', () => {
         expect(present, `${m} before tier ${MECHANIC_UNLOCK[m]}: ${where}`).toBe(false);
       }
     }
+  });
+
+  it('never puts regen or armored bricks behind steel', () => {
+    for (const tier of TIERS) {
+      for (const seed of SEEDS) {
+        const board = generateBoard(seed, tier);
+        expect(enclosedStubborn(board.grid), `seed ${seed} tier ${tier}\n${board.grid}`).toEqual([]);
+      }
+    }
+  });
+
+  it('leaves a wide door in the bottom of every frame', () => {
+    let frames = 0;
+    for (const tier of TIERS) {
+      for (const seed of SEEDS) {
+        const board = generateBoard(seed, tier);
+        if (board.pattern !== 'frame') continue;
+        frames++;
+        const g = board.grid;
+        const bottom = Math.max(...g.positions((cell) => cell.kind === 'steel').map(([r]) => r));
+        const steel = (c: number) => g.get(bottom, c)?.kind === 'steel';
+        let lo = COLS / 2 - 1;
+        let hi = COLS / 2;
+        while (lo > 0 && !steel(lo - 1)) lo--;
+        while (hi < COLS - 1 && !steel(hi + 1)) hi++;
+        expect(hi - lo + 1, `seed ${seed} tier ${tier}\n${g}`).toBeGreaterThanOrEqual(FRAME_DOOR);
+      }
+    }
+    expect(frames).toBeGreaterThan(0);
   });
 
   it('features a mechanic on most boards of the tier it unlocks', () => {

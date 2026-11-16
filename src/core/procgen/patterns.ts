@@ -240,6 +240,9 @@ const stairs: Pattern = {
   },
 };
 
+/** Columns in the frame's door: wide enough that a ball finds its way in without a long wait. */
+export const FRAME_DOOR = 6;
+
 /** A two-thick steel frame with a door at the bottom and bricks inside. */
 const frame: Pattern = {
   id: 'frame',
@@ -253,7 +256,7 @@ const frame: Pattern = {
     const top = area.top;
     g.fill(top, c0, h, w, 'steel');
     g.fill(top + 2, c0 + 2, h - 4, w - 4, null);
-    fillCentered(g, top + h - 2, 2, 4, null);
+    fillCentered(g, top + h - 2, 2, FRAME_DOOR, null);
     const inner = w - 6;
     let placed = 0;
     for (let r = top + 3; r + 1 <= top + h - 4 && placed < budget; r += 3) {

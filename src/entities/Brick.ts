@@ -26,6 +26,8 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   /** Regen bricks in the same touching group share a cluster id. */
   cluster = -1;
   regrowAt = 0;
+  /** Times this regen brick has grown back. */
+  regrows = 0;
   falling = false;
   readonly homeX: number;
   /** Where the brick rests. Descent moves it down a row at a time. */
@@ -150,6 +152,7 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   }
 
   regrow(): void {
+    this.regrows++;
     this.life = 'alive';
     this.health = this.maxHealth;
     this.armor = this.maxArmor;
@@ -187,8 +190,10 @@ export class Brick extends Phaser.Physics.Arcade.Image {
     super.destroy(fromScene);
   }
 
+  /** Armor cracks, or for a regen brick one crack per regrowth, so its last life shows. */
   private updateCracks(): void {
-    const stage = Math.min(2, this.maxArmor - this.armor);
+    const worn = this.spec.kind === 'regen' ? this.regrows : 0;
+    const stage = Math.min(2, Math.max(this.maxArmor - this.armor, worn));
     if (stage <= 0) {
       this.crack?.setVisible(false);
       return;
