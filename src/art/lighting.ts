@@ -17,8 +17,11 @@ export interface LightingLook {
   brickGain: number;
   /** Darkening toward the corners, 0..1. */
   vignette: number;
-  /** Brick shadow offset on the backdrop, in playfield units, and its darkness. */
-  shadow: { dx: number; dy: number; alpha: number };
+  /**
+   * Brick shadows on the backdrop: where the tip falls from the brick, in playfield units, how
+   * dark it is at the brick, and how far the ball's light swings it at the edges of the field.
+   */
+  shadow: { dx: number; dy: number; alpha: number; lean: number };
   ball: { normal: number; fireball: number; pierce: number; radius: number; intensity: number };
   mood: WorldMood;
   /** Big slow key light that sets the scene, as fractions of the view width and height. */
@@ -43,7 +46,7 @@ export const LIGHTING_LOOKS: Record<WorldId, LightingLook> = {
     brickFloor: 0.8,
     brickGain: 0.45,
     vignette: 0.45,
-    shadow: { dx: 4, dy: 9, alpha: 0.55 },
+    shadow: { dx: 22, dy: 76, alpha: 0.8, lean: 30 },
     ball: { normal: 0xffd2a0, fireball: 0xff7a1f, pierce: 0xd6ff3c, radius: 130, intensity: 1 },
     mood: 'forge',
     key: { x: 0.5, y: 1.08, radius: 1.05, color: 0xff6a24, intensity: 0.25, sweep: 0.22 },
@@ -56,7 +59,7 @@ export const LIGHTING_LOOKS: Record<WorldId, LightingLook> = {
     brickFloor: 0.78,
     brickGain: 0.5,
     vignette: 0.55,
-    shadow: { dx: -3, dy: 10, alpha: 0.6 },
+    shadow: { dx: -20, dy: 76, alpha: 0.85, lean: 30 },
     ball: { normal: 0xc8d8ff, fireball: 0xff8a3c, pierce: 0xd6ff3c, radius: 130, intensity: 1 },
     mood: 'storm',
     key: { x: 0.5, y: -0.08, radius: 0.95, color: 0x8c9cff, intensity: 0.2, sweep: 0.1 },
@@ -69,7 +72,7 @@ export const LIGHTING_LOOKS: Record<WorldId, LightingLook> = {
     brickFloor: 0.82,
     brickGain: 0.45,
     vignette: 0.4,
-    shadow: { dx: 0, dy: 8, alpha: 0.5 },
+    shadow: { dx: 0, dy: 70, alpha: 0.75, lean: 30 },
     ball: { normal: 0x9af0ff, fireball: 0xff9a3c, pierce: 0xd6ff3c, radius: 125, intensity: 1 },
     mood: 'beat',
     key: { x: 0.5, y: 1.08, radius: 1, color: 0x1ab8ff, intensity: 0.22, sweep: 0.3 },

@@ -137,6 +137,7 @@ describe('generateBoard', () => {
       const board = generateBoard(seed, tier, 1000);
       const where = `seed ${seed} tier ${tier} (${board.pattern})\n${board.grid}`;
       expect(checkGrid(board.grid, boardRules(p)), where).toEqual([]);
+      expect(enclosedStubborn(board.grid), where).toEqual([]);
       expect(validateLevel(board.level), where).toEqual([]);
       expect(board.fallback, where).toBe(false);
 
@@ -155,15 +156,6 @@ describe('generateBoard', () => {
             ? board.level.bricks.some((b) => b.moveX !== 0)
             : board.level.bricks.some((b) => b.kind === m);
         expect(present, `${m} before tier ${MECHANIC_UNLOCK[m]}: ${where}`).toBe(false);
-      }
-    }
-  });
-
-  it('never puts regen or armored bricks behind steel', () => {
-    for (const tier of TIERS) {
-      for (const seed of SEEDS) {
-        const board = generateBoard(seed, tier);
-        expect(enclosedStubborn(board.grid), `seed ${seed} tier ${tier}\n${board.grid}`).toEqual([]);
       }
     }
   });

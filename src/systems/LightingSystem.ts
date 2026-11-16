@@ -43,6 +43,11 @@ const PAD = 16;
 const MAP_KEY = 'lm_map';
 const STATIC_KEY = 'lm_static';
 const SHADOW_KEY = 'lm_shadow';
+const CAST_KEY = 'lm_cast';
+/** A shadow's darkness at its tip, as a share of its darkness at the brick. */
+const SHADOW_TIP = 0.15;
+/** Stamps per shadow sweep: one per light-map pixel of length, up to this many. */
+const MAX_SHADOW_STEPS = 16;
 /** Normal levels: ambient rises from this fraction while the bricks drop in. */
 const INTRO_AMBIENT = 0.6;
 const INTRO_S = 0.9;
@@ -244,6 +249,28 @@ function modulate2x(renderer: Phaser.Renderer.WebGL.WebGLRenderer): number {
   return mod2x.index;
 }
 
+let maxBlend: { renderer: Phaser.Renderer.WebGL.WebGLRenderer; index: number | null } | undefined;
+
+/**
+ * Keeps the larger alpha of source and destination, so overlapping shadows don't stack darker.
+ * Null when WebGL 1 lacks EXT_blend_minmax.
+ */
+function maxBlendMode(renderer: Phaser.Renderer.WebGL.WebGLRenderer): number | null {
+  if (maxBlend?.renderer === renderer) return maxBlend.index;
+  const gl = renderer.gl;
+  const max =
+    typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext
+      ? gl.MAX
+      : gl.getExtension('EXT_blend_minmax')?.MAX_EXT;
+  let index: number | null = null;
+  if (max !== undefined) {
+    renderer.addBlendMode([gl.ONE, gl.ONE], max);
+    index = renderer.blendModes.length - 1;
+  }
+  maxBlend = { renderer, index };
+  return index;
+}
+
 export interface LightingStats {
   tier: LightingTier;
   lights: number;
@@ -278,6 +305,9 @@ export class LightingSystem {
   private map?: Phaser.Textures.DynamicTexture;
   private staticMap?: Phaser.Textures.DynamicTexture;
   private shadowMap?: Phaser.Textures.DynamicTexture;
+  /** The still-brick mask and moving bricks swept along the shadow, ready to darken the map. */
+  private castMap?: Phaser.Textures.DynamicTexture;
+  private castBlend: number | null = null;
   private composite?: Phaser.GameObjects.Image;
   private sx = 0.25;
   private sy = 0.25;
@@ -505,7 +535,8 @@ export class LightingSystem {
 
   private createMaps(): void {
     const tex = this.scene.textures;
-    for (const key of [MAP_KEY, STATIC_KEY, SHADOW_KEY]) if (tex.exists(key)) tex.remove(key);
+    for (const key of [MAP_KEY, STATIC_KEY, SHADOW_KEY, CAST_KEY])
+      if (tex.exists(key)) tex.remove(key);
     const w = STAGE_W + PAD * 2;
     const h = HEIGHT + PAD * 2;
     const k = this.budget.mapScale;
@@ -516,6 +547,7 @@ export class LightingSystem {
     this.map = tex.addDynamicTexture(MAP_KEY, mw, mh) ?? undefined;
     this.staticMap = tex.addDynamicTexture(STATIC_KEY, mw, mh) ?? undefined;
     this.shadowMap = tex.addDynamicTexture(SHADOW_KEY, mw, mh) ?? undefined;
+    this.castMap = tex.addDynamicTexture(CAST_KEY, mw, mh) ?? undefined;
     if (!this.map) return;
     this.sx = this.map.width / w;
     this.sy = this.map.height / h;
@@ -523,6 +555,7 @@ export class LightingSystem {
     this.staticSig = -1;
     this.shadowSig = -1;
     const renderer = this.scene.sys.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+    this.castBlend = maxBlendMode(renderer);
     if (!this.composite) {
       this.composite = this.scene.add.image(0, 0, MAP_KEY).setOrigin(0, 0).setDepth(DEPTH);
       this.composite.setBlendMode(modulate2x(renderer));
@@ -829,7 +862,11 @@ export class LightingSystem {
 
   // ------------------------------------------------------------------ shadows
 
-  /** Bricks cast soft offset shadows on the backdrop. Still bricks are baked; moving ones aren't. */
+  /**
+   * Bricks cast long soft shadows on the backdrop, swung away from the ball. Still bricks are
+   * baked into one mask; the mask and any moving bricks are stamped again and again along the
+   * shadow, darkest at the brick and fading toward the tip.
+   */
   private drawShadows(map: Phaser.Textures.DynamicTexture): void {
     if (this.clock < SHADOW_DELAY_S || !this.shadowMap) return;
     this.shadowFade = Math.min(1, this.shadowFade + 0.03);
@@ -838,9 +875,9 @@ export class LightingSystem {
     let oy = s.dy;
     const f = this.shadowFocus;
     if (f) {
-      // Lean slightly away from the ball, as if it were a second light.
-      ox += Phaser.Math.Clamp((WIDTH / 2 - f.x) / WIDTH, -0.5, 0.5) * 6;
-      oy += Phaser.Math.Clamp((HEIGHT * 0.4 - f.y) / HEIGHT, -0.5, 0.5) * 4;
+      // Lean away from the ball, as if it were a second light.
+      ox += Phaser.Math.Clamp((WIDTH / 2 - f.x) / WIDTH, -0.5, 0.5) * 2 * s.lean;
+      oy += Phaser.Math.Clamp((HEIGHT * 0.4 - f.y) / HEIGHT, -0.5, 0.5) * 1.3 * s.lean;
     }
     this.shadowOffset.x += (ox - this.shadowOffset.x) * 0.08;
     this.shadowOffset.y += (oy - this.shadowOffset.y) * 0.08;
@@ -857,15 +894,46 @@ export class LightingSystem {
       sm.render();
     }
     const alpha = s.alpha * this.shadowFade;
-    map.stamp(SHADOW_KEY, undefined, this.shadowOffset.x * this.sx, this.shadowOffset.y * this.sy, {
-      originX: 0,
-      originY: 0,
-      alpha,
-    });
-    for (const b of this.bricks) {
-      if (!b.visible || this.castsStillShadow(b) || b.life === 'dead') continue;
-      this.stampBrick(map, b, this.shadowOffset.x, this.shadowOffset.y, alpha * b.alpha);
+    const { x: dx, y: dy } = this.shadowOffset;
+    const cast = this.castMap;
+    const blend = this.castBlend;
+    if (!cast || blend === null) {
+      // Without a max blend, overlapping stamps would stack darker: one offset copy instead.
+      map.stamp(SHADOW_KEY, undefined, dx * this.sx, dy * this.sy, {
+        originX: 0,
+        originY: 0,
+        alpha,
+      });
+      for (const b of this.bricks) {
+        if (this.castsMovingShadow(b)) this.stampBrick(map, b, dx, dy, alpha * b.alpha);
+      }
+      return;
     }
+    const steps = Phaser.Math.Clamp(
+      Math.ceil(Math.hypot(dx * this.sx, dy * this.sy)),
+      1,
+      MAX_SHADOW_STEPS,
+    );
+    cast.clear();
+    for (let i = 1; i <= steps; i++) {
+      const k = i / steps;
+      const a = alpha * (1 - (1 - SHADOW_TIP) * (steps > 1 ? (i - 1) / (steps - 1) : 0));
+      cast.stamp(SHADOW_KEY, undefined, dx * k * this.sx, dy * k * this.sy, {
+        originX: 0,
+        originY: 0,
+        alpha: a,
+        blendMode: blend,
+      });
+      for (const b of this.bricks) {
+        if (this.castsMovingShadow(b)) this.stampBrick(cast, b, dx * k, dy * k, a * b.alpha, blend);
+      }
+    }
+    cast.render();
+    map.stamp(CAST_KEY, undefined, 0, 0, { originX: 0, originY: 0 });
+  }
+
+  private castsMovingShadow(b: Brick): boolean {
+    return b.visible && b.life !== 'dead' && !this.castsStillShadow(b);
   }
 
   private castsStillShadow(b: Brick): boolean {
@@ -878,6 +946,7 @@ export class LightingSystem {
     dx: number,
     dy: number,
     alpha: number,
+    blendMode?: number,
   ): void {
     target.stamp(
       LIGHT_TEX.px,
@@ -890,6 +959,7 @@ export class LightingSystem {
         rotation: b.rotation,
         tint: 0x000000,
         alpha,
+        blendMode,
       },
     );
   }
@@ -1019,8 +1089,9 @@ export class LightingSystem {
     this.composite?.destroy();
     this.composite = undefined;
     const tex = this.scene.textures;
-    for (const key of [MAP_KEY, STATIC_KEY, SHADOW_KEY]) if (tex.exists(key)) tex.remove(key);
-    this.map = this.staticMap = this.shadowMap = undefined;
+    for (const key of [MAP_KEY, STATIC_KEY, SHADOW_KEY, CAST_KEY])
+      if (tex.exists(key)) tex.remove(key);
+    this.map = this.staticMap = this.shadowMap = this.castMap = undefined;
     if (LightingSystem.current === this) LightingSystem.current = undefined;
   }
 }
