@@ -348,7 +348,7 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'new_best', path: 'audio/ui/new-best.mp3' },
   { key: 'music', path: 'audio/music/pusher.mp3' },
   { key: 'death', path: 'audio/death.mp3' },
-  { key: 'gameover', path: 'audio/gameover.wav' },
+  { key: 'gameover', path: 'audio/gameover.mp3' },
   { key: 'laser_shot', path: 'audio/laser.mp3' },
   { key: 'laser_spinup', path: 'audio/laser/spinup.mp3' },
   { key: 'laser_vent', path: 'audio/laser/vent.mp3' },

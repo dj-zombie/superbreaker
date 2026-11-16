@@ -213,7 +213,7 @@ No new files. Change one of these only if a later pass still bothers you.
 | Tiny paddle | `audio/powerups/smaller.mp3` | Tiny paddle pickup |
 | UI kit | `audio/ui/move`, `on`, `off`, `select`, `toggle` | Button and card hover, press, and disabled. Settings and pause toggles |
 | Life lost | `audio/death.mp3` | Losing a ball |
-| Game over | `audio/gameover.wav` | Out of lives, and an Arcade run that fails. Once, not again on the results heading |
+| Game over | `audio/gameover.mp3` | Out of lives, and an Arcade run that fails. Once, not again on the results heading |
 | Thunder | `audio/storm/thunder.mp3` | A lightning strike, on its first flash |
 | Flicker | `audio/storm/flicker.mp3` | Each blink of a sputtering room light on lights-out levels |
 | Music | `audio/music/pusher.mp3`, cut by `scripts/build-music.py` | The menus, and Play, where the section follows how intense the moment is |

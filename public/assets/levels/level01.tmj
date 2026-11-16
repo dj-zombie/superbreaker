@@ -763,7 +763,7 @@
                         {
                          "name":"moveX",
                          "type":"float",
-                         "value":210
+                         "value":-210
                         }],
                  "rotation":0,
                  "type":"",
@@ -802,7 +802,7 @@
                         {
                          "name":"moveX",
                          "type":"float",
-                         "value":210
+                         "value":-210
                         }],
                  "rotation":0,
                  "type":"",
