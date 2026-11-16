@@ -20,6 +20,7 @@ import { HUD_FONT } from '../art/fonts';
 import type { SlotState } from '../systems/AbilitySystem';
 import { MAX_LIVES } from '../core/Difficulty';
 import type { PowerupId } from '../core/types';
+import { onKeyLabels, slotKeyLabel } from '../platform/keyboard';
 import { iconButton } from '../ui/Button';
 import { deckKnobTexture, deckPanelTexture, glowLineTexture, hudStripTexture, rimTexture } from '../ui/frames';
 import { disc, ring } from '../ui/shapes';
@@ -40,6 +41,7 @@ interface SlotView {
   rim: Phaser.GameObjects.Image;
   icon: Phaser.GameObjects.Image;
   empty: Phaser.GameObjects.Text;
+  key: Phaser.GameObjects.Text;
   shown: string | null;
   ready: boolean;
   pulse?: Phaser.Tweens.Tween;
@@ -150,6 +152,8 @@ export class Hud extends BaseScene {
       .setVisible(false);
     this.feverView = this.makeFever();
     this.slotViews = slotPositions().map((pos, i) => this.makeSlot(pos.x, pos.y, i));
+    const offKeys = onKeyLabels(() => this.slotViews.forEach((v, i) => v.key.setText(slotKeyLabel(i))));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, offKeys);
   }
 
   /** Keep the deck and its buttons under the paddle when the phone viewport changes. */
@@ -238,7 +242,7 @@ export class Hud extends BaseScene {
       .setOrigin(0.5)
       .setAlpha(0.5);
     const key = this.add
-      .text(SLOT_RADIUS - 4, SLOT_RADIUS - 4, index === 0 ? 'Q' : 'E', {
+      .text(SLOT_RADIUS - 4, SLOT_RADIUS - 4, slotKeyLabel(index), {
         fontFamily: this.t.fonts.display,
         fontStyle: '800',
         fontSize: '12px',
@@ -254,7 +258,7 @@ export class Hud extends BaseScene {
       Phaser.Geom.Circle.Contains,
     );
     root.on(Phaser.Input.Events.POINTER_DOWN, () => this.play.fireSlot(index));
-    return { root, glow, ring: edge, rim, icon, empty, shown: null, ready: false };
+    return { root, glow, ring: edge, rim, icon, empty, key, shown: null, ready: false };
   }
 
   private makeFever(): FeverView {

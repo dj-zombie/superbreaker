@@ -20,6 +20,7 @@ import {
 import { mountDebugOverlay } from './platform/debugOverlay';
 import { desktopReady, IS_DESKTOP, onFullscreenChange } from './platform/desktop';
 import { installGamepad } from './platform/gamepad';
+import { installKeyboard } from './platform/keyboard';
 import { installPadCursor } from './platform/padCursor';
 import { legacyLocalStorageGet } from './platform/storage';
 import { setupNativeChrome } from './platform/lifecycle';
@@ -193,6 +194,7 @@ async function start(): Promise<void> {
   // The cursor reads the pad state each step, so the poller must hook PRE_STEP first.
   installGamepad(game);
   installPadCursor(game);
+  installKeyboard();
   syncStage(game);
   game.scale.on(Phaser.Scale.Events.RESIZE, () => stretchCanvas(game));
   window.visualViewport?.addEventListener('resize', () => syncStage(game));

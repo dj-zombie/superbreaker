@@ -13,6 +13,7 @@ import type { AbilityId } from '../core/Abilities';
 import { MAX_LIVES } from '../core/Difficulty';
 import { MAX_POWERUP_STOCK } from '../core/Session';
 import { inputSource, onInputSource, type InputSource } from '../platform/gamepad';
+import { PAUSE_LABEL, onKeyLabels, slotKeyLabel } from '../platform/keyboard';
 import type { HudState, Play } from '../scenes/Play';
 import type { SlotState } from '../systems/AbilitySystem';
 import { iconButton } from './Button';
@@ -37,8 +38,17 @@ interface Hints {
   stock: readonly string[];
 }
 
-const KEY_HINTS: Hints = { pause: 'P', slots: ['Q', 'E'], stock: ['1', '2', '3', '4'] };
 const PAD_HINTS: Hints = { pause: 'START', slots: ['X', 'Y'], stock: ['LB', 'RB', 'LT', 'RT'] };
+
+/** Keyboard hints name the keys as the player's layout prints them. */
+function hintsFor(source: InputSource): Hints {
+  if (source === 'pad') return PAD_HINTS;
+  return {
+    pause: PAUSE_LABEL,
+    slots: [slotKeyLabel(0), slotKeyLabel(1)],
+    stock: ['1', '2', '3', '4'],
+  };
+}
 
 interface SlotRow {
   ring: RingTimer;
@@ -108,7 +118,7 @@ export class WingPlates {
   private stockRadius = 16;
   private rightPanel?: Phaser.GameObjects.Container;
   private rightHeight = 0;
-  private hints: Hints = KEY_HINTS;
+  private hints: Hints = hintsFor('keyboard');
 
   constructor(
     private scene: Phaser.Scene,
@@ -121,13 +131,17 @@ export class WingPlates {
     this.lx = -WING + margin;
     this.rx = WIDTH + WING - margin - this.w;
     this.inner = this.w - INSET * 2;
-    this.hints = inputSource() === 'pad' ? PAD_HINTS : KEY_HINTS;
+    this.hints = hintsFor(inputSource());
 
     this.drawRails();
     this.buildLeft(play.runConfig?.goal.kind === 'timed');
     this.buildRight();
     const off = onInputSource((s) => this.setHints(s));
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, off);
+    const offKeys = onKeyLabels(() => this.setHints(inputSource()));
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      off();
+      offKeys();
+    });
   }
 
   update(s: HudState, delta: number): void {
@@ -177,8 +191,8 @@ export class WingPlates {
   }
 
   private setHints(source: InputSource): void {
-    const next = source === 'pad' ? PAD_HINTS : KEY_HINTS;
-    if (next === this.hints) return;
+    const next = hintsFor(source);
+    if (next.pause === this.hints.pause && next.slots.join() === this.hints.slots.join()) return;
     this.hints = next;
     this.pauseHint.setText(next.pause);
     this.slots.forEach((row, i) => row.hint.setText(next.slots[i] ?? ''));

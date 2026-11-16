@@ -69,7 +69,13 @@ function createWindow(): void {
   w.on('enter-full-screen', notify);
   w.on('leave-full-screen', notify);
   w.webContents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || input.isAutoRepeat) return;
+    if (input.type !== 'keyDown') return;
+    // W launches the ball, so a stray Ctrl/Cmd+W mid-game must not close a fullscreen window.
+    if ((input.control || input.meta) && input.code === 'KeyW' && w.isFullScreen()) {
+      event.preventDefault();
+      return;
+    }
+    if (input.isAutoRepeat) return;
     if (input.key === 'F11' || (input.alt && input.key === 'Enter')) {
       event.preventDefault();
       toggleFullscreen();

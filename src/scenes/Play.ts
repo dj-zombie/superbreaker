@@ -39,6 +39,7 @@ import { unlockedAbilities, type AbilityId } from '../core/Abilities';
 import { powerupStats } from '../core/Economy';
 import { LASER_MODE_DEFS } from '../core/Laser';
 import { runKey, scaleDifficulty, type RunConfig, type RunOutcome } from '../core/Run';
+import { SLOT_ACTIONS, STOCK_ACTIONS } from '../core/KeyLayout';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BALL_SIZE, Ball } from '../entities/Ball';
@@ -422,24 +423,11 @@ export class Play extends BaseScene {
       () => this.requestPause(),
     );
 
-    const kb = this.input.keyboard;
-    kb?.addKey(Phaser.Input.Keyboard.KeyCodes.Q).on('down', () => this.fireSlot(0));
-    kb?.addKey(Phaser.Input.Keyboard.KeyCodes.E).on('down', () => this.fireSlot(1));
-    const digits = [
-      Phaser.Input.Keyboard.KeyCodes.ONE,
-      Phaser.Input.Keyboard.KeyCodes.TWO,
-      Phaser.Input.Keyboard.KeyCodes.THREE,
-      Phaser.Input.Keyboard.KeyCodes.FOUR,
-    ];
-    const pads = [
-      Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE,
-      Phaser.Input.Keyboard.KeyCodes.NUMPAD_TWO,
-      Phaser.Input.Keyboard.KeyCodes.NUMPAD_THREE,
-      Phaser.Input.Keyboard.KeyCodes.NUMPAD_FOUR,
-    ];
-    digits.forEach((code, i) => kb?.addKey(code).on('down', () => this.useStock(i)));
-    pads.forEach((code, i) => kb?.addKey(code).on('down', () => this.useStock(i)));
+    const keys = this.inputSys.keys;
+    SLOT_ACTIONS.forEach((action, i) => keys.on(action, () => this.fireSlot(i)));
+    STOCK_ACTIONS.forEach((action, i) => keys.on(action, () => this.useStock(i)));
     // Dev only: with `?laser=<mode>`, L hands out a laser for play-testing that mode.
+    const kb = this.input.keyboard;
     if (FORCED_LASER_MODE) kb?.addKey(Phaser.Input.Keyboard.KeyCodes.L).on('down', () => this.devLaser());
     const stockButtons: number[] = [PadButton.lb, PadButton.rb, PadButton.lt, PadButton.rt];
     this.unsubscribePad = onPadButton((button, down) => {

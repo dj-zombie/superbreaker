@@ -9,6 +9,7 @@ import {
   stockPositions,
 } from '../config';
 import { PadButton, onPadButton, padHeld, padStick } from '../platform/gamepad';
+import { KeyBindings } from '../platform/keyboard';
 import { save } from '../services';
 import type { Paddle } from '../entities/Paddle';
 
@@ -31,15 +32,13 @@ const TOUCH_GAIN = 1.6;
 
 /**
  * Mouse: paddle follows the cursor. Touch: relative drag anywhere on screen, so the finger
- * never covers the ball. A short tap (or Space/Up) launches. Gamepad: stick or d-pad steers,
- * south launches, Start pauses.
+ * never covers the ball. A short tap (or Space/Up) launches. Keys are matched by position, so
+ * the A/D/W cluster is Q/D/Z on AZERTY. Gamepad: stick or d-pad steers, south launches, Start
+ * pauses.
  */
 export class InputSystem {
-  private keys: {
-    left: Phaser.Input.Keyboard.Key[];
-    right: Phaser.Input.Keyboard.Key[];
-    launch: Phaser.Input.Keyboard.Key[];
-  };
+  /** The scene's game keys; Play adds the ability and stock keys to them. */
+  readonly keys: KeyBindings;
   private downAt = 0;
   private downX = 0;
   private downY = 0;
@@ -54,15 +53,9 @@ export class InputSystem {
     private onLaunch: () => void,
     onPause: () => void,
   ) {
-    const kb = scene.input.keyboard!;
-    const K = Phaser.Input.Keyboard.KeyCodes;
-    this.keys = {
-      left: [kb.addKey(K.LEFT), kb.addKey(K.A)],
-      right: [kb.addKey(K.RIGHT), kb.addKey(K.D)],
-      launch: [kb.addKey(K.SPACE), kb.addKey(K.UP), kb.addKey(K.W)],
-    };
-    for (const k of this.keys.launch) k.on('down', () => this.enabled && this.onLaunch());
-    kb.addKey(K.P).on('down', onPause);
+    this.keys = new KeyBindings(scene)
+      .on('launch', () => this.enabled && this.onLaunch())
+      .on('pause', onPause);
 
     const offPad = onPadButton((button, down) => {
       if (!down || !scene.scene.isActive()) return;
@@ -79,8 +72,8 @@ export class InputSystem {
   update(dtMs: number): void {
     if (!this.enabled) return;
     const digital =
-      (this.keys.right.some((k) => k.isDown) || padHeld(PadButton.right) ? 1 : 0) -
-      (this.keys.left.some((k) => k.isDown) || padHeld(PadButton.left) ? 1 : 0);
+      (this.keys.held('right') || padHeld(PadButton.right) ? 1 : 0) -
+      (this.keys.held('left') || padHeld(PadButton.left) ? 1 : 0);
     // Keys and the d-pad steer at full speed; the stick scales with its deflection.
     const dir = digital !== 0 ? digital : padStick().x;
     if (dir !== 0) this.paddle.targetX = this.paddle.x + dir * KEY_SPEED * (dtMs / 1000) * 2;

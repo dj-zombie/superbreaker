@@ -1,5 +1,6 @@
 import { worldForLevel } from '../art/backdrops';
 import { HEIGHT, SAFE_BOTTOM, SCENES, STAGE_W, WIDTH } from '../config';
+import { actionsFor } from '../core/KeyLayout';
 import { randomSeed } from '../core/Rng';
 import { runCarry } from '../core/Session';
 import { save } from '../services';
@@ -100,7 +101,11 @@ export class Pause extends Overlay {
 
     cascade(this, items, { dx: -40, dy: 0, stagger: 40, ease: 'Cubic.Out' });
     onBack(this, () => this.close());
-    this.input.keyboard?.on('keydown-P', () => this.close());
+    this.input.keyboard?.on('keydown', (e: KeyboardEvent) => {
+      if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && actionsFor(e.code, e.key).includes('pause')) {
+        this.close();
+      }
+    });
   }
 
   protected override close(): void {

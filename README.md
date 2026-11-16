@@ -91,7 +91,21 @@ The title screen plays the logo reveal once per session, then opens the hub: Con
 
 Every screen is skinned by the world it belongs to: forged iron and embers for Hell, carved stone, silver and violet glass for the Crypt, holographic cyan glass for the Mainframe. The menus follow the world you last played. `src/ui/theme.ts` holds each skin's palette, fonts, frame style and ambient particles; `src/ui/frames.ts` bakes the panels and buttons into canvas textures once, so menus cost no geometry per frame. Pause blurs the level behind it, and a game over drains its colour.
 
-Reduced motion keeps the layout and cuts the idle loops, particles and big entrances. Battery saver also drops the filters (blur, glow and desaturation). Escape, the Android back button and a controller's east button (B on Xbox, Circle on PlayStation) go back one screen everywhere.
+Reduced motion keeps the layout and cuts the idle loops, particles and big entrances. Battery saver also drops the filters (blur, glow and desaturation). Escape, the Android back button and a controller's east button (B on Xbox, Circle on PlayStation) go back one screen everywhere. Escape is only ever a shortcut, never the sole way out, because in a browser it also leaves fullscreen: P and the on-screen buttons cover everything it does.
+
+### Keyboard
+
+Keys are bound by position (`KeyboardEvent.code`), so they sit in the same place on any layout, and every on-screen label names the key the way the player's keyboard prints it. On AZERTY the movement letters show as Q and D and the ability keys as A and E. The labels come from the browser's keyboard layout map where it is allowed (not in cross-origin iframes such as CrazyGames), from each letter the player presses, and until then from a guess based on the browser language (`src/core/KeyLayout.ts`, `src/platform/keyboard.ts`). Pause follows the P character instead, so it is P on every layout.
+
+| Key               | In play                  |
+| ----------------- | ------------------------ |
+| Arrow keys, A / D | Move the paddle          |
+| Space, Up, W      | Launch                   |
+| Q, E              | Fire ability slot 1 or 2 |
+| 1–4               | Use stocked powerup 1–4  |
+| P                 | Pause, and resume        |
+
+Presses with Ctrl, Cmd or Alt held are left to the browser, so a shortcut like Ctrl/Cmd+W is never taken as game input. The desktop app ignores Ctrl/Cmd+W while it is fullscreen, so the window can't close by accident.
 
 ### Controller
 
