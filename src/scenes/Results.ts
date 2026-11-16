@@ -6,6 +6,7 @@ import { GOAL_LABELS, LOOP_LABELS, reachLabel } from '../core/Run';
 import { runCarry } from '../core/Session';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
+import { midgameAd } from '../platform/crazygames';
 import { haptic } from '../platform/haptics';
 import { Button } from '../ui/Button';
 import { framePanel, raysTexture } from '../ui/frames';
@@ -216,8 +217,23 @@ export class Results extends Overlay {
     return root.list.filter((o): o is Button => o instanceof Button);
   }
 
+  /**
+   * A video ad is only allowed in a gap between levels, which is exactly what leaving this screen
+   * for another level is. Input stays off for the whole request, because it can take a moment to
+   * come back and nothing may happen in the meantime. With ads off it resolves immediately.
+   */
+  private async adBreak(go: () => void): Promise<void> {
+    this.input.enabled = false;
+    await midgameAd();
+    if (!this.scene.isActive()) return;
+    this.input.enabled = true;
+    go();
+  }
+
   private goRun(run: RunResults, seed = randomSeed()): void {
-    transitionTo(this, SCENES.play, { run: { ...run.config, seed } }, { stop: [SCENES.hud] });
+    void this.adBreak(() =>
+      transitionTo(this, SCENES.play, { run: { ...run.config, seed } }, { stop: [SCENES.hud] }),
+    );
   }
 
   private goArcade(): void {
@@ -226,7 +242,7 @@ export class Results extends Overlay {
 
   private goPlay(index: number): void {
     if (!(this.result.win && index === this.result.index + 1)) runCarry.discard();
-    transitionTo(this, SCENES.play, { index }, { stop: [SCENES.hud] });
+    void this.adBreak(() => transitionTo(this, SCENES.play, { index }, { stop: [SCENES.hud] }));
   }
 
   private goLevels(): void {

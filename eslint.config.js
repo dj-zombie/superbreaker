@@ -7,6 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'dist-crazygames',
       'dev-dist',
       'legacy',
       'ios',

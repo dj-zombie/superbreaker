@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import type { KeyValueStorage } from '../core/SaveStore';
+import { crazyStorage, IS_CRAZYGAMES } from './crazygames';
 
 const webStorage: KeyValueStorage = {
   async get(key) {
@@ -39,7 +40,8 @@ const nativeStorage: KeyValueStorage = {
 };
 
 export function createStorage(): KeyValueStorage {
-  return Capacitor.isNativePlatform() ? nativeStorage : webStorage;
+  if (Capacitor.isNativePlatform()) return nativeStorage;
+  return IS_CRAZYGAMES ? crazyStorage(webStorage) : webStorage;
 }
 
 /** Synchronous getter for the pre-2.0 Cordova build's localStorage keys. */

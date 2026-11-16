@@ -45,6 +45,7 @@ import type { LevelSpec, PowerupId } from '../core/types';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
+import { celebrate, gameplayStart, gameplayStop, reportProgress } from '../platform/crazygames';
 import { onPadButton, PadButton } from '../platform/gamepad';
 import { haptic } from '../platform/haptics';
 import { onAppBackground } from '../platform/lifecycle';
@@ -468,8 +469,14 @@ export class Play extends BaseScene {
       this.juice.particleScale = particleDensity();
       this.physics.world.resume();
       audio.duckMusic(false);
-      if (!this.finished) this.fillAbilityStock();
+      if (!this.finished) {
+        this.fillAbilityStock();
+        gameplayStart();
+      }
     });
+    // This is the moment CrazyGames measures the initial download against, so it belongs here in
+    // a level rather than on the title screen.
+    gameplayStart();
   }
 
   override update(_time: number, delta: number): void {
@@ -540,6 +547,7 @@ export class Play extends BaseScene {
 
   requestPause(): void {
     if ((this.finished && !this.bannerUp) || !this.scene.isActive()) return;
+    gameplayStop();
     this.physics.world.pause();
     audio.duckMusic(true);
     audio.loop('brick_mover', false);
@@ -1422,6 +1430,10 @@ export class Play extends BaseScene {
     const stars = starsForLives(this.hud.lives);
     const prevBest = save.state.levels[this.level.id]?.bestScore ?? 0;
     const isBest = save.recordWin(this.levelIndex, stars, this.hud.score, this.levels.length);
+    const finale = worldLevels(this.world).last === this.levelIndex;
+    reportProgress((save.clearedCount() / Math.max(1, this.levels.length)) * 100);
+    // Finishing a world only, so the page confetti stays a rare thing.
+    if (finale) celebrate();
     audio.stopMusic();
     audio.loop('brick_mover', false);
     audio.fanfare();
@@ -1437,7 +1449,7 @@ export class Play extends BaseScene {
       isBest,
       coinsEarned: this.hud.coinsEarned,
       bestScore: Math.max(prevBest, this.hud.score),
-      tail: stars === 3 || worldLevels(this.world).last === this.levelIndex,
+      tail: stars === 3 || finale,
     };
     if (this.levelIndex >= this.levels.length) {
       this.inputSys.enabled = false;
@@ -1638,6 +1650,7 @@ export class Play extends BaseScene {
   }
 
   private showResults(data: ResultsData): void {
+    gameplayStop();
     this.physics.world.pause();
     this.scene.launch(SCENES.results, { from: SCENES.play, ...data });
     this.scene.pause();
@@ -1658,6 +1671,7 @@ export class Play extends BaseScene {
 
   /** Runs after the Arcade plugin has torn down its world, so never touch `this.physics.world` here. */
   private shutdown(): void {
+    gameplayStop();
     this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     if (!this.cleared) this.refundStockedAbilities();
     this.unsubscribeBackground?.();

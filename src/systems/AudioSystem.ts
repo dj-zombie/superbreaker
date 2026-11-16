@@ -102,10 +102,12 @@ class AudioSystem {
   private mixNodes?: Mix;
   private gravity = false;
   private paused = false;
+  private platformMute = false;
 
   init(game: Phaser.Game): void {
     this.game = game;
     this.sound = game.sound;
+    this.applyPlatformMute();
     // iOS fires window blur on the same tap that unlocks audio (the URL bar
     // hides, the page refocuses). pauseOnBlur then suspends the context, and
     // Phaser removes its unlock listeners, so later taps never resume it.
@@ -137,6 +139,8 @@ class AudioSystem {
   private resume(): void {
     const ctx = (this.sound as { context?: AudioContext } | undefined)?.context;
     if (ctx && ctx.state !== 'running') void ctx.resume();
+    // Phaser rebuilds its master nodes with a new context, which clears the mute.
+    this.applyPlatformMute();
     if (!this.sound || this.sound.locked || !this.wantedMusic) return;
     if (!save.state.settings.music) return;
     if (this.musicKey === this.wantedMusic && this.music?.playing) return;
@@ -379,6 +383,20 @@ class AudioSystem {
     }
     if (!music) this.haltMusic('fade');
     else if (this.wantedMusic) this.playMusic(this.wantedMusic);
+  }
+
+  /**
+   * Silences everything for a host page's mute button and while a video ad plays. It sits on
+   * Phaser's master mute node, past the mix, so it outranks the in-game audio settings and
+   * `refresh` leaves it alone.
+   */
+  setPlatformMute(on: boolean): void {
+    this.platformMute = on;
+    this.applyPlatformMute();
+  }
+
+  private applyPlatformMute(): void {
+    if (this.sound) this.sound.mute = this.platformMute;
   }
 
   /** Pause: quieter and muffled. The pause menu's own sounds skip the black hole's drag. */

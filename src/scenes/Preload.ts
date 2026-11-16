@@ -21,6 +21,7 @@ import {
 import { randomSeed } from '../core/Rng';
 import { GOAL_KINDS, RUN_LOOPS, goalFor, type RunConfig } from '../core/Run';
 import type { LevelSpec } from '../core/types';
+import { loadingStop, reportProgress } from '../platform/crazygames';
 import { save } from '../services';
 import { lightingTier } from '../systems/Quality';
 import { transitioning } from '../ui/fx/transitions';
@@ -135,6 +136,9 @@ export class Preload extends BaseScene {
     }
     const levels = this.parseLevels();
     this.registry.set('levels', levels);
+    loadingStop();
+    // Reported on every load, not just on a clear: added levels lower a finished player's share.
+    reportProgress((save.clearedCount() / Math.max(1, levels.length)) * 100);
     installBack(() => transitioning(this));
     const jump = devLevel(levels);
     const run = devRun();

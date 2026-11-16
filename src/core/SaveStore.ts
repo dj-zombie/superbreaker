@@ -324,6 +324,11 @@ export class SaveStore {
     return isBest;
   }
 
+  /** Campaign levels cleared with at least one star. */
+  clearedCount(): number {
+    return Object.values(this.data.levels).filter((l) => l.stars > 0).length;
+  }
+
   /** Nobody has played on this save: nothing cleared or unlocked, and no tutorial seen or skipped. */
   isNewPlayer(): boolean {
     return this.data.unlocked <= 1 && Object.keys(this.data.levels).length === 0 && !this.data.seenInstructions;

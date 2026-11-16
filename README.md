@@ -294,6 +294,15 @@ pnpm cap:android    # requires Android Studio
 
 App id is `com.zombieheadstudios.superbreaker` (see `capacitor.config.ts`). On native, saves go through Capacitor Preferences, haptics use the Haptics plugin, the status bar is hidden, and the game auto-pauses when the app goes to the background. App icons come from `public/icons/icon-1024.png`.
 
+## CrazyGames
+
+`pnpm crazy:pack` builds the game for [CrazyGames](https://crazygames.com) and zips the upload into
+`release/`, after checking it against their size and file-count limits. The bundle drops the
+service worker and the game's own fullscreen and rotate prompts, because their page frame owns
+those, and it saves through their account-synced data module instead of localStorage.
+`src/platform/crazygames.ts` is the whole bridge, and it is inert in every other build.
+See [docs/crazygames.md](docs/crazygames.md) for the build, the SDK wiring and the submission steps.
+
 ## Desktop builds
 
 The desktop app wraps the same web build in Electron (`desktop/`). It serves `dist/` from a privileged `app://` scheme, which gives the game a fixed origin so its localStorage save survives restarts. `vite build --mode desktop` leaves out the service worker. The page runs sandboxed with context isolation, and `desktop/preload.cts` exposes only fullscreen and quit (`src/platform/desktop.ts` on the game side).
@@ -314,7 +323,7 @@ The builds are unsigned (macOS is ad-hoc signed so Apple Silicon will run it). T
 
 ## Save data
 
-Saves are stored under `superbreaker.save` (localStorage on web and desktop, Preferences on native) as versioned JSON. On first launch, progress from the old Cordova version (its localStorage keys) is migrated automatically.
+Saves are stored under `superbreaker.save` (localStorage on web and desktop, Preferences on native, the CrazyGames data module on their site) as versioned JSON. On first launch, progress from the old Cordova version (its localStorage keys) is migrated automatically.
 
 ## Classic screenshots
 

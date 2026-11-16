@@ -18,6 +18,7 @@ import {
   viewportPixels,
 } from './config';
 import { mountDebugOverlay } from './platform/debugOverlay';
+import { initCrazyGames, IS_CRAZYGAMES, loadingStart, onPlatformMute } from './platform/crazygames';
 import { desktopReady, IS_DESKTOP, onFullscreenChange } from './platform/desktop';
 import { installGamepad } from './platform/gamepad';
 import { installKeyboard } from './platform/keyboard';
@@ -91,6 +92,9 @@ function syncStage(game?: Phaser.Game): void {
 }
 
 function requestCoverFullscreen(): void {
+  // CrazyGames puts its own fullscreen control on the page frame and rejects games that bring
+  // their own, because a game-owned fullscreen breaks their ads and orientation handling.
+  if (IS_CRAZYGAMES) return;
   if (!window.matchMedia('(pointer: coarse)').matches) return;
   const el = document.documentElement as HTMLElement & {
     webkitRequestFullscreen?: () => Promise<void> | void;
@@ -128,6 +132,14 @@ function loadFonts(timeoutMs = 2500): Promise<void> {
 }
 
 async function start(): Promise<void> {
+  // First, and awaited: until the SDK is up the save store has no account storage to read from.
+  await initCrazyGames();
+  if (IS_CRAZYGAMES) {
+    loadingStart();
+    onPlatformMute((on) => audio.setPlatformMute(on));
+    // Their page asks the player to rotate, per the orientations set on the submission.
+    document.getElementById('rotate')?.remove();
+  }
   await Promise.all([save.load(legacyLocalStorageGet), loadFonts()]);
   if (IS_DESKTOP) {
     // Before measuring frames: the shell keeps the window hidden until this call.
@@ -208,8 +220,10 @@ async function start(): Promise<void> {
   }
 }
 
-// The desktop app serves its files from disk, so it has nothing to cache.
-if ('serviceWorker' in navigator && import.meta.env.PROD && import.meta.env.MODE !== 'desktop') {
+// The desktop app serves its files from disk, and CrazyGames serves the bundle from their own
+// CDN inside an iframe, so neither has anything to cache.
+const SELF_HOSTED = import.meta.env.MODE !== 'desktop' && import.meta.env.MODE !== 'crazygames';
+if ('serviceWorker' in navigator && import.meta.env.PROD && SELF_HOSTED) {
   registerSW({ immediate: true });
 }
 

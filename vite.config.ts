@@ -4,13 +4,16 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ mode }) => ({
   base: './',
   build: {
+    // Kept apart from dist/, which is what Wrangler deploys.
+    outDir: mode === 'crazygames' ? 'dist-crazygames' : 'dist',
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
   },
   plugins: [
     VitePWA({
-      // `vite build --mode desktop` feeds the Electron app, which loads from disk and needs no service worker.
-      disable: mode === 'desktop',
+      // `--mode desktop` feeds the Electron app, which loads from disk; `--mode crazygames` is
+      // served from their CDN inside an iframe. Neither has anything for a service worker to do.
+      disable: mode === 'desktop' || mode === 'crazygames',
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png', 'favicon.png'],
       manifest: {
