@@ -6,7 +6,6 @@ import {
   HUD_CENTER,
   HUD_HEIGHT,
   IS_TOUCH,
-  PADDLE_Y,
   POWERUP_INFO,
   RENDER_ZOOM,
   SCENES,
@@ -81,7 +80,15 @@ interface CoachHandView {
   hand: Phaser.GameObjects.Image;
   ripple: Phaser.GameObjects.Image;
   scale: number;
+  rippleScale: number;
   tapped: boolean;
+}
+
+/** The tutorial's light on the ability slot it is waiting on. */
+interface CoachSpotView {
+  ring: Phaser.GameObjects.Image;
+  arrow: Phaser.GameObjects.Image;
+  scale: number;
 }
 
 const COACH_HAND_SIZE = 58;
@@ -107,6 +114,7 @@ export class Hud extends BaseScene {
   private stockIcons: Phaser.GameObjects.Container[] = [];
   private deck?: DeckView;
   private coachHand?: CoachHandView;
+  private coachSpot?: CoachSpotView;
   /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
   private plates?: WingPlates;
   private wide = false;
@@ -122,6 +130,7 @@ export class Hud extends BaseScene {
     const p = t.palette;
     this.wide = WIDE;
     this.coachHand = undefined;
+    this.coachSpot = undefined;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
@@ -231,7 +240,7 @@ export class Hud extends BaseScene {
     d.hint.setVisible(s.ballHeld && !s.coaching);
   }
 
-  /** The tutorial's hand just under the paddle, fingertip up, where the thumb drags and taps. */
+  /** The tutorial's hand, fingertip up at the pose, where the thumb drags and taps. */
   private drawCoachHand(pose: CoachHand | null): void {
     let v = this.coachHand;
     if (!pose) {
@@ -242,16 +251,36 @@ export class Hud extends BaseScene {
       const color = this.t.palette.accentHi;
       const hand = icon(this, 0, 0, 'hand', COACH_HAND_SIZE, color).setOrigin(0.5, 0.04).setDepth(35);
       const ripple = ring(this, 0, 0, 18, 3, color).setDepth(35).setAlpha(0);
-      v = this.coachHand = { hand, ripple, scale: hand.scale, tapped: false };
+      v = this.coachHand = { hand, ripple, scale: hand.scale, rippleScale: ripple.scale, tapped: false };
       if (!calm()) this.tweens.add({ targets: hand, alpha: { from: 0, to: 1 }, duration: 260 });
     }
-    const y = PADDLE_Y + 34;
-    v.hand.setVisible(true).setPosition(pose.x, y).setScale(v.scale * (pose.tap ? 0.88 : 1));
+    v.hand.setVisible(true).setPosition(pose.x, pose.y).setScale(v.scale * (pose.tap ? 0.88 : 1));
     if (pose.tap && !v.tapped && !calm()) {
-      v.ripple.setPosition(pose.x, y).setScale(0.6).setAlpha(0.9);
-      this.tweens.add({ targets: v.ripple, scale: 1.6, alpha: 0, duration: 420, ease: 'Cubic.Out' });
+      const s = v.rippleScale;
+      v.ripple.setPosition(pose.x, pose.y).setScale(s * 0.6).setAlpha(0.9);
+      this.tweens.add({ targets: v.ripple, scale: s * 1.6, alpha: 0, duration: 420, ease: 'Cubic.Out' });
     }
     v.tapped = pose.tap;
+  }
+
+  /** A pulsing ring and an arrow on the slot the tutorial is waiting on. */
+  private drawCoachSpot(slot: number | null): void {
+    let v = this.coachSpot;
+    const pos = slot === null ? undefined : slotPositions()[slot];
+    if (!pos) {
+      v?.ring.setVisible(false);
+      v?.arrow.setVisible(false);
+      return;
+    }
+    if (!v) {
+      const color = this.t.palette.accentHi;
+      const r = ring(this, 0, 0, SLOT_RADIUS + 12, 4, color).setDepth(34);
+      const arrow = icon(this, 0, 0, 'back', 30, color).setAngle(-90).setDepth(34);
+      v = this.coachSpot = { ring: r, arrow, scale: r.scale };
+    }
+    const wave = calm() ? 0 : Math.sin(this.time.now / 180);
+    v.ring.setVisible(true).setPosition(pos.x, pos.y).setScale(v.scale * (1 + 0.06 * wave));
+    v.arrow.setVisible(true).setPosition(pos.x, pos.y - SLOT_RADIUS - 34 + wave * 5);
   }
 
   private makeSlot(x: number, y: number, index: number): SlotView {
@@ -330,6 +359,7 @@ export class Hud extends BaseScene {
     if (!s) return;
     this.drawCoachHand(s.coachHand);
     if (this.plates) {
+      this.plates.spotlight(s.coachSlot);
       this.plates.update(s, delta);
       return;
     }
@@ -366,6 +396,7 @@ export class Hud extends BaseScene {
       const v = this.slotViews[i];
       if (v) this.drawSlot(v, slot, delta);
     });
+    this.drawCoachSpot(s.coachSlot);
   }
 
   /** Timed runs: m:ss, red and blinking for the last ten seconds. */

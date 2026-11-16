@@ -130,6 +130,8 @@ export interface HudState {
   coaching: boolean;
   /** The tutorial's hand on a touch screen, drawn by the HUD so it shows over the deck. */
   coachHand: CoachHand | null;
+  /** The ability slot the tutorial is waiting on the player to fire. */
+  coachSlot: number | null;
 }
 
 /** Shield bar center, just under the paddle and above the deck panel. */
@@ -154,7 +156,7 @@ const ENDGAME_TURN = 1.1;
 const NUDGE_MS = 4_000;
 /** A held serve launches itself after this long unless the player taps first. */
 const SERVE_COUNTDOWN_MS = 3_000;
-/** The tutorial's serve gives longer, and only starts counting once the player has moved. */
+/** The tutorial holds the first serve; skipped, it gives this long. */
 const FIRST_SERVE_MS = 5_000;
 /** A magnet catch lets go by itself after this long. */
 const MAGNET_HOLD_MS = 2_500;
@@ -212,6 +214,8 @@ export class Play extends BaseScene {
   /** The first-play tutorial, until it is finished or skipped. */
   private coach?: OnboardingCoach;
   private wasCoaching = false;
+  /** The tutorial has the world stopped while it waits on the player. */
+  private frozen = false;
   private arrow!: Phaser.GameObjects.Image;
   private hint?: Phaser.GameObjects.Text;
   private countdown?: Phaser.GameObjects.Container;
@@ -291,6 +295,7 @@ export class Play extends BaseScene {
       ballHeld: true,
       coaching: false,
       coachHand: null,
+      coachSlot: null,
     };
 
     this.scenery = new ParallaxBackdrop(this, world);
@@ -380,7 +385,6 @@ export class Play extends BaseScene {
         fever: this.fever.active,
       }),
       onSpawned: (p) => {
-        this.coach?.pickupSpawned(p);
         this.lighting.addLight({
           follow: p,
           radius: 64,
@@ -451,8 +455,19 @@ export class Play extends BaseScene {
     });
     this.coach = save.state.seenInstructions
       ? undefined
-      : new OnboardingCoach({ scene: this, input: this.inputSys, juice: this.juice, paddle: this.paddle });
+      : new OnboardingCoach({
+          scene: this,
+          input: this.inputSys,
+          juice: this.juice,
+          paddle: this.paddle,
+          balls: () => this.ballList,
+          pickups: () => this.powerups.group.getChildren() as Pickup[],
+          slots: () => this.abilities.slots,
+          grantAbility: () => this.abilities.grant(),
+        });
     this.wasCoaching = this.coaching;
+    this.frozen = false;
+    this.juice.holdWorld = () => !!this.coach?.frozen;
 
     this.resetBall();
     this.showHint();
@@ -467,7 +482,7 @@ export class Play extends BaseScene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdown());
     this.events.on(Phaser.Scenes.Events.RESUME, () => {
       this.juice.particleScale = particleDensity();
-      this.physics.world.resume();
+      if (!this.coach?.frozen) this.physics.world.resume();
       audio.duckMusic(false);
       if (!this.finished) {
         this.fillAbilityStock();
@@ -485,6 +500,10 @@ export class Play extends BaseScene {
     const dt = Math.min(delta, 50);
     this.inputSys.update(dt);
     this.paddle.step(dt);
+    if (this.coach?.frozen) {
+      this.updateFrozen(dt);
+      return;
+    }
     if (!this.juice.inHitStop) {
       this.powerups.update(dt);
       this.bricks.update(dt);
@@ -518,18 +537,32 @@ export class Play extends BaseScene {
     else this.win();
   }
 
+  /** While the tutorial holds play still, only the paddle and the tutorial itself move. */
+  private updateFrozen(dt: number): void {
+    this.scenery.setFocus(this.paddle.x);
+    // The held ball, if any, keeps to the paddle, but its serve clock waits.
+    this.updateAttachedBalls(0);
+    this.updateCoach(dt);
+    this.syncLights();
+    this.hud.slots = this.abilities.slots;
+    this.hud.paddleX = this.paddle.x;
+  }
+
   /** Fires an ability slot (HUD tap, Q/E or pad X/Y). */
   fireSlot(i: number): void {
     if (this.finished || !this.scene.isActive()) return;
+    // The tutorial's last stop waits on exactly this; the others leave the slots alone.
+    if (this.coach?.frozen && this.coach.step !== 'ability') return;
     if (!this.abilities.activate(i)) return;
     this.stockOrigin[i] = null;
     this.fillAbilityStock();
     this.hud.slots = this.abilities.slots;
+    this.coach?.abilityFired();
   }
 
   /** Uses a bought powerup (HUD tap, number key, or pad bumper/trigger). */
   useStock(i: number): void {
-    if (this.finished || !this.scene.isActive()) return;
+    if (this.finished || !this.scene.isActive() || this.coach?.frozen) return;
     const id = save.useStockPowerup(i);
     if (!id) return;
     const x = this.paddle.x;
@@ -653,7 +686,7 @@ export class Play extends BaseScene {
 
   private launch(): void {
     const held = this.ballList.find((b) => b.attached);
-    if (!held || this.finished) return;
+    if (!held || this.finished || this.coach?.frozen) return;
     const at = { x: held.x, y: held.y };
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
@@ -685,14 +718,26 @@ export class Play extends BaseScene {
     if (coach.active) {
       coach.update(dt, held);
       this.hud.coachHand = coach.hand;
+      this.hud.coachSlot = coach.slot;
     } else {
       this.coach = undefined;
       this.hud.coachHand = null;
+      this.hud.coachSlot = null;
     }
     this.hud.coaching = this.coaching;
     // Skipped with the ball still held: the usual words come back for this serve.
     if (this.wasCoaching && !this.coaching && held) this.showHint();
     this.wasCoaching = this.coaching;
+    this.syncFreeze();
+  }
+
+  /** Stops the world when the tutorial stops play, and starts it again when the player has done their part. */
+  private syncFreeze(): void {
+    const frozen = !!this.coach?.frozen;
+    if (frozen === this.frozen) return;
+    this.frozen = frozen;
+    if (frozen) this.physics.world.pause();
+    else if (!this.juice.inHitStop) this.physics.world.resume();
   }
 
   /** The tutorial is walking the player through moving and launching. */
@@ -793,6 +838,7 @@ export class Play extends BaseScene {
     this.hud.combo = 0;
     this.pacing.onPaddleHit();
     this.refillPlow(ball);
+    this.coach?.ballReturned(true);
 
     if (this.powerups.is('magnet') && !this.ballList.some((b) => b.attached)) {
       ball.attach(
@@ -1320,6 +1366,7 @@ export class Play extends BaseScene {
       this.laser.clear();
       this.removeShield();
       this.paddle.resetSize();
+      this.coach?.ballReturned(false);
     }
     audio.sfx('death', 0.3, 0, { delay: breach ? BREACH_DEATH_DELAY : 0 });
     haptic('heavy');
@@ -1414,9 +1461,9 @@ export class Play extends BaseScene {
     this.countdown = undefined;
   }
 
-  /** Above the hint, clear of the tutorial's control panel. */
+  /** Above the hint. */
   private countdownY(): number {
-    return PADDLE_Y - (this.coaching ? 265 : 215);
+    return PADDLE_Y - 215;
   }
 
   private win(): void {

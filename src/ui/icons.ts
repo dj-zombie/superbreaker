@@ -298,20 +298,22 @@ const GLYPHS: Record<string, (ctx: Ctx) => void> = {
   mouse: (c) => mouseBody(c, false),
   /** The mouse with its left button pressed. */
   click: (c) => mouseBody(c, true),
-  /** A thumbstick from above: the well and the cap. */
-  stick: (c) => {
-    c.lineWidth = 5;
-    c.beginPath();
-    c.arc(32, 32, 25, 0, Math.PI * 2);
-    c.stroke();
-    c.beginPath();
-    c.arc(32, 32, 15, 0, Math.PI * 2);
-    c.fill();
+  /** A controller's d-pad from above, with an arrow cut into each arm. */
+  dpad: (c) => {
+    pill(c, 22, 4, 20, 56, 5);
+    pill(c, 4, 22, 56, 20, 5);
     c.globalCompositeOperation = 'destination-out';
-    c.lineWidth = 2.5;
-    c.beginPath();
-    c.arc(32, 32, 9, 0, Math.PI * 2);
-    c.stroke();
+    for (const pts of [
+      [[32, 10], [25, 19], [39, 19]],
+      [[32, 54], [25, 45], [39, 45]],
+      [[10, 32], [19, 25], [19, 39]],
+      [[54, 32], [45, 25], [45, 39]],
+    ] as const) {
+      c.beginPath();
+      pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+      c.closePath();
+      c.fill();
+    }
     c.globalCompositeOperation = 'source-over';
   },
 };

@@ -19,6 +19,7 @@ import type { SlotState } from '../systems/AbilitySystem';
 import { iconButton } from './Button';
 import { framePanel } from './frames';
 import { punch } from './fx/motion';
+import { icon } from './icons';
 import { disc, ring } from './shapes';
 import { calm, css, type UiTheme } from './theme';
 import { label, worldTitle } from './type';
@@ -119,6 +120,7 @@ export class WingPlates {
   private rightPanel?: Phaser.GameObjects.Container;
   private rightHeight = 0;
   private hints: Hints = hintsFor('keyboard');
+  private spot?: { ring: Phaser.GameObjects.Image; arrow: Phaser.GameObjects.Image; scale: number };
 
   constructor(
     private scene: Phaser.Scene,
@@ -156,6 +158,26 @@ export class WingPlates {
     });
     this.drawEffects(s);
     this.drawStock(s);
+  }
+
+  /** Lights the slot row the tutorial is waiting on, with an arrow in from the field. */
+  spotlight(slot: number | null): void {
+    const row = slot === null ? undefined : this.slots[slot];
+    let v = this.spot;
+    if (!row) {
+      v?.ring.setVisible(false);
+      v?.arrow.setVisible(false);
+      return;
+    }
+    if (!v) {
+      const color = this.t.palette.accentHi;
+      const r = ring(this.scene, 0, 0, SLOT_RING / 2 + 8, 3, color).setDepth(4);
+      const arrow = icon(this.scene, 0, 0, 'back', 26, color).setAngle(180).setDepth(4);
+      v = this.spot = { ring: r, arrow, scale: r.scale };
+    }
+    const wave = calm() ? 0 : Math.sin(this.scene.time.now / 180);
+    v.ring.setVisible(true).setPosition(row.ring.x, row.ring.y).setScale(v.scale * (1 + 0.08 * wave));
+    v.arrow.setVisible(true).setPosition(this.rx - 20 + wave * 4, row.ring.y);
   }
 
   // ---------------------------------------------------------------- frame

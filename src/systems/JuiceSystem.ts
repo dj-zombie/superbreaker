@@ -23,6 +23,8 @@ export class JuiceSystem {
   private colors = new Map<string, number>();
   /** Lower particle counts for battery saver and slow devices. */
   particleScale = 1;
+  /** Something else has the world stopped, so a hit-stop ending must not start it. */
+  holdWorld: () => boolean = () => false;
 
   constructor(private scene: Phaser.Scene) {
     this.shards = scene.add.particles(0, 0, 'shard', {
@@ -94,7 +96,7 @@ export class JuiceSystem {
     world.pause();
     this.scene.time.delayedCall(ms, () => {
       this.stopDepth--;
-      if (this.stopDepth === 0 && !this.scene.scene.isPaused()) world.resume();
+      if (this.stopDepth === 0 && !this.scene.scene.isPaused() && !this.holdWorld()) world.resume();
     });
   }
 

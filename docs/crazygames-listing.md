@@ -76,7 +76,8 @@ player too. The game covers mouse, touch, keyboard and gamepad.
 > LB / RB / LT / RT — use a stocked powerup
 > Start — pause
 >
-> New players start with a short tutorial that shows the controls. Skip it at any time, replay it
+> New players start with a short tutorial that shows the controls, then pauses the game to show how
+> to keep the ball in play, catch a powerup and fire an ability. Skip it at any time, replay it
 > from Settings, and find every control on the Pause screen.
 
 The in-game version of this list never needs translating for a layout. Keys are bound by position,
