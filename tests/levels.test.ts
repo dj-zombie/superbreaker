@@ -205,3 +205,54 @@ describe('legacy property support', () => {
     expect(level.bricks[4]!.health).toBe(100);
   });
 });
+
+describe('boss map property', () => {
+  const steelOnly = (properties?: TiledMap['properties']): TiledMap => ({
+    tilesets: [{ firstgid: 1, source: 'bricks.tsj' }],
+    layers: [
+      {
+        type: 'objectgroup',
+        name: 'Bricks',
+        objects: [{ id: 1, gid: 17, x: 0, y: 48, width: 30, height: 16 }],
+      },
+    ],
+    properties,
+  });
+
+  it('reads a known boss', () => {
+    const { level, warnings } = parseLevel(steelOnly({ boss: 'warden' }), 'lab', resolve);
+    expect(level.boss).toBe('warden');
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns about an unknown boss and leaves the level without one', () => {
+    const { level, warnings } = parseLevel(steelOnly({ boss: 'kraken' }), 'lab', resolve);
+    expect(level.boss).toBeUndefined();
+    expect(warnings).toEqual(['Map: unknown boss "kraken"']);
+  });
+
+  it('gives no boss when the property is missing or left empty', () => {
+    const missing = parseLevel(steelOnly(), 'lab', resolve);
+    expect(missing.level.boss).toBeUndefined();
+    expect(missing.warnings).toEqual([]);
+    const empty = parseLevel(steelOnly({ boss: '' }), 'lab', resolve);
+    expect(empty.level.boss).toBeUndefined();
+    expect(empty.warnings).toEqual([]);
+  });
+
+  it('lets a boss level have no breakable bricks', () => {
+    const { level } = parseLevel(steelOnly({ boss: 'warden' }), 'lab', resolve);
+    expect(level.bricks.some(isBreakable)).toBe(false);
+    expect(validateLevel(level)).toEqual([]);
+    const plain = parseLevel(steelOnly(), 'lab', resolve).level;
+    expect(validateLevel(plain)).toEqual(['Level has no breakable bricks']);
+  });
+
+  it('is on none of the shipped levels', () => {
+    for (const file of manifest.levels) {
+      const map = readJson<TiledMap>(join(LEVELS_DIR, file));
+      const { level } = parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate);
+      expect(level.boss, file).toBeUndefined();
+    }
+  });
+});

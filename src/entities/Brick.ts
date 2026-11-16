@@ -14,9 +14,20 @@ export interface HitOptions {
   chip?: boolean;
 }
 
+/** `breach`: Descent clearing bricks that crossed the danger line. It never sets off explosives. */
+export type DestroyCause = 'ball' | 'laser' | 'explosion' | 'fall' | 'ability' | 'breach';
+
+/** Takes a brick's hits in its place: a boss, for the parts of its body. */
+export interface BrickOwner {
+  /** Called instead of Brick.takeHit for a live, breakable owned brick. Never 'destroyed'. */
+  strike(brick: Brick, damage: number, cause: DestroyCause, opts: HitOptions): HitResult;
+}
+
 export class Brick extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
   life: BrickState = 'alive';
+  /** Set on a boss part: hits go to the owner, and nothing but the owner removes the brick. */
+  owner?: BrickOwner;
   health: number;
   armor: number;
   /** Laser damage banked toward breaking the next armor point. */

@@ -3,10 +3,15 @@ import type { WorldId } from '../art/backdrops';
 import { EXPLOSION_RADIUS, FALL_SHATTER_Y } from '../config';
 import { MAX_REGROWS, collapseThreshold } from '../core/Difficulty';
 import type { BrickSpec, LevelSpec } from '../core/types';
-import { Brick, type HitOptions, type HitResult } from '../entities/Brick';
+import {
+  Brick,
+  type BrickOwner,
+  type DestroyCause,
+  type HitOptions,
+  type HitResult,
+} from '../entities/Brick';
 
-/** `breach`: Descent clearing bricks that crossed the danger line. It never sets off explosives. */
-export type DestroyCause = 'ball' | 'laser' | 'explosion' | 'fall' | 'ability' | 'breach';
+export type { DestroyCause };
 
 export interface BrickSystemOptions {
   /** The last few bricks fall when the level is nearly clear. Descent turns it off. */
@@ -67,10 +72,14 @@ export class BrickSystem {
     this.fallThreshold = this.collapse ? Math.min(collapseThreshold(initial), initial - 1) : -1;
   }
 
-  /** Adds bricks to the level, popping in like the level intro. */
-  append(specs: readonly BrickSpec[]): Brick[] {
+  /**
+   * Adds bricks to the level, popping in like the level intro. Owned bricks skip the pop-in:
+   * their owner brings them on.
+   */
+  append(specs: readonly BrickSpec[], owner?: BrickOwner): Brick[] {
     const added = specs.map((spec) => {
       const b = new Brick(this.scene, spec, this.world);
+      b.owner = owner;
       this.group.add(b);
       b.body.pushable = false;
       if (spec.moveX !== 0) b.body.setVelocityX(Math.sign(spec.moveX) * spec.moveSpeed);
@@ -80,9 +89,20 @@ export class BrickSystem {
       return b;
     });
     this.assignRegenClusters(added);
-    this.introAnimation(added);
+    if (!owner) this.introAnimation(added);
     this.invalidate();
     return added;
+  }
+
+  /** Removes bricks with no events: no score, no drops, no chain. */
+  retire(bricks: readonly Brick[]): void {
+    for (const b of bricks) {
+      if (b.life === 'dead') continue;
+      this.scene.tweens.killTweensOf(b);
+      b.markDead();
+      b.setVisible(false);
+    }
+    this.invalidate();
   }
 
   /** Moves every standing brick down by `dy` px over `ms`. */
@@ -113,11 +133,14 @@ export class BrickSystem {
     return y;
   }
 
-  /** Destroys every brick whose bottom edge sits below `y`, steel included. Returns how many. */
+  /**
+   * Destroys every brick whose bottom edge sits below `y`, steel included. Returns how many.
+   * Owned bricks stay: only their owner removes them.
+   */
   shatterBelow(y: number): number {
     let n = 0;
     for (const b of this.bricks) {
-      if (b.life === 'dead' || b.homeY + b.displayHeight / 2 <= y) continue;
+      if (b.owner || b.life === 'dead' || b.homeY + b.displayHeight / 2 <= y) continue;
       if (b.life === 'dormant') {
         b.markDead();
         continue;
@@ -163,10 +186,13 @@ export class BrickSystem {
     this.checkCollapse();
   }
 
-  /** Applies damage and handles destruction side effects. */
+  /** Applies damage and handles destruction side effects. An owned brick's owner takes the hit. */
   hit(b: Brick, damage: number, cause: DestroyCause, opts: HitOptions = {}): HitResult {
     const wasAlive = b.isAlive;
-    const res = b.takeHit(damage, opts);
+    const res =
+      b.owner && wasAlive && b.breakable
+        ? b.owner.strike(b, damage, cause, opts)
+        : b.takeHit(damage, opts);
     if (res === 'destroyed') this.destroy(b, cause, 0);
     else if (res !== 'immune') b.flash();
     if (res !== 'destroyed' && wasAlive) this.events.onHit?.(b, res, cause);
@@ -208,9 +234,16 @@ export class BrickSystem {
     return out;
   }
 
-  /** Instantly destroys a breakable brick, ignoring health and armor. Steel is immune. */
+  /**
+   * Instantly destroys a breakable brick, ignoring health and armor. Steel is immune. An owned
+   * brick takes it as a lethal hit and stands, so nothing was killed.
+   */
   kill(b: Brick, cause: DestroyCause): boolean {
     if (!b.isAlive || !b.breakable) return false;
+    if (b.owner) {
+      this.hit(b, 0, cause, { lethal: true });
+      return false;
+    }
     b.takeHit(0, { lethal: true });
     this.destroy(b, cause, 0);
     return true;
@@ -250,6 +283,11 @@ export class BrickSystem {
         const dx = Math.max(Math.abs(b.x - x) - b.displayWidth / 2, 0);
         const dy = Math.max(Math.abs(b.y - y) - b.displayHeight / 2, 0);
         if (dx * dx + dy * dy <= EXPLOSION_RADIUS * EXPLOSION_RADIUS) {
+          // An owned brick takes the blast as a lethal hit and stands.
+          if (b.owner) {
+            this.hit(b, 0, 'explosion', { lethal: true });
+            continue;
+          }
           b.takeHit(0, { lethal: true });
           this.destroy(b, 'explosion', chain);
         }

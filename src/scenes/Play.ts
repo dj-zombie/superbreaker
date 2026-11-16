@@ -61,6 +61,7 @@ import {
 } from '../core/Skills';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
 import type { LevelSpec, PowerupId } from '../core/types';
+import { BOSSES } from '../bosses';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
@@ -72,6 +73,7 @@ import { onAppBackground } from '../platform/lifecycle';
 import { save } from '../services';
 import { AbilitySystem, SLOT_COUNT, type SlotState } from '../systems/AbilitySystem';
 import { audio } from '../systems/AudioSystem';
+import { BossDirector, type BossHost } from '../systems/BossDirector';
 import { BrickSystem, type DestroyCause } from '../systems/BrickSystem';
 import { Backdrop } from '../systems/Backdrop';
 import { BallFx } from '../systems/BallFx';
@@ -166,6 +168,11 @@ function pickBall(a: unknown, b: unknown): Ball {
   return (a instanceof Ball ? a : b) as Ball;
 }
 
+/** Dev builds only: the running boss is `window.boss`, the way main.ts sets `window.game`. */
+function exposeBoss(boss: BossDirector | undefined): void {
+  if (import.meta.env.DEV) (window as unknown as { boss?: BossDirector }).boss = boss;
+}
+
 /** Resting collision box. Hit flashes scale the sprite without resizing the body. */
 function homingBox(b: Brick): HomingBox {
   return { x: b.x, y: b.y, halfW: b.spec.width / 2, halfH: b.spec.height / 2 };
@@ -222,6 +229,8 @@ export class Play extends BaseScene {
   private level!: LevelSpec;
   world!: WorldId;
   private runDirector?: RunDirector;
+  /** Set when the level names a boss. */
+  private boss?: BossDirector;
   private diff!: DifficultyConfig;
   private paddle!: Paddle;
   private balls!: Phaser.Physics.Arcade.Group;
@@ -395,7 +404,8 @@ export class Play extends BaseScene {
           }),
       },
       world,
-      { collapse: !this.runDirector?.descent },
+      // A boss level never collapses: its parts are bricks, and only the boss removes them.
+      { collapse: !this.runDirector?.descent && !this.level.boss },
     );
     this.hud.remaining = this.bricks.remaining;
     this.initialBreakables = Math.max(1, this.bricks.remaining);
@@ -484,6 +494,10 @@ export class Play extends BaseScene {
     this.hud.skills = this.skillViews();
 
     this.setupColliders();
+    this.boss = this.level.boss
+      ? new BossDirector(BOSSES[this.level.boss], this.bossHost())
+      : undefined;
+    exposeBoss(this.boss);
     this.runDirector?.attach(this.runHost());
     this.inputSys = new InputSystem(
       this,
@@ -507,7 +521,9 @@ export class Play extends BaseScene {
       else if (button === PadButton.east) this.useSkill('slowmo');
       else if (stockButtons.includes(button)) this.useStock(stockButtons.indexOf(button));
     });
-    this.coach = save.state.seenInstructions
+    // A boss level never runs the tutorial.
+    const noTutorial = save.state.seenInstructions || !!this.level.boss;
+    this.coach = noTutorial
       ? undefined
       : new OnboardingCoach({
           scene: this,
@@ -580,6 +596,8 @@ export class Play extends BaseScene {
     this.updateMusic(dt);
     this.checkLostBalls();
     this.runDirector?.update(dt);
+    // The last life going ends the level first: a boss can't also die on that frame.
+    if (!this.finished) this.boss?.update(dt);
     this.hud.clockMs = this.runDirector?.state.timeLeftMs ?? null;
     if (this.finished) return;
     this.hud.effects = this.powerups.active;
@@ -589,6 +607,8 @@ export class Play extends BaseScene {
     this.hud.fever = this.fever.meter.display;
     this.hud.feverActive = this.fever.active;
     this.hud.paddleX = this.paddle.x;
+    // A boss level is won by killing the boss, not by clearing the bricks.
+    if (this.boss?.active) return;
     if (this.hud.remaining > 0) return;
     if (this.runDirector) this.runDirector.onBoardEmpty();
     else this.win();
@@ -1012,6 +1032,8 @@ export class Play extends BaseScene {
 
   private processBallBrick(ball: Ball, brick: Brick): boolean {
     if (!brick.isAlive) return false;
+    // Nothing passes through a boss part: the ball always bounces off it.
+    if (brick.owner) return true;
     // Fireballs smash straight through bricks they can kill, up to their plow count, then bounce.
     if (
       this.fireActive &&
@@ -1078,28 +1100,7 @@ export class Play extends BaseScene {
       this.juice.burst(b.x, b.y, b.tintColor, 6);
       return;
     }
-    if (cause !== 'fall') {
-      this.hud.combo++;
-      this.pacing.onBreak();
-      this.musicMood.onBreak();
-      this.fever.onBreak(this.hud.combo, this.freeBallCount);
-    }
-    if (cause === 'ball' || cause === 'explosion') for (const id of SKILL_IDS) this.skills[id].onBreak();
-    const base = cause === 'laser' ? LASER_BRICK_SCORE : BRICK_SCORE;
-    const bonus = Math.min(this.hud.combo, 20) * 10 + chain * 20;
-    this.addScore((base + bonus) * this.fever.scoreMultiplier);
-    if (this.hud.combo >= 5 && this.hud.combo % 5 === 0) {
-      const tier = Math.min(6, this.hud.combo / 5);
-      const p = theme().palette;
-      const color = tier >= 4 ? '#ffffff' : css(tier >= 2 ? p.accentHi : p.gold);
-      this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, color, 18 + tier * 4, 1 + tier * 0.12);
-      if (tier >= 4 && save.state.settings.screenShake) this.juice.shake(120, 0.002 * tier);
-      const detune = COMBO_DETUNE[tier - 1];
-      if (detune !== undefined) {
-        audio.sfx('combo', 0.5, detune);
-        audio.duck(0.6, 350);
-      }
-    }
+    this.creditBreak(b, cause, chain);
     this.juice.burst(b.x, b.y, b.tintColor, cause === 'explosion' ? 8 : 12);
     const glow = b.spec.light;
     this.lighting.flash(
@@ -1122,6 +1123,35 @@ export class Play extends BaseScene {
       if (b.spec.powerup) this.powerups.maybeDrop(b.x, b.y, b.spec.powerup);
     } else {
       this.powerups.maybeDrop(b.x, b.y, b.spec.powerup, cause === 'ability');
+    }
+  }
+
+  /**
+   * What a break earns: combo, pacing, music, Fever, skill charge and score. A whole hit on a
+   * boss part earns the same.
+   */
+  private creditBreak(b: Brick, cause: DestroyCause, chain: number): void {
+    if (cause !== 'fall') {
+      this.hud.combo++;
+      this.pacing.onBreak();
+      this.musicMood.onBreak();
+      this.fever.onBreak(this.hud.combo, this.freeBallCount);
+    }
+    if (cause === 'ball' || cause === 'explosion') for (const id of SKILL_IDS) this.skills[id].onBreak();
+    const base = cause === 'laser' ? LASER_BRICK_SCORE : BRICK_SCORE;
+    const bonus = Math.min(this.hud.combo, 20) * 10 + chain * 20;
+    this.addScore((base + bonus) * this.fever.scoreMultiplier);
+    if (this.hud.combo >= 5 && this.hud.combo % 5 === 0) {
+      const tier = Math.min(6, this.hud.combo / 5);
+      const p = theme().palette;
+      const color = tier >= 4 ? '#ffffff' : css(tier >= 2 ? p.accentHi : p.gold);
+      this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, color, 18 + tier * 4, 1 + tier * 0.12);
+      if (tier >= 4 && save.state.settings.screenShake) this.juice.shake(120, 0.002 * tier);
+      const detune = COMBO_DETUNE[tier - 1];
+      if (detune !== undefined) {
+        audio.sfx('combo', 0.5, detune);
+        audio.duck(0.6, 350);
+      }
     }
   }
 
@@ -1367,8 +1397,10 @@ export class Play extends BaseScene {
     this.checkWallsDown(dt);
 
     this.nudgeMs = Math.max(0, this.nudgeMs - dt);
-    const turn =
-      this.nudgeMs > 0 ? NUDGE_TURN : this.pacing.endgameAssist(remaining) ? ENDGAME_TURN : 0;
+    // A boss's few parts are not a level's last few bricks: no endgame homing while it lives.
+    const boss = this.boss?.active ? this.boss : undefined;
+    const endgame = !boss && this.pacing.endgameAssist(remaining);
+    const turn = this.nudgeMs > 0 ? NUDGE_TURN : endgame ? ENDGAME_TURN : 0;
     if (turn > 0) {
       const targets = this.bricks.targets.map(homingBox);
       const walls: HomingBox[] = [];
@@ -1384,7 +1416,9 @@ export class Play extends BaseScene {
       }
     }
     const hyper = this.powerups.is('hyper');
-    const cruise = cruiseSpeed(this.diff, 1 - remaining / this.initialBreakables);
+    // In a boss fight the ball speeds up as the boss's pools drain, not as bricks clear.
+    const cleared = boss ? boss.progress : 1 - remaining / this.initialBreakables;
+    const cruise = cruiseSpeed(this.diff, cleared);
     const target = Math.min(this.diff.maxSpeed, cruise * idleSpeedBoost(this.pacing.idleMs));
     for (const b of free) {
       b.speed = relaxSpeed(chaseSpeed(b.speed, target, dt), target, dt);
@@ -1395,6 +1429,8 @@ export class Play extends BaseScene {
 
   /** Knocks the steel down, once per board, when the player is stuck outside the bricks it boxes in. */
   private checkWallsDown(dt: number): void {
+    // A boss's steel parts are its own to remove.
+    if (this.boss?.active) return;
     if (this.wallsDown || this.pacing.idleMs < WALLS_DOWN_IDLE_MS) return;
     this.wallsCheckMs -= dt;
     if (this.wallsCheckMs > 0) return;
@@ -1858,6 +1894,30 @@ export class Play extends BaseScene {
     };
   }
 
+  private bossHost(): BossHost {
+    return {
+      scene: this,
+      bricks: this.bricks,
+      juice: this.juice,
+      lighting: this.lighting,
+      scenery: this.scenery,
+      backdrop: this.backdrop,
+      powerups: this.powerups,
+      paddle: this.paddle,
+      ballInPlay: () => this.ballList.some((b) => !b.attached),
+      timeScale: () => this.physics.world.timeScale,
+      hitDamage: () => this.hitDamage,
+      bricksAdded: (bricks, board) => this.onBricksAdded(bricks, board),
+      creditHit: (brick, cause) => this.creditBreak(brick, cause, 0),
+      addScore: (n) => this.addScore(n),
+      setLabel: (title, detail) => {
+        this.hud.title = title;
+        this.hud.detail = detail;
+      },
+      defeated: () => this.win(),
+    };
+  }
+
   private onBricksAdded(bricks: readonly Brick[], board: boolean): void {
     this.addBrickLights(bricks);
     const remaining = this.bricks.remaining;
@@ -1901,6 +1961,9 @@ export class Play extends BaseScene {
     this.unsubscribePad = undefined;
     audio.loop('brick_mover', false);
     audio.resetMix();
+    this.boss?.destroy();
+    this.boss = undefined;
+    exposeBoss(undefined);
     this.events.off(Phaser.Scenes.Events.RESUME);
     this.input.keyboard?.removeAllKeys(true);
     this.shieldBar = undefined;

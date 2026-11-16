@@ -1,3 +1,4 @@
+import type { BossId } from './Boss';
 import type { LevelLightingSpec, LightSpec } from './Lighting';
 
 export const BRICK_KINDS = ['normal', 'steel', 'explosive', 'armored', 'regen'] as const;
@@ -55,6 +56,8 @@ export interface LevelSpec {
   /** From the `Lights` object layer. */
   lights: LightSpec[];
   lighting: LevelLightingSpec;
+  /** From the map property `boss`: the level is a boss fight and ends when the boss dies. */
+  boss?: BossId;
 }
 
 export const FIELD_WIDTH = 600;

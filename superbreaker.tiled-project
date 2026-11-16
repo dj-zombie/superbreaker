@@ -127,6 +127,7 @@
       "drawFill": true,
       "members": [
         { "name": "title", "type": "string", "value": "" },
+        { "name": "boss", "type": "string", "value": "" },
         { "name": "ambient", "type": "color", "value": "" },
         { "name": "backdropStrength", "type": "float", "value": -1 },
         { "name": "brickFloor", "type": "float", "value": -1 },

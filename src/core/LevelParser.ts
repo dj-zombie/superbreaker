@@ -1,3 +1,4 @@
+import { BOSS_IDS, type BossId } from './Boss';
 import {
   COOKIES,
   FLICKERS,
@@ -274,16 +275,24 @@ export function parseLevel(
     }
   }
 
-  return {
-    level: {
-      id,
-      title: typeof mapProps.title === 'string' ? mapProps.title : id,
-      bricks,
-      lights,
-      lighting: parseLevelLighting(mapProps, warnings),
-    },
-    warnings,
+  const level: LevelSpec = {
+    id,
+    title: typeof mapProps.title === 'string' ? mapProps.title : id,
+    bricks,
+    lights,
+    lighting: parseLevelLighting(mapProps, warnings),
   };
+  const boss = parseBoss(mapProps.boss, warnings);
+  if (boss) level.boss = boss;
+  return { level, warnings };
+}
+
+/** The boss a map names. Tiled writes an unset class member as an empty string: no boss. */
+function parseBoss(v: TiledPropValue | undefined, warnings: string[]): BossId | undefined {
+  if (v === undefined || v === '') return undefined;
+  const boss = BOSS_IDS.find((id) => id === v);
+  if (!boss) warnings.push(`Map: unknown boss "${String(v)}"`);
+  return boss;
 }
 
 function parseBrick(obj: TiledObject, tile: ResolvedTile, warnings: string[]): BrickSpec {
@@ -455,7 +464,8 @@ export function isBreakable(b: Pick<BrickSpec, 'kind'>): boolean {
 /** Authoring checks, used by tests and logged in dev builds. */
 export function validateLevel(level: LevelSpec): string[] {
   const issues: string[] = [];
-  if (!level.bricks.some(isBreakable)) issues.push('Level has no breakable bricks');
+  // A boss level ends when the boss dies, so it needs no bricks of its own.
+  if (!level.boss && !level.bricks.some(isBreakable)) issues.push('Level has no breakable bricks');
   for (const b of level.bricks) {
     const minX = Math.min(b.x, b.x + b.moveX);
     const maxX = Math.max(b.x, b.x + b.moveX) + b.width;

@@ -936,8 +936,11 @@ export class LightingSystem {
     return b.visible && b.life !== 'dead' && !this.castsStillShadow(b);
   }
 
+  /** A boss part is moved by its owner, so its shadow is never baked. */
   private castsStillShadow(b: Brick): boolean {
-    return b.isAlive && b.visible && !b.falling && b.spec.moveX === 0 && b.y === b.homeY;
+    return (
+      b.isAlive && b.visible && !b.falling && b.spec.moveX === 0 && b.y === b.homeY && !b.owner
+    );
   }
 
   private stampBrick(
