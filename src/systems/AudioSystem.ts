@@ -120,8 +120,19 @@ class AudioSystem {
     window.addEventListener('pointerdown', kick, { passive: true });
     window.addEventListener('touchstart', kick, { passive: true });
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) kick();
+      if (document.hidden) this.sleep();
+      else kick();
     });
+    if (document.hidden) this.sleep();
+  }
+
+  /**
+   * A hidden tab, minimized window or backgrounded app goes quiet, menus included. Phaser's loop
+   * stops while hidden, so nothing resumes the context until the page is back in view.
+   */
+  private sleep(): void {
+    const ctx = this.webAudio?.context;
+    if (ctx?.state === 'running') void ctx.suspend();
   }
 
   /** Ask the browser to play even when the ringer is silenced. iOS may ignore this. */
@@ -433,6 +444,8 @@ class AudioSystem {
   resetMix(): void {
     this.gravity = false;
     this.paused = false;
+    // Restart and quit leave from the pause menu, and the engine keeps its duck across a stop.
+    this.music?.duck(false);
     this.applyGravity();
     const m = this.mixNodes;
     if (!m) return;

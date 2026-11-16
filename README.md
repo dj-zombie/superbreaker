@@ -305,7 +305,7 @@ See [docs/crazygames.md](docs/crazygames.md) for the build, the SDK wiring and t
 
 ## Desktop builds
 
-The desktop app wraps the same web build in Electron (`desktop/`). It serves `dist/` from a privileged `app://` scheme, which gives the game a fixed origin so its localStorage save survives restarts. `vite build --mode desktop` leaves out the service worker. The page runs sandboxed with context isolation, and `desktop/preload.cts` exposes only fullscreen and quit (`src/platform/desktop.ts` on the game side).
+The desktop app wraps the same game in Electron (`desktop/`). `vite build --mode desktop` leaves out the service worker and builds into `dist-desktop/`, apart from the web build in `dist/` that Wrangler deploys. The app serves `dist-desktop/` from a privileged `app://` scheme, which gives the game a fixed origin so its localStorage save survives restarts. The page runs sandboxed with context isolation, and `desktop/preload.cts` exposes only fullscreen and quit (`src/platform/desktop.ts` on the game side). Quitting mutes the page at once and forces the exit if the window hasn't closed within two seconds, and every build suspends its audio while the page is hidden.
 
 ```sh
 pnpm desktop:dev                  # Electron on the Vite dev server

@@ -1,12 +1,14 @@
-import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, net, protocol, session, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Vite's build output, beside this file's own folder in the repo and inside app.asar. */
-const DIST = path.join(import.meta.dirname, '..', '..', 'dist');
+/** Vite's desktop build, beside this file's own folder in the repo and inside app.asar. */
+const DIST = path.join(import.meta.dirname, '..', '..', 'dist-desktop');
 const ORIGIN = 'app://game';
-/** Set by `pnpm desktop:dev` to load the Vite dev server instead of dist/. */
+/** Set by `pnpm desktop:dev` to load the Vite dev server instead of dist-desktop/. */
 const DEV_URL = process.env.SUPERBREAKER_DEV_URL;
+/** A quit that hasn't finished by now is forced, so the app can never linger after one. */
+const QUIT_GRACE_MS = 2000;
 
 // A standard, secure scheme gives the game a fixed origin, so its localStorage save survives
 // restarts, and fetch() works for levels and audio the way it does over https.
@@ -127,4 +129,16 @@ if (!app.requestSingleInstanceLock()) {
     });
   });
   app.on('window-all-closed', () => app.quit());
+  // Muted the moment a quit starts, even if the window takes a while to close. Saves live in
+  // localStorage, which Chromium writes lazily, so they are flushed before a forced exit.
+  let quitting = false;
+  app.on('before-quit', () => {
+    if (quitting) return;
+    quitting = true;
+    win?.webContents.setAudioMuted(true);
+    setTimeout(() => {
+      session.defaultSession.flushStorageData();
+      app.exit(0);
+    }, QUIT_GRACE_MS);
+  });
 }

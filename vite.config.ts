@@ -4,8 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ mode }) => ({
   base: './',
   build: {
-    // Kept apart from dist/, which is what Wrangler deploys.
-    outDir: mode === 'crazygames' ? 'dist-crazygames' : 'dist',
+    // Kept apart from dist/, which is what Wrangler deploys: a build without the service worker
+    // there would strand returning players on the old cached version.
+    outDir: mode === 'crazygames' ? 'dist-crazygames' : mode === 'desktop' ? 'dist-desktop' : 'dist',
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
   },

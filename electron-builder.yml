@@ -8,9 +8,12 @@ icon: public/icons/icon-1024.png
 directories:
   output: release
 
-# The game is already bundled into dist/, so no node_modules ship with the app.
+# The game is already bundled into dist-desktop/, so no node_modules ship with the app. The
+# Cloudflare files in public/ are for the web host only.
 files:
-  - dist/**/*
+  - dist-desktop/**/*
+  - '!dist-desktop/_headers'
+  - '!dist-desktop/.assetsignore'
   - desktop/dist/**/*
   - package.json
   - '!node_modules/**/*'

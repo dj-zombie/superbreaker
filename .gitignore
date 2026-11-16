@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-crazygames
+dist-desktop
 dev-dist
 # Electron: compiled shell and packaged installers
 desktop/dist/
