@@ -7,8 +7,11 @@ export const BELOW_HUD = 12;
 /** Top wall to paddle. Levels are authored for ARENA_MAX and must still fit ARENA_MIN. */
 export const ARENA_MIN = 640;
 export const ARENA_MAX = 840;
-/** Paddle center to the bottom safe edge. Touch screens get a thumb zone under the paddle. */
-export const DECK_MIN_TOUCH = 150;
+/**
+ * Paddle center to the bottom safe edge. Touch screens get a thumb zone under the paddle:
+ * the slider row, then the skill buttons beneath the corner slots.
+ */
+export const DECK_MIN_TOUCH = 200;
 export const DECK_MAX_TOUCH = 260;
 export const DECK_MOUSE = 60;
 /** The deck panel starts this far under the paddle center. */

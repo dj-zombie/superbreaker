@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { touchDeckYs } from '../src/config';
 import {
   ARENA_MAX,
   ARENA_MIN,
@@ -79,6 +80,30 @@ describe('pacing across screens', () => {
     });
     expect(gaps[0]).toBeCloseTo(ARENA_MAX - BELOW_HUD);
     expect(gaps[1]).toBeCloseTo(ARENA_MAX - BELOW_HUD);
+  });
+});
+
+/** Touch button sizes. The test runner is not a coarse pointer, so they are passed in. */
+const TOUCH_SLOT_R = 36;
+const TOUCH_SKILL_R = 26;
+const TOUCH_SKILL_GAP = 18;
+
+describe('touch controls', () => {
+  it.each(PHONES)(
+    '%s fits the slider row and the skill row in the deck without overlap',
+    (name) => {
+      const l = computeLayout(DEVICES[name]!);
+      const { slotY, skillY } = touchDeckYs(l.deckTop, l.deckBottom, TOUCH_SLOT_R, TOUCH_SKILL_R);
+      expect(slotY - TOUCH_SLOT_R).toBeGreaterThanOrEqual(l.deckTop);
+      expect(skillY + TOUCH_SKILL_R).toBeLessThanOrEqual(l.deckBottom);
+      expect(skillY - slotY).toBeGreaterThanOrEqual(TOUCH_SLOT_R + TOUCH_SKILL_R + TOUCH_SKILL_GAP);
+    },
+  );
+
+  it('keeps the slider on the deck center once the deck is full', () => {
+    const l = computeLayout(DEVICES['iPhone 15 fullscreen']!);
+    const { slotY } = touchDeckYs(l.deckTop, l.deckBottom, TOUCH_SLOT_R, TOUCH_SKILL_R);
+    expect(Math.abs(slotY - (l.deckTop + l.deckBottom) / 2)).toBeLessThanOrEqual(2);
   });
 });
 

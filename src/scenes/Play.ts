@@ -263,7 +263,10 @@ export class Play extends BaseScene {
   /** The steel already came down on this board. */
   private wallsDown = false;
   private wallsCheckMs = 0;
-  /** Always-on skills. One scene plays a whole run, so their charge carries across waves. */
+  /**
+   * Always-on skills. A level starts with both ready; the cooldown begins when one is used.
+   * One scene plays a whole run, so that cooldown carries across waves.
+   */
   private skills!: Record<SkillId, SkillCharge>;
   private slowmoVeil!: Phaser.GameObjects.Rectangle;
   private juice!: JuiceSystem;
@@ -496,7 +499,7 @@ export class Play extends BaseScene {
     });
     this.hud.slots = this.abilities.slots;
     this.loadRunAbilities();
-    this.skills = { gun: new SkillCharge(SKILLS.gun), slowmo: new SkillCharge(SKILLS.slowmo) };
+    this.skills = { gun: new SkillCharge(SKILLS.gun, 1), slowmo: new SkillCharge(SKILLS.slowmo, 1) };
     this.slowmoVeil = this.add
       .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, SLOWMO_TINT)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
@@ -678,6 +681,7 @@ export class Play extends BaseScene {
       this.tweens.killTweensOf(this.slowmoVeil);
       this.tweens.add({ targets: this.slowmoVeil, alpha: 1, duration: 180, ease: 'Cubic.Out' });
       this.juice.ring(this.paddle.x, this.paddle.y, SKILLS.slowmo.color, 140);
+      audio.setDream(true);
       audio.whoosh(0.4);
       haptic('medium');
     }
@@ -717,6 +721,7 @@ export class Play extends BaseScene {
       ease: 'Cubic.In',
       onComplete: () => this.slowmoVeil.setVisible(false),
     });
+    audio.setDream(false);
     audio.whoosh(0.3, true);
   }
 

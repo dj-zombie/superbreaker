@@ -27,7 +27,13 @@ import type { PowerupId } from '../core/types';
 import { onKeyLabels, skillKeyLabel, slotKeyLabel } from '../platform/keyboard';
 import { iconButton } from '../ui/Button';
 import type { CoachHand } from '../systems/OnboardingCoach';
-import { deckKnobTexture, deckPanelTexture, glowLineTexture, hudStripTexture, rimTexture } from '../ui/frames';
+import {
+  deckKnobTexture,
+  deckPanelTexture,
+  glowLineTexture,
+  hudStripTexture,
+  rimTexture,
+} from '../ui/frames';
 import { icon } from '../ui/icons';
 import { disc, ring } from '../ui/shapes';
 import { calm, theme, type UiTheme } from '../ui/theme';
@@ -189,7 +195,10 @@ export class Hud extends BaseScene {
     this.stockKey = '';
     this.deck = IS_TOUCH ? this.makeDeck() : undefined;
 
-    this.add.image(0, 0, hudStripTexture(this, t)).setOrigin(0, 0).setDisplaySize(WIDTH, HUD_HEIGHT);
+    this.add
+      .image(0, 0, hudStripTexture(this, t))
+      .setOrigin(0, 0)
+      .setDisplaySize(WIDTH, HUD_HEIGHT);
     this.add.rectangle(0, HUD_HEIGHT, WIDTH, 1, p.edge, 0.8).setOrigin(0, 0.5);
 
     this.score = this.add.bitmapText(64, HUD_CENTER, HUD_FONT, '0', 24).setOrigin(0, 0.5);
@@ -214,7 +223,9 @@ export class Hud extends BaseScene {
       .setVisible(false);
     this.feverView = this.makeFever();
     this.slotViews = slotPositions().map((pos, i) => this.makeSlot(pos.x, pos.y, i));
-    this.skillButtons = skillPositions().map((pos, i) => this.makeSkill(pos.x, pos.y, SKILL_IDS[i]!));
+    this.skillButtons = skillPositions().map((pos, i) =>
+      this.makeSkill(pos.x, pos.y, SKILL_IDS[i]!),
+    );
     const offKeys = onKeyLabels(() => {
       this.slotViews.forEach((v, i) => v.key.setText(slotKeyLabel(i)));
       this.skillButtons.forEach((v, i) => v.key.setText(skillKeyLabel(SKILL_IDS[i]!)));
@@ -258,7 +269,13 @@ export class Hud extends BaseScene {
       .setLetterSpacing(2)
       .setDepth(3);
     if (!calm()) {
-      this.tweens.add({ targets: hint, alpha: { from: 1, to: 0.35 }, duration: 800, yoyo: true, repeat: -1 });
+      this.tweens.add({
+        targets: hint,
+        alpha: { from: 1, to: 0.35 },
+        duration: 800,
+        yoyo: true,
+        repeat: -1,
+      });
     }
     this.deck = { panel, track, knob, hint, left: 0, right: WIDTH };
     this.layoutDeck();
@@ -269,11 +286,11 @@ export class Hud extends BaseScene {
     const d = this.deck;
     if (!d) return;
     d.panel.setPosition(WIDTH / 2, DECK_TOP).setDisplaySize(WIDTH, HEIGHT - DECK_TOP);
-    // The track stops short of the skill buttons, and by the same amount on the left so it stays centered.
-    const y = slotPositions()[0]!.y;
-    const skills = skillPositions();
-    d.right = skills[skills.length - 1]!.x - SKILL_RADIUS - 18;
-    d.left = WIDTH - d.right;
+    // The track fills the gap between the corner slots. Skills sit on their own row underneath.
+    const [l, r] = slotPositions();
+    const y = l!.y;
+    d.left = l!.x + SLOT_RADIUS + 18;
+    d.right = r!.x - SLOT_RADIUS - 18;
     d.track.setPosition((d.left + d.right) / 2, y).setDisplaySize(d.right - d.left, 4);
     d.knob.setY(y);
     d.hint.setPosition(WIDTH / 2, y - 26);
@@ -295,16 +312,36 @@ export class Hud extends BaseScene {
     }
     if (!v) {
       const color = this.t.palette.accentHi;
-      const hand = icon(this, 0, 0, 'hand', COACH_HAND_SIZE, color).setOrigin(0.5, 0.04).setDepth(35);
+      const hand = icon(this, 0, 0, 'hand', COACH_HAND_SIZE, color)
+        .setOrigin(0.5, 0.04)
+        .setDepth(35);
       const ripple = ring(this, 0, 0, 18, 3, color).setDepth(35).setAlpha(0);
-      v = this.coachHand = { hand, ripple, scale: hand.scale, rippleScale: ripple.scale, tapped: false };
+      v = this.coachHand = {
+        hand,
+        ripple,
+        scale: hand.scale,
+        rippleScale: ripple.scale,
+        tapped: false,
+      };
       if (!calm()) this.tweens.add({ targets: hand, alpha: { from: 0, to: 1 }, duration: 260 });
     }
-    v.hand.setVisible(true).setPosition(pose.x, pose.y).setScale(v.scale * (pose.tap ? 0.88 : 1));
+    v.hand
+      .setVisible(true)
+      .setPosition(pose.x, pose.y)
+      .setScale(v.scale * (pose.tap ? 0.88 : 1));
     if (pose.tap && !v.tapped && !calm()) {
       const s = v.rippleScale;
-      v.ripple.setPosition(pose.x, pose.y).setScale(s * 0.6).setAlpha(0.9);
-      this.tweens.add({ targets: v.ripple, scale: s * 1.6, alpha: 0, duration: 420, ease: 'Cubic.Out' });
+      v.ripple
+        .setPosition(pose.x, pose.y)
+        .setScale(s * 0.6)
+        .setAlpha(0.9);
+      this.tweens.add({
+        targets: v.ripple,
+        scale: s * 1.6,
+        alpha: 0,
+        duration: 420,
+        ease: 'Cubic.Out',
+      });
     }
     v.tapped = pose.tap;
   }
@@ -331,8 +368,20 @@ export class Hud extends BaseScene {
     const radius = skill ? SKILL_RADIUS : SLOT_RADIUS;
     const size = (radius + 12) / (SLOT_RADIUS + 12);
     const wave = calm() ? 0 : Math.sin(this.time.now / 180);
-    v.ring.setVisible(true).setPosition(pos.x, pos.y).setScale(v.scale * size * (1 + 0.06 * wave));
-    v.arrow.setVisible(true).setPosition(pos.x, pos.y - radius - 34 + wave * 5);
+    v.ring
+      .setVisible(true)
+      .setPosition(pos.x, pos.y)
+      .setScale(v.scale * size * (1 + 0.06 * wave));
+    v.arrow.setVisible(true);
+    // The skill row is under the slots, so the arrow comes in from the side instead of covering them.
+    if (IS_TOUCH && skill) {
+      const inward = pos.x < WIDTH / 2 ? 1 : -1;
+      v.arrow.setAngle(inward > 0 ? 0 : 180);
+      v.arrow.setPosition(pos.x + inward * (radius + 32 + wave * 4), pos.y);
+    } else {
+      v.arrow.setAngle(-90);
+      v.arrow.setPosition(pos.x, pos.y - radius - 34 + wave * 5);
+    }
   }
 
   private makeSlot(x: number, y: number, index: number): SlotView {
@@ -384,7 +433,9 @@ export class Hud extends BaseScene {
     const color = SKILLS[id].color;
     const r = SKILL_RADIUS;
     const root = this.add.container(x, y).setDepth(30);
-    const glow = disc(this, 0, 0, r + 8, color).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    const glow = disc(this, 0, 0, r + 8, color)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setVisible(false);
     const base = disc(this, 0, 0, r, p.base, 0.9);
     const timer = new RingTimer(this, 0, 0, r * 2 + 4, color);
     const glyph = icon(this, 0, 0, id, r * 1.05, color);
@@ -408,7 +459,10 @@ export class Hud extends BaseScene {
   private drawSkill(v: SkillButton, s: SkillView): void {
     const color = SKILLS[s.id].color;
     const lit = s.ready || s.active;
-    v.timer.set(s.fraction).setColor(s.active ? 0xffffff : color).setAlpha(lit ? 1 : 0.6);
+    v.timer
+      .set(s.fraction)
+      .setColor(s.active ? 0xffffff : color)
+      .setAlpha(lit ? 1 : 0.6);
     v.glyph.setTint(s.active ? 0xffffff : color).setAlpha(lit ? 1 : 0.4);
     if (s.ready && !v.pulse) {
       v.glow.setVisible(true).setAlpha(0.15);
@@ -426,7 +480,12 @@ export class Hud extends BaseScene {
       v.glow.setVisible(false);
     }
     if (s.ready && !v.ready && !calm()) {
-      this.tweens.add({ targets: v.root, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.Out' });
+      this.tweens.add({
+        targets: v.root,
+        scale: { from: 1.35, to: 1 },
+        duration: 260,
+        ease: 'Back.Out',
+      });
     }
     v.ready = s.ready;
   }
@@ -683,7 +742,12 @@ export class Hud extends BaseScene {
       h.setAlpha(on ? 1 : 0.18);
       const base = 22 / h.width;
       if ((lost && i === lives) || (gained && i === lives - 1)) {
-        this.tweens.add({ targets: h, scale: { from: base * 1.8, to: base }, duration: 300, ease: 'Back.Out' });
+        this.tweens.add({
+          targets: h,
+          scale: { from: base * 1.8, to: base },
+          duration: 300,
+          ease: 'Back.Out',
+        });
       }
     });
   }

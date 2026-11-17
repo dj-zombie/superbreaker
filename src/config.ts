@@ -188,11 +188,33 @@ export const SLOT_RADIUS = IS_TOUCH ? 36 : 28;
 /** Bought powerups sit in a row inboard of the left slot, leaving the deck center free. */
 export const STOCK_RADIUS = IS_TOUCH ? 22 : 18;
 
+/** Skill buttons. On touch they sit under the corner slots so the slider keeps its whole row. */
+export const SKILL_RADIUS = IS_TOUCH ? 26 : 20;
+
+/** Clear air between a slot's edge and the skill button under it. */
+const TOUCH_SKILL_GAP = 18;
+/** Inset of the skill row from the bottom of the deck, and of the slots from the top. */
+const TOUCH_EDGE = 10;
+
+/** Vertical centers of the slider row and the skill row inside a touch deck. */
+export function touchDeckYs(
+  deckTop: number,
+  deckBottom: number,
+  slotR = SLOT_RADIUS,
+  skillR = SKILL_RADIUS,
+): { slotY: number; skillY: number } {
+  const skillY = deckBottom - TOUCH_EDGE - skillR;
+  const aboveSkills = skillY - skillR - TOUCH_SKILL_GAP - slotR;
+  const centered = (deckTop + deckBottom) / 2;
+  const inDeck = deckTop + slotR + TOUCH_EDGE;
+  const slotY = Math.max(inDeck, Math.min(centered, aboveSkills));
+  return { slotY, skillY };
+}
+
 /** Vertical center of the deck buttons. Without a deck they hug the bottom edge, as before. */
 function deckButtonY(): number {
-  const bottom = DECK_BOTTOM - SLOT_RADIUS - 6;
   if (!IS_TOUCH) return HEIGHT - SAFE_BOTTOM - 34;
-  return Math.min(bottom, Math.max((DECK_TOP + DECK_BOTTOM) / 2, DECK_TOP + SLOT_RADIUS + 6));
+  return touchDeckYs(DECK_TOP, DECK_BOTTOM).slotY;
 }
 
 export function slotPositions(): ReadonlyArray<{ x: number; y: number }> {
@@ -282,11 +304,20 @@ export function designY(y: number): number {
   return top + (span - FIELD_HEIGHT) / 2 + y;
 }
 
-/** The skill buttons sit in a row inboard of the right slot, mirroring the stock row on the left. */
-export const SKILL_RADIUS = IS_TOUCH ? 26 : 20;
-
+/**
+ * On touch, one skill under each corner slot, clear of the slider. On desktop they stay in a
+ * row inboard of the right slot, where there is no slider to protect.
+ */
 export function skillPositions(): ReadonlyArray<{ x: number; y: number }> {
-  const slot = slotPositions()[1]!;
+  const slots = slotPositions();
+  if (IS_TOUCH) {
+    const y = touchDeckYs(DECK_TOP, DECK_BOTTOM).skillY;
+    return [
+      { x: slots[0]!.x, y },
+      { x: slots[1]!.x, y },
+    ];
+  }
+  const slot = slots[1]!;
   const gap = SKILL_RADIUS * 2 + 10;
   const x0 = slot.x - SLOT_RADIUS - 12 - SKILL_RADIUS;
   return SKILL_IDS.map((_, i) => ({ x: x0 - i * gap, y: slot.y }));

@@ -29,6 +29,23 @@ const DUCK = 0.35;
 const TAPE_S = 0.9;
 /** A stopped play-through is silent and released after this long (s). */
 const RELEASE_S = 1.2;
+/** Bullet time drops the music a perfect fourth, so sound effects shifted as far stay in key. */
+export const DREAM_CENTS = -500;
+const DREAM_RATE = 2 ** (DREAM_CENTS / 1200);
+/** The dream glides down to its rate over this long, and crossfades in over this long (s). */
+const DREAM_BEND_S = 0.6;
+const DREAM_FADE_S = 0.15;
+/** Waking speeds the dream back up as it crossfades to the song (s). */
+const DREAM_WAKE_S = 0.3;
+/** The dream's share of the section's gain; the reverb makes up the rest. */
+const DREAM_LEVEL = 0.7;
+/** The dream's resonant low-pass (Hz), and how far its slow sweep swings either way (Hz). */
+const DREAM_HZ = 1_100;
+const DREAM_Q = 2.5;
+const DREAM_SWEEP_HZ = 350;
+/** Tape wow: a delay swinging this far either side of its rest (s), this often (Hz). */
+const WOBBLE_S = 0.003;
+const WOBBLE_HZ = 0.45;
 
 interface Voice {
   name: string;
@@ -42,11 +59,33 @@ interface Voice {
   level: number;
 }
 
+/** Bullet time's slowed copy of the section that was playing. */
+interface Dream {
+  src: AudioBufferSourceNode;
+  gain: GainNode;
+  lfo: OscillatorNode;
+  /** The play-through's song, silenced while the dream plays over it. */
+  awake: GainNode;
+}
+
+/** Holds a param where it is at `t`, so a new ramp starts from there instead of jumping. */
+export function hold(param: AudioParam, t: number): void {
+  if (typeof param.cancelAndHoldAtTime === 'function') {
+    param.cancelAndHoldAtTime(t);
+    return;
+  }
+  const v = param.value;
+  param.cancelScheduledValues(t);
+  param.setValueAtTime(v, t);
+}
+
 /**
  * Plays the song a section at a time on the Web Audio clock. Each mood loops its own sections.
  * A change of mood cuts to the new one on the next bar, or the next beat when it's urgent, so the
  * groove never stumbles. Filters on the way out sit the music back while the ball waits on the
- * paddle, sweep up the pre-drop, muffle the pause menu and dip when a ball is lost.
+ * paddle, sweep up the pre-drop, muffle the pause menu and dip when a ball is lost. Bullet time
+ * dreams: a slowed, muffled copy takes over while the song carries on silently underneath, so
+ * waking finds it still on the beat.
  */
 export class MusicEngine {
   /** Everything the music sends out; tapped for beat-synced lighting. */
@@ -55,6 +94,9 @@ export class MusicEngine {
   private readonly lowpass: BiquadFilterNode;
   /** The current play-through. A stopped one keeps its own gain while it fades out. */
   private session?: GainNode;
+  /** The play-through's song, ahead of `session`; a dream silences it. */
+  private awake?: GainNode;
+  private dreamer?: Dream;
   private voices: Voice[] = [];
   private mood?: MusicMood;
   /** Delay the mp3 decoder added ahead of the file's first sample (s). */
@@ -101,6 +143,8 @@ export class MusicEngine {
     this.mood = mood;
     this.session = this.ctx.createGain();
     this.session.connect(this.highpass);
+    this.awake = this.ctx.createGain();
+    this.awake.connect(this.session);
     this.held = false;
     this.riser = 0;
     this.tone();
@@ -164,13 +208,93 @@ export class MusicEngine {
     this.tone();
   }
 
+  /** Bullet time: drifts into a slowed, muffled copy of the section, or wakes back to the song. */
+  dream(on: boolean): void {
+    if (on === !!this.dreamer) return;
+    if (on) this.fallAsleep();
+    else this.wake();
+  }
+
+  private fallAsleep(): void {
+    const { ctx, awake, session } = this;
+    if (!this.mood || !awake || !session) return;
+    const at = ctx.currentTime + SAFETY;
+    const v = this.voiceAt(at);
+    if (!v) return;
+    const seg = this.track.segments[v.name]!;
+    const from = Math.max(0, this.lead + seg.at);
+    const len = seg.beats * this.track.beat;
+    // The section on a loop, so a long dream can't run on into whatever follows it in the file.
+    const src = ctx.createBufferSource();
+    src.buffer = this.buffer;
+    src.loop = true;
+    src.loopStart = from;
+    src.loopEnd = from + len;
+    src.playbackRate.setValueAtTime(1, at);
+    src.playbackRate.exponentialRampToValueAtTime(DREAM_RATE, at + DREAM_BEND_S);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(v.level * DREAM_LEVEL, at + DREAM_FADE_S);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = DREAM_HZ;
+    filter.Q.value = DREAM_Q;
+    const wobble = ctx.createDelay(WOBBLE_S * 4);
+    wobble.delayTime.value = WOBBLE_S * 2;
+    // One slow wave sweeps the filter and wows the pitch together, so the dream breathes.
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = WOBBLE_HZ;
+    const sweep = ctx.createGain();
+    sweep.gain.value = DREAM_SWEEP_HZ;
+    const wow = ctx.createGain();
+    wow.gain.value = WOBBLE_S;
+    lfo.connect(sweep).connect(filter.frequency);
+    lfo.connect(wow).connect(wobble.delayTime);
+    src.connect(gain).connect(filter).connect(wobble).connect(session);
+    src.onended = () => {
+      for (const n of [gain, filter, wobble, lfo, sweep, wow]) n.disconnect();
+    };
+    src.start(at, from + ((at - v.t0) % len));
+    lfo.start(at);
+    hold(awake.gain, at);
+    awake.gain.linearRampToValueAtTime(0, at + DREAM_FADE_S);
+    this.dreamer = { src, gain, lfo, awake };
+  }
+
+  private wake(): void {
+    const d = this.dreamer;
+    if (!d) return;
+    this.dreamer = undefined;
+    const at = this.ctx.currentTime + SAFETY;
+    const end = at + DREAM_WAKE_S;
+    hold(d.src.playbackRate, at);
+    d.src.playbackRate.exponentialRampToValueAtTime(1, end);
+    hold(d.gain.gain, at);
+    d.gain.gain.linearRampToValueAtTime(0, end);
+    d.src.stop(end + FADE_OUT);
+    d.lfo.stop(end + FADE_OUT);
+    hold(d.awake.gain, at);
+    d.awake.gain.linearRampToValueAtTime(1, end);
+  }
+
   stop(ending: MusicEnding = 'cut'): void {
     const session = this.session;
     if (!this.mood || !session) return;
     this.mood = undefined;
     this.session = undefined;
+    this.awake = undefined;
     clearInterval(this.timer);
     const now = this.ctx.currentTime;
+    const d = this.dreamer;
+    this.dreamer = undefined;
+    if (d) {
+      if (ending === 'tape') {
+        hold(d.src.playbackRate, now);
+        d.src.playbackRate.exponentialRampToValueAtTime(0.05, now + TAPE_S);
+      }
+      d.src.stop(now + RELEASE_S);
+      d.lfo.stop(now + RELEASE_S);
+    }
     for (const v of [...this.voices]) {
       if (v.t0 > now) {
         this.cancel(v);
@@ -234,7 +358,7 @@ export class MusicEngine {
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(seg.gain, t0 + FADE_IN);
-    src.connect(gain).connect(this.session!);
+    src.connect(gain).connect(this.awake!);
     src.start(t0, Math.max(0, this.lead + seg.at));
     const v: Voice = {
       name,

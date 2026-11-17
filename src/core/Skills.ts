@@ -17,11 +17,11 @@ export interface SkillDef {
 }
 
 export const SKILLS: Record<SkillId, SkillDef> = {
-  gun: { label: 'Gun', color: 0xff6a3c, cooldownMs: 12_000, perBreakMs: 400, durationMs: 1_800 },
+  gun: { label: 'Gun', color: 0xff6a3c, cooldownMs: 6_000, perBreakMs: 400, durationMs: 2_500 },
   slowmo: {
     label: 'Bullet Time',
     color: 0x8fb8ff,
-    cooldownMs: 20_000,
+    cooldownMs: 3_000,
     perBreakMs: 250,
     durationMs: 2_500,
   },

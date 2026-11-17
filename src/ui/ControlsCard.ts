@@ -52,18 +52,30 @@ const gap: Item = { kind: 'gap' };
 function rows(device: ControlDevice): Row[] {
   if (device === 'pad') {
     return [
-      { title: 'Move', caption: 'Stick or D-pad', items: [chevron(false), pad('L'), chevron(true), gap, glyph('dpad')] },
+      {
+        title: 'Move',
+        caption: 'Stick or D-pad',
+        items: [chevron(false), pad('L'), chevron(true), gap, glyph('dpad')],
+      },
       { title: 'Launch', caption: 'Press A', items: [pad('A')] },
       { title: 'Abilities', caption: 'Fire a ready slot', items: [pad('X'), pad('Y')] },
       { title: 'Skills', caption: 'Gun in flight · Slow-mo', items: [pad('A'), pad('B')] },
-      { title: 'Stock', caption: 'Bought powerups', items: ['LB', 'RB', 'LT', 'RT'].map((b) => key(b)) },
+      {
+        title: 'Stock',
+        caption: 'Bought powerups',
+        items: ['LB', 'RB', 'LT', 'RT'].map((b) => key(b)),
+      },
       { title: 'Pause', caption: 'Opens this menu', items: [key('START')] },
     ];
   }
   if (device === 'touch') {
     // On the wide stage the slots and the pause button sit in the right-hand panel.
     return [
-      { title: 'Move', caption: 'Drag anywhere', items: [chevron(false), { kind: 'paddle' }, chevron(true)] },
+      {
+        title: 'Move',
+        caption: 'Drag anywhere',
+        items: [chevron(false), { kind: 'paddle' }, chevron(true)],
+      },
       { title: 'Launch', caption: 'Tap anywhere', items: [{ kind: 'serve' }] },
       {
         title: 'Abilities',
@@ -75,7 +87,7 @@ function rows(device: ControlDevice): Row[] {
       },
       {
         title: 'Skills',
-        caption: 'Tap in flight fires the gun',
+        caption: 'Below the corners',
         items: [
           { kind: 'skill', id: 'gun' },
           { kind: 'skill', id: 'slowmo' },
@@ -90,7 +102,11 @@ function rows(device: ControlDevice): Row[] {
           { kind: 'stock', id: 'shield' },
         ],
       },
-      { title: 'Pause', caption: WIDE ? 'Top of the right panel' : 'Top-left button', items: [{ kind: 'pause' }] },
+      {
+        title: 'Pause',
+        caption: WIDE ? 'Top of the right panel' : 'Top-left button',
+        items: [{ kind: 'pause' }],
+      },
     ];
   }
   const [arrowL, letterL] = KEY_BINDINGS.left;
@@ -99,9 +115,21 @@ function rows(device: ControlDevice): Row[] {
     {
       title: 'Move',
       caption: 'Mouse or keys',
-      items: [glyph('mouse'), gap, key(keyLabel(arrowL!)), key(keyLabel(arrowR!)), gap, key(keyLabel(letterL!)), key(keyLabel(letterR!))],
+      items: [
+        glyph('mouse'),
+        gap,
+        key(keyLabel(arrowL!)),
+        key(keyLabel(arrowR!)),
+        gap,
+        key(keyLabel(letterL!)),
+        key(keyLabel(letterR!)),
+      ],
     },
-    { title: 'Launch', caption: 'Click or press', items: [glyph('click'), gap, key(keyLabel(KEY_BINDINGS.launch[0]!), 84)] },
+    {
+      title: 'Launch',
+      caption: 'Click or press',
+      items: [glyph('click'), gap, key(keyLabel(KEY_BINDINGS.launch[0]!), 84)],
+    },
     {
       title: 'Abilities',
       caption: 'Fire a ready slot',
@@ -173,7 +201,11 @@ export class ControlsCard extends Phaser.GameObjects.Container {
     list.forEach((row, i) => {
       const y = HEAD_H + i * ROW_H;
       const title = label(scene, -W / 2 + PAD_X, y + 6, row.title, 11, { t, originX: 0 });
-      const caption = body(scene, W / 2 - PAD_X, y + 6, row.caption, 12, { t, originX: 1, color: t.palette.textDim });
+      const caption = body(scene, W / 2 - PAD_X, y + 6, row.caption, 12, {
+        t,
+        originX: 1,
+        color: t.palette.textDim,
+      });
       // Squeezed rather than wrapped, so a long caption can't run into the title.
       const room = W - PAD_X * 2 - title.width - 8;
       if (caption.width > room) caption.setScale(room / caption.width);
@@ -183,7 +215,10 @@ export class ControlsCard extends Phaser.GameObjects.Container {
     this.add(root);
   }
 
-  private make(item: Item): { obj?: Phaser.GameObjects.Image | Phaser.GameObjects.Container; w: number } {
+  private make(item: Item): {
+    obj?: Phaser.GameObjects.Image | Phaser.GameObjects.Container;
+    w: number;
+  } {
     const scene = this.scene;
     const t = this.t;
     const tint = t.palette.accentHi;
@@ -191,7 +226,12 @@ export class ControlsCard extends Phaser.GameObjects.Container {
       case 'gap':
         return { w: SPACER };
       case 'key': {
-        const cap = new Keycap(scene, 0, 0, item.label, { size: KEY, width: item.width, round: item.round, t });
+        const cap = new Keycap(scene, 0, 0, item.label, {
+          size: KEY,
+          width: item.width,
+          round: item.round,
+          t,
+        });
         return { obj: cap, w: cap.kw };
       }
       case 'glyph': {
@@ -204,14 +244,21 @@ export class ControlsCard extends Phaser.GameObjects.Container {
         const ball = scene.add.image(0, -5, ...fgTexture(t.id, 'ball'));
         ball.setScale(12 / ball.width);
         const ripple = ring(scene, 0, -5, 13, 2, tint, 0.8);
-        return { obj: scene.add.container(0, 0, [this.miniPaddle(9), ripple, ball]), w: MINI_PADDLE_W };
+        return {
+          obj: scene.add.container(0, 0, [this.miniPaddle(9), ripple, ball]),
+          w: MINI_PADDLE_W,
+        };
       }
       case 'slot': {
         const color = ABILITY_INFO[item.id].color;
         const r = KEY / 2;
         const art = scene.add.image(0, 0, `ab_${item.id}`);
         art.setScale(((r - 3) * 2) / art.width);
-        const parts = [disc(scene, 0, 0, r, t.palette.base, 0.9), art, ring(scene, 0, 0, r, 2, color)];
+        const parts = [
+          disc(scene, 0, 0, r, t.palette.base, 0.9),
+          art,
+          ring(scene, 0, 0, r, 2, color),
+        ];
         return { obj: scene.add.container(0, 0, parts), w: KEY };
       }
       case 'skill': {
@@ -229,7 +276,11 @@ export class ControlsCard extends Phaser.GameObjects.Container {
         const r = KEY / 2 - 3;
         const art = scene.add.image(0, 0, info.texture);
         art.setScale((r * 1.35) / Math.max(art.width, art.height));
-        const parts = [disc(scene, 0, 0, r, t.palette.base, 0.9), ring(scene, 0, 0, r, 2, info.color), art];
+        const parts = [
+          disc(scene, 0, 0, r, t.palette.base, 0.9),
+          ring(scene, 0, 0, r, 2, info.color),
+          art,
+        ];
         return { obj: scene.add.container(0, 0, parts), w: r * 2 };
       }
       case 'pause': {
@@ -252,7 +303,8 @@ export class ControlsCard extends Phaser.GameObjects.Container {
 
   private addItems(root: Phaser.GameObjects.Container, items: Item[], y: number): void {
     const made = items.map((it) => this.make(it));
-    const gapAfter = (i: number) => (i < items.length - 1 && items[i]!.kind !== 'gap' && items[i + 1]!.kind !== 'gap' ? GAP : 0);
+    const gapAfter = (i: number) =>
+      i < items.length - 1 && items[i]!.kind !== 'gap' && items[i + 1]!.kind !== 'gap' ? GAP : 0;
     const total = made.reduce((sum, m, i) => sum + m.w + gapAfter(i), 0);
     let x = -total / 2;
     made.forEach((m, i) => {

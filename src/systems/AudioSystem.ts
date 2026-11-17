@@ -4,7 +4,7 @@ import { panAt, variation } from '../core/AudioMix';
 import type { MusicCue, MusicMood } from '../core/MusicMood';
 import { DEFAULT_VOLUME } from '../core/SaveStore';
 import { save } from '../services';
-import { MusicEngine, type MusicEnding } from './MusicEngine';
+import { DREAM_CENTS, MusicEngine, hold, type MusicEnding } from './MusicEngine';
 
 type MusicKey = 'menu_music' | 'music';
 
@@ -36,21 +36,47 @@ const HIT_STOP_RELEASE_TC = 0.05;
 const GRAVITY_HZ = 1_200;
 const GRAVITY_CENTS = -250;
 const OPEN_HZ = 20_000;
+/** Bullet time takes the top off the sound effects (Hz); they drop as far as the music does. */
+const DREAM_SFX_HZ = 2_400;
+/** Bullet time's reverb: its length (s), the swell before it blooms (s), and its pre-delay (s). */
+const REVERB_S = 2.8;
+const REVERB_SWELL_S = 0.08;
+const REVERB_PREDELAY_S = 0.025;
+/** The reverb leaves the kick and bass dry, and rolls off its own top end (Hz). */
+const REVERB_LOW_HZ = 280;
+const REVERB_HIGH_HZ = 4_500;
+/** How much of the music and the sound effects bullet time sends into the reverb. */
+const DREAM_MUSIC_WET = 0.75;
+const DREAM_SFX_WET = 0.6;
+/** The reverb fades in over this long, and the sends close over this long when it ends (s). */
+const DREAM_SEND_IN_S = 0.25;
+const DREAM_SEND_OUT_S = 0.6;
 
 /** A volume slider's position as gain: 1 at the default. Squared so each notch sounds even. */
 function sliderGain(position: number): number {
   return (position / DEFAULT_VOLUME) ** 2;
 }
 
-/** Holds a param where it is now, so a new ramp starts from there instead of jumping. */
-function hold(param: AudioParam, now: number): void {
-  if (typeof param.cancelAndHoldAtTime === 'function') {
-    param.cancelAndHoldAtTime(now);
-    return;
+/**
+ * A hall for the reverb: stereo noise that swells in after a short pre-delay and dies away 60 dB
+ * over `REVERB_S`. Each ear gets its own noise, so the tail spreads wide.
+ */
+function hallImpulse(ctx: BaseAudioContext): AudioBuffer {
+  const rate = ctx.sampleRate;
+  const n = Math.round(REVERB_S * rate);
+  const pre = Math.round(REVERB_PREDELAY_S * rate);
+  const swell = REVERB_SWELL_S * rate;
+  const decay = 10 ** (-3 / (REVERB_S * rate));
+  const out = ctx.createBuffer(2, n, rate);
+  for (let c = 0; c < 2; c++) {
+    const data = out.getChannelData(c);
+    let env = 1;
+    for (let i = pre; i < n; i++) {
+      data[i] = (Math.random() * 2 - 1) * env * Math.min(1, (i - pre) / swell);
+      env *= decay;
+    }
   }
-  const v = param.value;
-  param.cancelScheduledValues(now);
-  param.setValueAtTime(v, now);
+  return out;
 }
 
 /** Where a sound plays from in the play field, and when. */
@@ -63,7 +89,8 @@ export interface SfxOptions {
 
 /**
  * The mix ahead of Phaser's master volume: sound effects through a low-pass (the black hole),
- * music through a ducking gain, both into one limiter that can also fold to mono.
+ * music through a ducking gain, both into one limiter that can also fold to mono. Each also
+ * sends into bullet time's reverb, closed the rest of the time.
  */
 interface Mix {
   ctx: AudioContext;
@@ -73,6 +100,8 @@ interface Mix {
   sfxFilter: BiquadFilterNode;
   duck: GainNode;
   limiter: DynamicsCompressorNode;
+  sfxVerb: GainNode;
+  musicVerb: GainNode;
 }
 
 /**
@@ -101,6 +130,7 @@ class AudioSystem {
   private rises = 0;
   private mixNodes?: Mix;
   private gravity = false;
+  private dreaming = false;
   private paused = false;
   private platformMute = false;
 
@@ -178,7 +208,8 @@ class AudioSystem {
     const vary = variation(key);
     const config = {
       volume: volume * gain * vary.volume,
-      detune: detune + vary.detune + (this.dragged ? GRAVITY_CENTS : 0),
+      detune:
+        detune + vary.detune + (this.dragged ? GRAVITY_CENTS : 0) + (this.dreamy ? DREAM_CENTS : 0),
       delay: opts.delay ?? 0,
       pan: opts.x === undefined ? 0 : panAt(opts.x, WIDTH),
     };
@@ -269,7 +300,9 @@ class AudioSystem {
     if (!mgr || !(buffer instanceof AudioBuffer)) return undefined;
     this.musicBus = mgr.context.createGain();
     this.musicBus.gain.value = sliderGain(save.state.settings.musicVolume);
-    this.musicBus.connect(this.mix()?.duck ?? mgr.destination);
+    const m = this.mix();
+    if (m) this.routeMusic(m);
+    else this.musicBus.connect(mgr.destination);
     this.music = new MusicEngine(mgr.context, this.musicBus, buffer);
     // Tapped ahead of the slider, so turning the music down doesn't dim the lights.
     this.analyser = mgr.context.createAnalyser();
@@ -293,22 +326,45 @@ class AudioSystem {
     limiter.attack.value = LIMIT_ATTACK_S;
     limiter.release.value = LIMIT_RELEASE_S;
     limiter.connect(mgr.destination);
+    const verbLow = ctx.createBiquadFilter();
+    verbLow.type = 'highpass';
+    verbLow.frequency.value = REVERB_LOW_HZ;
+    const verb = ctx.createConvolver();
+    verb.buffer = hallImpulse(ctx);
+    const verbHigh = ctx.createBiquadFilter();
+    verbHigh.type = 'lowpass';
+    verbHigh.frequency.value = REVERB_HIGH_HZ;
+    verbLow.connect(verb).connect(verbHigh).connect(limiter);
+    const sfxVerb = ctx.createGain();
+    sfxVerb.gain.value = 0;
+    sfxVerb.connect(verbLow);
+    const musicVerb = ctx.createGain();
+    musicVerb.gain.value = 0;
+    musicVerb.connect(verbLow);
     const sfxFilter = ctx.createBiquadFilter();
     sfxFilter.type = 'lowpass';
     sfxFilter.frequency.value = OPEN_HZ;
     sfxFilter.connect(limiter);
+    sfxFilter.connect(sfxVerb);
     const sfx = ctx.createGain();
     sfx.connect(sfxFilter);
     const duck = ctx.createGain();
     duck.connect(limiter);
-    this.mixNodes = { ctx, out: mgr.destination, sfx, sfxFilter, duck, limiter };
-    if (this.musicBus) {
-      this.musicBus.disconnect();
-      this.musicBus.connect(duck);
-    }
+    const out = mgr.destination;
+    this.mixNodes = { ctx, out, sfx, sfxFilter, duck, limiter, sfxVerb, musicVerb };
+    this.routeMusic(this.mixNodes);
     this.applyMono();
-    this.applyGravity();
+    this.applySfxTone();
+    this.applyDream();
     return this.mixNodes;
+  }
+
+  /** The music slider feeds the ducker, and bullet time's reverb. */
+  private routeMusic(m: Mix): void {
+    if (!this.musicBus) return;
+    this.musicBus.disconnect();
+    this.musicBus.connect(m.duck);
+    this.musicBus.connect(m.musicVerb);
   }
 
   /** Mono audio folds everything, music included, to one signal in both ears. */
@@ -410,11 +466,12 @@ class AudioSystem {
     if (this.sound) this.sound.mute = this.platformMute;
   }
 
-  /** Pause: quieter and muffled. The pause menu's own sounds skip the black hole's drag. */
+  /** Pause: quieter and muffled. The pause menu's own sounds skip the black hole and the dream. */
   duckMusic(duck: boolean): void {
     this.music?.duck(duck);
     this.paused = duck;
-    this.applyGravity();
+    this.applySfxTone();
+    this.applyDream();
   }
 
   /** The music ducks under a big hit and swells back, so the hit punches through. */
@@ -437,16 +494,32 @@ class AudioSystem {
   setGravity(on: boolean): void {
     if (on === this.gravity) return;
     this.gravity = on;
-    this.applyGravity();
+    this.applySfxTone();
+  }
+
+  /**
+   * Bullet time: the music slows into a muffled dream, the sound effects sink with it, and both
+   * bloom into a long reverb.
+   */
+  setDream(on: boolean): void {
+    if (on === this.dreaming) return;
+    this.dreaming = on;
+    if (!on || this.musicKey === 'music') this.music?.dream(on);
+    this.mix();
+    this.applySfxTone();
+    this.applyDream();
   }
 
   /** Back to an open mix, for leaving a level. */
   resetMix(): void {
     this.gravity = false;
     this.paused = false;
+    this.dreaming = false;
+    this.music?.dream(false);
     // Restart and quit leave from the pause menu, and the engine keeps its duck across a stop.
     this.music?.duck(false);
-    this.applyGravity();
+    this.applySfxTone();
+    this.applyDream();
     const m = this.mixNodes;
     if (!m) return;
     const g = m.duck.gain;
@@ -459,13 +532,35 @@ class AudioSystem {
     return this.gravity && !this.paused;
   }
 
-  private applyGravity(): void {
+  /** Bullet time's hold on the sound effects, unless the pause menu is up. */
+  private get dreamy(): boolean {
+    return this.dreaming && !this.paused;
+  }
+
+  private applySfxTone(): void {
     const m = this.mixNodes;
     if (!m) return;
     const f = m.sfxFilter.frequency;
     const now = m.ctx.currentTime;
+    const hz = this.dragged ? GRAVITY_HZ : this.dreamy ? DREAM_SFX_HZ : OPEN_HZ;
     hold(f, now);
-    f.setTargetAtTime(this.dragged ? GRAVITY_HZ : OPEN_HZ, now, this.dragged ? 0.08 : 0.15);
+    f.setTargetAtTime(hz, now, hz < OPEN_HZ ? 0.08 : 0.15);
+  }
+
+  /** Opens or closes the reverb sends. The music keeps dreaming under the pause menu. */
+  private applyDream(): void {
+    const m = this.mixNodes;
+    if (!m) return;
+    const now = m.ctx.currentTime;
+    const sends: [GainNode, number][] = [
+      [m.musicVerb, this.dreaming ? DREAM_MUSIC_WET : 0],
+      [m.sfxVerb, this.dreamy ? DREAM_SFX_WET : 0],
+    ];
+    for (const [send, wet] of sends) {
+      hold(send.gain, now);
+      // A linear ramp lands on exactly zero, where a closing time constant never would.
+      send.gain.linearRampToValueAtTime(wet, now + (wet > 0 ? DREAM_SEND_IN_S : DREAM_SEND_OUT_S));
+    }
   }
 
   /** Musical hit sound for paddle and unbroken-brick bounces, panned toward `x`. */
