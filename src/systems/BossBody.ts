@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { BOSS_ANIMS, BOSS_ID_BASE, SPRITE_DEPTH, type BossAnim } from '../core/Boss';
+import { BOSS_ANIMS, BOSS_ID_BASE, ENTRANCE_DROP, SPRITE_DEPTH, type BossAnim } from '../core/Boss';
 import { BH, BRICK_HEALTH, BW } from '../core/procgen/grid';
 import type { BrickSpec } from '../core/types';
 import type { Brick, BrickOwner } from '../entities/Brick';
@@ -79,6 +79,8 @@ export class BossBody {
   private scaleX = 1;
   private scaleY = 1;
   private punch?: Phaser.Tweens.Tween;
+  /** How far above its place the sprite hangs while it arrives, in px. */
+  private lift = 0;
   private playing?: BossAnim;
   /** The next brick id to hand out, counting up from BOSS_ID_BASE past the level's own. */
   private nextId: number;
@@ -177,8 +179,18 @@ export class BossBody {
     const sheet = this.def.sprite;
     this.sprite?.setPosition(
       anchor.x + drift.x + (sheet?.dx ?? 0),
-      anchor.y + drift.y + (sheet?.dy ?? 0),
+      anchor.y + drift.y + (sheet?.dy ?? 0) - this.lift,
     );
+  }
+
+  /**
+   * The entrance, `t` from 0 to 1: the sprite fades in as it drops onto its place. A look only:
+   * the hit zones stand where they are, and under reduced motion the sprite fades without the drop.
+   */
+  arrive(t: number): void {
+    const k = Math.max(0, Math.min(1, t));
+    this.lift = calm() ? 0 : ENTRANCE_DROP * (1 - k);
+    this.sprite?.setAlpha(k);
   }
 
   /** Plays an animation, unless it is the one already playing. */

@@ -11,11 +11,21 @@ import {
 } from '../src/core/LevelParser';
 import { BH, BW, COLS } from '../src/core/procgen/grid';
 import { LEVEL_MAX_Y } from '../src/core/types';
+import type { BossDef, Cutscene } from '../src/systems/BossDirector';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
 const tileset = readJson<TiledTileset>(join(ASSETS, 'tilesets', 'bricks.tsj'));
 const resolve = (source: string) => (source.endsWith('bricks.tsj') ? tileset : undefined);
+
+/** Every cutscene a boss has, named by where it plays. */
+function cutscenes(def: BossDef): Array<[string, Cutscene]> {
+  const found: Array<[string, Cutscene]> = [];
+  if (def.entrance) found.push(['entrance', def.entrance]);
+  for (const phase of def.phases) if (phase.enter) found.push([`enter ${phase.id}`, phase.enter]);
+  if (def.death) found.push(['death', def.death]);
+  return found;
+}
 
 describe.each(BOSS_IDS)('boss %s', (id) => {
   const def = BOSSES[id];
@@ -73,6 +83,23 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
         expect(left + part.cols * BW, at).toBeLessThanOrEqual(COLS * BW);
         expect(top, at).toBeGreaterThanOrEqual(2 * BH);
         expect(top + part.rows * BH, at).toBeLessThanOrEqual(LEVEL_MAX_Y);
+      }
+    }
+  });
+
+  it('has no entry scene on its first phase: the entrance opens that one', () => {
+    expect(def.phases[0]!.enter).toBeUndefined();
+  });
+
+  it('gives every cutscene a positive length', () => {
+    for (const [name, scene] of cutscenes(def)) expect(scene.lengthMs, name).toBeGreaterThan(0);
+  });
+
+  it('keeps every cue inside its cutscene', () => {
+    for (const [name, scene] of cutscenes(def)) {
+      for (const cue of scene.cues) {
+        expect(cue.at, name).toBeGreaterThanOrEqual(0);
+        expect(cue.at, name).toBeLessThanOrEqual(scene.lengthMs);
       }
     }
   });

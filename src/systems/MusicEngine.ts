@@ -132,8 +132,11 @@ export class MusicEngine {
     return this.mood !== undefined;
   }
 
-  /** Starts the music in `mood`, or moves to `mood` if it is already playing. */
-  play(mood: MusicMood, volume: number): void {
+  /**
+   * Starts the music in `mood`, or moves to `mood` if it is already playing. A new play-through
+   * fades in over `fadeIn` seconds, for music that enters under a scene instead of with it.
+   */
+  play(mood: MusicMood, volume: number, fadeIn = 0): void {
     this.volume = volume;
     this.level();
     if (this.mood) {
@@ -142,6 +145,11 @@ export class MusicEngine {
     }
     this.mood = mood;
     this.session = this.ctx.createGain();
+    if (fadeIn > 0) {
+      const now = this.ctx.currentTime;
+      this.session.gain.setValueAtTime(0, now);
+      this.session.gain.linearRampToValueAtTime(1, now + fadeIn);
+    }
     this.session.connect(this.highpass);
     this.awake = this.ctx.createGain();
     this.awake.connect(this.session);

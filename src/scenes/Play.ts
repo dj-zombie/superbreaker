@@ -217,6 +217,10 @@ const RESULTS_DELAY_MS = 700;
 const ARCADE_TAIL_AT = 1.05;
 /** The banner's "New best" sparkle waits for the stars and the score count. */
 const NEW_BEST_MS = 1_250;
+/** The intro card holds this long before it folds away, in ms. */
+const INTRO_HOLD_MS = 1_500;
+/** Radius of a boss's blow at scale 1, in px: the ring's reach, and half its light's. */
+const BOSS_IMPACT_RADIUS = 70;
 /** Spoken calls for the last three seconds, then "go" as the ball launches. Index 0 is "1". */
 const COUNTDOWN_CALLS = ['count_1', 'count_2', 'count_3'] as const;
 /** Cents over the combo callout for combo 5, 10, 15 and 20. A voice, so it only lifts a little. */
@@ -562,22 +566,29 @@ export class Play extends BaseScene {
         });
     this.wasCoaching = this.coaching;
     this.frozen = false;
-    this.juice.holdWorld = () => !!this.coach?.frozen;
+    this.juice.holdWorld = () => !!this.coach?.frozen || !!this.boss?.frozen;
 
     this.resetBall();
-    this.showHint();
-    this.introCard();
+    // A boss opens its own level: the hint, the name and the music wait for its entrance.
+    const bossIntro = !!this.boss?.holdServe;
+    if (bossIntro) {
+      // The scene outlives a restart, so the last run's hint is let go here, as showHint would.
+      this.clearHint();
+    } else {
+      this.showHint();
+      this.introCard();
+    }
 
     this.scene.launch(SCENES.hud);
     audio.resetArpeggio();
-    audio.playMusic('music');
+    if (!bossIntro) audio.playMusic('music');
 
     this.unsubscribeBackground = onAppBackground(() => this.requestPause());
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdown());
     this.events.on(Phaser.Scenes.Events.RESUME, () => {
       this.juice.particleScale = particleDensity();
-      if (!this.coach?.frozen) this.physics.world.resume();
+      if (!this.coach?.frozen && !this.boss?.frozen) this.physics.world.resume();
       audio.duckMusic(false);
       if (!this.finished) {
         this.fillAbilityStock();
@@ -595,7 +606,7 @@ export class Play extends BaseScene {
     const dt = Math.min(delta, 50);
     this.inputSys.update(dt);
     this.paddle.step(dt);
-    if (this.coach?.frozen) {
+    if (this.coach?.frozen || this.boss?.frozen) {
       this.updateFrozen(dt);
       return;
     }
@@ -610,6 +621,7 @@ export class Play extends BaseScene {
     this.scenery.setFocus(this.paddle.x);
     this.updateAttachedBalls(dt);
     this.updateCoach(dt);
+    this.syncFreeze();
     this.ballFx.update(this.ballList, dt, this.juice.particleScale);
     this.syncLights();
     this.updateSkills(dt);
@@ -620,7 +632,11 @@ export class Play extends BaseScene {
     this.checkLostBalls();
     this.runDirector?.update(dt);
     // The last life going ends the level first: a boss can't also die on that frame.
-    if (!this.finished) this.boss?.update(dt);
+    if (this.boss && !this.finished) {
+      this.boss.update(dt);
+      // A pool that emptied on this frame stops the world on this frame.
+      this.syncFreeze();
+    }
     // Dev only: the boss counts the frames a ball spends inside one of its parts.
     if (import.meta.env.DEV && this.boss) {
       const free = this.ballList.filter((b) => !b.attached);
@@ -642,12 +658,20 @@ export class Play extends BaseScene {
     else this.win();
   }
 
-  /** While the tutorial holds play still, only the paddle and the tutorial itself move. */
+  /**
+   * While the tutorial or a boss's scene holds play still, only the paddle and whichever of the
+   * two is holding it move.
+   */
   private updateFrozen(dt: number): void {
     this.scenery.setFocus(this.paddle.x);
     // The held ball, if any, keeps to the paddle, but its serve clock waits.
     this.updateAttachedBalls(0);
     this.updateCoach(dt);
+    this.syncFreeze();
+    this.boss?.update(dt);
+    // The boss dying ends the level from inside its update.
+    if (this.finished) return;
+    this.updateBossMusic();
     this.syncLights();
     this.hud.slots = this.abilities.slots;
     this.hud.paddleX = this.paddle.x;
@@ -655,7 +679,7 @@ export class Play extends BaseScene {
 
   /** Fires an ability slot (HUD tap, Q/E or pad X/Y). */
   fireSlot(i: number): void {
-    if (this.finished || !this.scene.isActive()) return;
+    if (this.finished || !this.scene.isActive() || this.boss?.cinematic) return;
     // The tutorial's ability stop waits on exactly this; the others leave the slots alone.
     if (this.coach?.frozen && this.coach.step !== 'ability') return;
     if (!this.abilities.activate(i)) return;
@@ -667,7 +691,7 @@ export class Play extends BaseScene {
 
   /** Fires a skill: its HUD button, F or Shift, pad A in flight or B, or a launch with no ball held. */
   useSkill(id: SkillId): void {
-    if (this.finished || this.cleared || !this.scene.isActive()) return;
+    if (this.finished || this.cleared || !this.scene.isActive() || this.boss?.cinematic) return;
     // The tutorial's skill stops wait on their own skill; the others leave the skills alone.
     if (this.coach?.frozen && this.coach.step !== id) return;
     if (!this.skillReady(id) || !this.skills[id].use()) return;
@@ -742,7 +766,9 @@ export class Play extends BaseScene {
 
   /** Uses a bought powerup (HUD tap, number key, or pad bumper/trigger). */
   useStock(i: number): void {
-    if (this.finished || !this.scene.isActive() || this.coach?.frozen) return;
+    if (this.finished || !this.scene.isActive() || this.coach?.frozen || this.boss?.cinematic) {
+      return;
+    }
     const id = save.useStockPowerup(i);
     if (!id) return;
     const x = this.paddle.x;
@@ -859,16 +885,23 @@ export class Play extends BaseScene {
     this.serveMs = this.coaching ? FIRST_SERVE_MS : SERVE_COUNTDOWN_MS;
   }
 
-  /** A tap launches the held ball, fires the gun with every ball in flight, or skips the banner. */
+  /**
+   * A tap launches the held ball, fires the gun with every ball in flight, or skips the banner or
+   * a boss's scene.
+   */
   private onTap(): void {
-    if (this.skipBanner) this.skipBanner();
-    else if (this.ballList.some((b) => b.attached)) this.launch();
+    if (this.skipBanner) {
+      this.skipBanner();
+      return;
+    }
+    if (this.boss?.skip()) return;
+    if (this.ballList.some((b) => b.attached)) this.launch();
     else this.useSkill('gun');
   }
 
   private launch(): void {
     const held = this.ballList.find((b) => b.attached);
-    if (!held || this.finished || this.coach?.frozen) return;
+    if (!held || this.finished || this.coach?.frozen || this.boss?.cinematic) return;
     const at = { x: held.x, y: held.y };
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
@@ -888,7 +921,7 @@ export class Play extends BaseScene {
     if (this.aim < AIM_MIN) this.aimDir = 1;
     this.aim = Phaser.Math.Clamp(this.aim, AIM_MIN, AIM_MAX);
     this.arrow.setPosition(held.x, held.y).setRotation(this.aim);
-    if (!this.coach?.holdServe) this.serveMs -= dt;
+    if (!this.coach?.holdServe && !this.boss?.holdServe) this.serveMs -= dt;
     if (this.serveMs <= 0) this.launch();
     else this.tickCountdown();
   }
@@ -912,12 +945,14 @@ export class Play extends BaseScene {
     // Skipped with the ball still held: the usual words come back for this serve.
     if (this.wasCoaching && !this.coaching && held) this.showHint();
     this.wasCoaching = this.coaching;
-    this.syncFreeze();
   }
 
-  /** Stops the world when the tutorial stops play, and starts it again when the player has done their part. */
+  /**
+   * Stops the world when the tutorial or a boss's scene stops play, and starts it again when the
+   * player has done their part or the scene is over.
+   */
   private syncFreeze(): void {
-    const frozen = !!this.coach?.frozen;
+    const frozen = !!this.coach?.frozen || !!this.boss?.frozen;
     if (frozen === this.frozen) return;
     this.frozen = frozen;
     if (frozen) this.physics.world.pause();
@@ -1478,8 +1513,9 @@ export class Play extends BaseScene {
     haptic('heavy');
   }
 
-  /** Tells the music how hot the moment is. */
+  /** Tells the music how hot the moment is. A boss fight plays the boss track instead. */
   private updateMusic(dt: number): void {
+    if (this.updateBossMusic()) return;
     const balls = this.freeBallCount;
     audio.steerMusic(
       this.musicMood.update(dt, {
@@ -1620,6 +1656,18 @@ export class Play extends BaseScene {
     this.showHint();
   }
 
+  /**
+   * Keeps the boss track on what the fight calls for, asked every frame so music switched back
+   * on mid-fight finds its place. True while a boss has the music.
+   */
+  private updateBossMusic(): boolean {
+    const boss = this.boss;
+    if (!boss?.active) return false;
+    const mood = boss.music;
+    if (mood) audio.bossMusic(mood);
+    return true;
+  }
+
   private showHint(): void {
     this.clearHint();
     const t = theme();
@@ -1653,6 +1701,15 @@ export class Play extends BaseScene {
       kicker = `${t.name}  ·  ${this.levelIndex - first + 1} / ${last - first + 1}`;
       name = this.level.title ?? `Level ${this.levelIndex}`;
     }
+    this.titleBand(kicker, name, INTRO_HOLD_MS);
+  }
+
+  /**
+   * The band itself: a small line over a name, across the field. It folds away after `holdMs`;
+   * the function it returns takes it down at once, for a scene that is skipped.
+   */
+  private titleBand(kicker: string, name: string, holdMs: number): () => void {
+    const t = theme();
     const band = this.add.container(WIDTH / 2, ARENA_MID - 40).setDepth(25);
     const bg = this.add.rectangle(0, 0, WIDTH, 112, t.palette.base, 0.78);
     const rules = [-56, 56].map((y) =>
@@ -1665,16 +1722,23 @@ export class Play extends BaseScene {
     const top = label(this, 0, -24, kicker, 13, { t, color: t.palette.textDim });
     const head = heading(this, 0, 14, name, 40, { t });
     band.add([bg, ...rules, top, head]);
+    const remove = () => {
+      // It may have folded away by itself already.
+      if (!band.active) return;
+      this.tweens.killTweensOf([band, head]);
+      band.destroy();
+    };
     if (calm()) {
       band.setAlpha(0);
       this.tweens.chain({
         targets: band,
         tweens: [
           { alpha: 1, duration: 200 },
-          { alpha: 0, delay: 1200, duration: 300, onComplete: () => band.destroy() },
+          // The fade starts its own length early, so the band is gone no later than the slam's.
+          { alpha: 0, delay: holdMs - 300, duration: 300, onComplete: () => band.destroy() },
         ],
       });
-      return;
+      return remove;
     }
     band.setScale(1, 0);
     head.setX(-WIDTH);
@@ -1685,11 +1749,26 @@ export class Play extends BaseScene {
       targets: band,
       scaleY: 0,
       alpha: 0,
-      delay: 1500,
+      delay: holdMs,
       duration: 260,
       ease: 'Cubic.In',
       onComplete: () => band.destroy(),
     });
+    return remove;
+  }
+
+  /**
+   * A boss's blow at a point: a ring, sparks, a shake and light, sized by `scale`. The room's
+   * flash goes through the lighting's limiter, and the sound is the caller's to pick.
+   */
+  private bossImpact(x: number, y: number, scale: number, color: number): void {
+    this.juice.ring(x, y, color, BOSS_IMPACT_RADIUS * scale);
+    this.juice.burst(x, y, color, Math.round(14 * scale));
+    this.juice.shake(140 * scale, 0.007 * scale);
+    this.lighting.flash(x, y, color, BOSS_IMPACT_RADIUS * 2 * scale, 480, 0.8, 1.3, 8, true);
+    // The backdrop only flares with a flash the limiter allowed, so a run of blows cannot strobe.
+    if (this.lighting.flashAmbient(color, 0.1 * scale)) this.scenery.flash(0.12 * scale);
+    haptic(scale > 1 ? 'heavy' : 'medium');
   }
 
   private clearHint(): void {
@@ -1720,12 +1799,14 @@ export class Play extends BaseScene {
     reportProgress((save.clearedCount() / Math.max(1, this.levels.length)) * 100);
     // Finishing a world only, so the page confetti stays a rare thing.
     if (finale) celebrate();
-    audio.stopMusic();
+    // A boss ends on its own stinger and the calm after it, so its level skips the fanfare kit.
+    const bossLevel = !!this.level.boss;
+    if (!bossLevel) audio.stopMusic();
     audio.loop('brick_mover', false);
-    audio.fanfare();
+    if (!bossLevel) audio.fanfare();
     haptic('heavy');
     this.lighting.celebrate();
-    this.juice.flash(250, 255, 240, 200);
+    if (!bossLevel) this.juice.flash(250, 255, 240, 200);
     for (const b of this.ballList) b.body.setVelocity(0, 0);
     const data: ResultsData = {
       win: true,
@@ -1735,7 +1816,7 @@ export class Play extends BaseScene {
       isBest,
       coinsEarned: this.hud.coinsEarned,
       bestScore: Math.max(prevBest, this.hud.score),
-      tail: stars === 3 || finale,
+      tail: !bossLevel && (stars === 3 || finale),
     };
     if (this.levelIndex >= this.levels.length) {
       this.inputSys.enabled = false;
@@ -1948,6 +2029,9 @@ export class Play extends BaseScene {
       setHud: (view) => {
         this.hud.boss = view;
       },
+      titleCard: (kicker, name, holdMs) => this.titleBand(kicker, name, holdMs),
+      showHint: () => this.showHint(),
+      impact: (x, y, scale, color) => this.bossImpact(x, y, scale, color),
     };
   }
 

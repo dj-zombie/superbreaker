@@ -8,7 +8,7 @@ The log for this work. Newest entries go at the bottom. Agents append; nobody re
 | --- | --- | --- | --- |
 | 1. A boss you can kill | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
 | 2. Sprite body and HUD | pass | Claude (Cursor agent), 2026-11-16 | Claude (Cursor agent), 2026-11-16 |
-| 3. Cinematic flow | not started | | |
+| 3. Cinematic flow | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
 | 4. Attacks | not started | | |
 | 5. Reference boss and authoring guide | not started | | |
 
@@ -754,3 +754,389 @@ For the user
   while reviewing.
 - Hard's pool and Normal's pool in the browser. Easy was the only difficulty on screen.
 - All sound.
+
+## Phase 3: DONE, 2026-11-16, Claude (Cursor agent)
+
+Every build item is in and all eleven manual checks gave the expected result. Four things to
+know before reviewing:
+
+1. `pnpm test` is not green: 486 pass and 1 fails. The failure is `tests/skills.test.ts` >
+   "readies the gun more often than bullet time" (`expected 6000 to be less than 3000`). It is
+   in HEAD, from commit `ef30407`. This phase did not touch `src/core/Skills.ts` or that test.
+2. I heard nothing. Every statement about music and sound below is what the audio system was
+   asked to play (key, mood, the session's gain), read from the page. Nobody has listened yet.
+3. HEAD moved while I worked. I started on `461ae10` with another session's work uncommitted
+   in nine files. That work was committed as `ef30407` at 19:05, as I was starting. The diff I
+   had saved of it before my first edit is line for line that commit, so the commit holds none
+   of this phase. `git diff HEAD` is now this phase and nothing else, including in the three
+   files both touched (`src/scenes/Play.ts`, `src/systems/AudioSystem.ts`,
+   `src/systems/MusicEngine.ts`).
+4. The checks found one crash in my own change, now fixed: restarting the lab while the launch
+   hint was up threw in `tickCountdown`. See "Deviations".
+
+Built
+- `src/core/Cues.ts` (new): `CueSheet`.
+- `tests/cues.test.ts` (new): 11 tests.
+- `src/core/Boss.ts`: the `intro` option, `stepMs`, `tick`, `skip`, `BossSpec.entranceMs`,
+  `deathMs`, `phases[].enterMs`, `BOSS_MOODS`, `BossMood`, `BossIntensity`,
+  `BOSS_MOOD_FALLBACK`, `HUSH_MS`, `REVEAL_MS`, `AFTERMATH_MS`, `SKIP_GUARD_MS`, `BOSS_SWELL_S`,
+  `BOSS_STINGER`, `HUSH_DARK`, `ENTRANCE_DROP`. `damage` enters `transition` when the new phase
+  has an `enterMs`.
+- `tests/boss.test.ts`: 13 tests in a new `describe('BossState flow')` (32 in the file). No
+  earlier test was edited.
+- `tests/music.test.ts`: 1 test, every boss mood has a playlist behind it.
+- `src/systems/MusicEngine.ts`: `play(mood, volume, fadeIn = 0)`.
+- `src/systems/AudioSystem.ts`: `bossMusic`, `bossStinger`.
+- `src/systems/BossDirector.ts`: `Cue`, `Cutscene`, `PhaseDef.intensity` and `enter`,
+  `BossDef.epithet`, `entrance` and `death`; `BossStage.audio`, `anim`, `light`, `tween`,
+  `impact`; `BossHost.titleCard`, `showHint`, `impact`; `frozen`, `holdServe`, `cinematic`,
+  `music`, `skip()`; the body is made at the entrance, not at construction; one handler per
+  step; cutscenes with their lights and tweens.
+- `src/systems/BossBody.ts`: `arrive(t)`, and the lift it sets in `move`. Not on the phase's
+  list; see "Deviations".
+- `src/scenes/Play.ts`: `titleBand` out of `introCard`; `bossImpact`; `updateBossMusic`; the
+  boss opening in `create`; the freeze, serve, tap, launch, ability, skill, stock, music and
+  `win()` changes the phase lists; three new members in `bossHost()`.
+- `src/bosses/warden.ts`: `epithet: 'Keeper of the gate'` and three cutscenes.
+- `tests/bosses.test.ts`: 3 tests (17 in the file).
+
+The Warden's scenes, in ms from the start of each:
+
+| Scene | Length | Cues |
+| --- | --- | --- |
+| `entrance` | 1800 | 0: `thunder` pitched down, a violet light at the centre growing 70 to 240 px over 1100 ms. 1150: `tell`, an impact of 1.2 in violet, `ab_meteor_impact`. |
+| `enter` of phase 2 | 1200 | 0: `tell`, `brick_steel` pitched down, a red light at the eye growing 80 to 220 px over 600 ms. 650: an impact of 1.3 in red at the eye, `surge`. |
+| `death` | 2200 | 0: a red light at the eye shrinking and fading over 1900 ms. 300, 650, 1000, 1350: impacts of 0.7 to 1, each further from the centre, each with `brick_tnt` a step higher. 1800: an impact of 1.6 at the centre, `brick_collapse`. |
+
+Sound keys the Warden uses: `thunder`, `ab_meteor_impact`, `brick_steel`, `surge`, `brick_tnt`,
+`brick_collapse`. The framework adds `fanfare_stab` (the stinger) and `ui_intro` (the title
+band's own sound). All eight are in `AUDIO_ASSETS`. Each scene keeps one light of its own, at
+priority 7. Each impact adds a 480 ms flash at priority 8, and no more than two of those burn
+at once.
+
+Verified
+- `pnpm typecheck`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm test`: 486 passed, 1 failed, in 23 files (was 458 passed and the same 1 failed, in 22).
+  All three were run again after the last code change.
+- Prettier: nothing new. `--check` flags `src/core/Boss.ts` (1 place) and `src/scenes/Play.ts`
+  (9 places); HEAD has the same counts.
+- How the manual checks were run: the Vite server already running on port 5173, the Cursor
+  browser at `http://127.0.0.1:5173`, Easy (pool 10). A script in the page recorded every
+  change of step, bar, label, hint, band, dim, physics pause, music key and mood, and logged
+  the keys passed to `audio.sfx` and calls to `audio.fanfare`. To act at a chosen moment I put
+  Phaser's loop to sleep, clicked, and woke it. Taps, the pause key, the pause menu's Restart
+  and music switch, and Retry were real clicks and key presses. Pools were emptied with
+  `boss.debugHit(boss.state.pool)`, which is what the `]` key calls. `launch()`,
+  `requestPause()` and `powerups.apply('balls')` were called from the page where timing
+  mattered. None of that is in the repo.
+- Manual 1: the arc ran in order. The times are from one unattended run, in ms from the
+  restart; what is in brackets, the score and the screenshots are from runs I stepped through,
+  which went the same way. 47 `hush` (dim
+  target 0.45, ball held, no hint, no band, bar unshown, label still `LEVEL 31`, no parts), 897
+  `entrance` (three parts, the sprite), 2702 `reveal` (band up, label `WARDEN · GUARD UP`, bar
+  shown, dim target 0), 4879 band gone, 5099 `fight` (hint up). After the first pool: 5829
+  `transition` with the world paused on the same frame, label `WARDEN · CORE EXPOSED`, bar
+  refilled, 500 added; 7046 `fight`, the world running again on the next frame. After the
+  second: 7363 `finale`, paused on the same frame; 9581 `aftermath` (parts gone, every brick
+  shattered, 2,000 added, bar gone); 11362 `done`, then Results. Screenshots of each step
+  showed what the numbers say: the dark empty arena; the Warden half faded in under a violet
+  glow with a ring and sparks; the band `KEEPER OF THE GATE` over `WARDEN` with the bar partly
+  filled; `TAP TO LAUNCH` with the countdown; a red ring on the eye; the broken-up death frame
+  with the bar empty; `+2,000` over an empty arena; ALL CLEAR.
+- Manual 1, the entrance frame by frame: the sprite's alpha went 0 to 1 and its y 153.5 to
+  193.5 in a straight line over the 1800 ms. The bar's fill went 0 to 1 across the reveal. The
+  serve clock stayed at 3000 through the intro and counted from the fight.
+- Manual 1, input: in the hush, `launch()`, `fireSlot(0)`, `fireSlot(1)`, `useSkill('gun')`,
+  `useSkill('slowmo')` and `useStock(0)` changed nothing: the ball stayed held and the gun kept
+  its charge. Both ability slots were empty, so the slot guard showed nothing by itself. The
+  paddle followed the pointer in the hush, in the phase scene and in the death scene.
+- The length of the whole intro: 5086, 5077, 5082 and 5052 ms in four runs, measured from the
+  first recorded frame (32 to 47 ms after the restart) to the `fight` step. Designed: 5100.
+- Manual 2: key and mood were empty through the hush and the entrance. `music` in `build` came
+  10 to 14 ms into the reveal and the session's gain rose 0 to 1 over about 1.6 s. `groove` at
+  the fight. `fever` 17 ms into the phase scene. On the final hit the key was empty and the
+  engine stopped on that frame, and `fanfare_stab` was requested once. `menu` came with the
+  aftermath, its gain at 0.32 after 505 ms and 1 by the results. `audio.fanfare` was never
+  called and neither `fanfare_rise_a` nor `fanfare_tail` was requested. The results played
+  `star_1` and `star_2`.
+- Manual 3: a click 233 ms in did nothing (still `hush`, 233 ms). A click 545 ms in gave
+  `fight` at once: three parts, sprite opaque, no band, dim target 0, label set, bar shown and
+  full, hint up, ball held. The music started on the next update as `groove`, fading in (gain
+  0.25 after 400 ms), and the serve clock was running.
+- Manual 4: a click 767 ms into the phase scene gave `fight` at once with both setups run: 14
+  bricks became 20, the six new ones at y 320. The world resumed on the next frame and the ball
+  went on. In a second run, skipped from the page with `boss.skip()`, the guard was at y 176 in
+  the scene and on its way up (139) 400 ms after the skip. A click 500 ms into the death scene
+  did nothing; the scene ran to its end.
+- Manual 5: paused and resumed in all seven steps. Each time the step and its clock, the balls
+  and the serve clock stood still for the 820 ms the menu was up. After resuming in `hush`,
+  `entrance`, `reveal` and `fight` the world ran. After resuming in `transition`, `finale` and
+  `aftermath` the world was still paused, the ball had not moved, and the step's clock went on.
+  The P key was also pressed for real in the phase scene: the menu came up and the clock held
+  at 500 ms.
+- Manual 6: five balls in the air. Through the phase scene none moved; 50 ms into the fight
+  all five had their old velocities and all five had moved. Through the death scene and the
+  aftermath none moved. `boss.embedded` stayed 0.
+- Manual 7: left alone, the lives went (the pool was at 7 of 10). GAME OVER as usual, boss
+  still in `fight`, no music. A real click on Retry: `hush`, `entrance` 899 ms later, `reveal`,
+  `fight` 5082 ms after the hush, no stale hint. Then Restart from the pause menu and a real
+  click 450 ms into the new hush: `fight` at once, hint up, bar full.
+- Manual 8: in phase 2, music switched off in the pause menu: key empty, engine stopped. It
+  stayed silent through a phase change. Switched on again: the level song's `calm` under the
+  menu, then `fever` within 100 ms of resuming. Switched off during the hush: silent through
+  the reveal and into the fight. Switched on in the fight: nothing under the menu, then
+  `groove` fading in on resume (gain 0.09, then 0.65).
+- Manual 9: with reduced motion on, the dim target stayed 0 for the whole fight. The sprite
+  faded in at its resting height (y 193.5 at alpha 0.51). The band never moved or scaled; only
+  its alpha changed, up in about 0.2 s and down by 2.1 s. Through the intro, the phase scene,
+  the death scene and the win, the camera's flash and shake effects ran for 0 frames. The
+  room's ambient flash peaked at 0.047.
+- Manual 10, `&phase=2`: from the first frame `fight`, phase 2 of 2, both setups run (20
+  bricks), bar shown and full, label `WARDEN · CORE EXPOSED`, no dim, serve clock running. The
+  level's ordinary intro band and hint showed, as in Phase 2. Any `&phase=` value skips the
+  intro, 1 included; that one was read, not run.
+- Manual 11, `?level=1` on this save (tutorial not yet seen): intro band for 1.8 s with
+  `ui_intro`, music `calm`, the tutorial's pictures in place of the hint. After a real click to
+  launch, the tutorial froze play (world paused) and released it 1207 ms later; at its second
+  freeze, the catch step, a real click under its target moved the paddle there and play went
+  on. Then with the tutorial seen: band, `TAP TO LAUNCH`, music `calm`. With god mode on and a
+  script launching and firing the gun, the level cleared: banner up, music stopped,
+  `audio.fanfare` called, `fanfare_stab`, `fanfare_rise_a`, three stars, `fanfare_tail`, and
+  Level 2 followed with its own band, hint and music.
+- Manual 11, `?arcade=waves`, god mode still on: wave 1 ran into wave 2 with music throughout
+  and no error. A new run from the pause menu opened with the band, `ui_intro`, the hint and
+  `calm`.
+- No page error was logged in any of these runs after the fix in point 4.
+
+Not verified
+- Any sound. See point 2.
+- How it looks in motion and how the pacing feels. I saw numbers and screenshots at chosen
+  moments.
+- Normal and Hard. Every run was on Easy.
+- A fight won by playing. Pools were emptied through `debugHit`; ball hits on the Warden were
+  only seen in the unattended run of check 7.
+- Space and the gamepad's launch button as the skip. They reach the same `onTap` as a click;
+  only clicks were pressed.
+- Touch, a gamepad, the 16:9 wing-plate layout, the desktop build and `pnpm build`.
+- The Warden without its sheet in this phase's flow. With no sprite the parts would simply
+  appear at the entrance; that path was not run.
+
+Deviations from the documents
+- `src/systems/BossBody.ts` is not on the phase's list. The entrance's alpha and height belong
+  to the sprite, which only the body holds, so `arrive(t)` is there. The diff is 16 lines.
+- `Play.create` calls `clearHint()` on a boss opening. `showHint()` used to clear the last
+  run's hint as a side effect; with it skipped, a restart kept a destroyed countdown and
+  `tickCountdown` threw. This is the crash in point 4. It runs only on a boss level.
+- The extra `syncFreeze()` after `boss.update(dt)` in `update` runs only when the level has a
+  boss. Unguarded, it would stop the world one frame sooner for a tutorial freeze raised late
+  in a frame, which is a change to non-boss play.
+- The body holds still while play is frozen. design.md lets it move at `BODY_SCENE_SPEED` then.
+  Balls hang in place in a frozen step, and a swaying part could come to rest over one.
+- During the intro the body is placed where its motion puts it and sways from the entrance on,
+  since the fight clock runs.
+- `debugHit` only counts in `fight`, as `strike` does. Otherwise a dev hit in a scene would
+  bank damage for later.
+- With reduced motion the entrance fades in without the 40 px drop, and the hush does not dim.
+- `bossImpact` flares the backdrop only when `flashAmbient` allowed the flash, so a run of
+  impacts cannot strobe the scenery.
+- `bossMusic` sets the wanted and current key only once its guards pass, which is how the phase
+  file reads. `playMusic` sets the wanted key before them. So music off during the hush leaves
+  nothing wanted, and switching it on in the pause menu plays nothing until play resumes.
+- The final blow's impact uses the stage's defaults: scale 1, `palette.danger`.
+- The cutscene clock. A scene already playing gets the frame's clock step before the events
+  are handled. A scene started by an event in this update gets what the state says has passed
+  in its step. So cues keep to the state's timeline to the millisecond.
+- Constants the documents do not name: `CARD_LEAD_MS` (500) and `BONUS_SIZE` (30) in the
+  director, `INTRO_HOLD_MS` (1500) and `BOSS_IMPACT_RADIUS` (70) in `Play.ts`.
+- Tests beyond the ones listed: four more on `CueSheet` (same-moment order, due on the tick
+  that reaches the time, done after the length, a cue past the end never fires).
+
+Open
+- The failing test in point 1.
+- Stopping the music during its 1.6 s swell jumps to silence instead of fading. `stop` cancels
+  the scheduled ramp, and the gain falls back to the ramp's start. Read in the code, not heard.
+  It needs the music switched off within 1.6 s of it starting.
+- Bullet time stretches a cutscene, since scenes run on the fight clock. Read, not run.
+- Timers and tweens that abilities started keep running through a frozen step, as they do in a
+  tutorial freeze. A hit that lands then is `immune`. Read, not run.
+- The lab's ambient lightning can strike inside a scene. In two runs `thunder` was requested
+  400 ms into the aftermath and the arena flashed bright; in two others it was not. It shares
+  the flash limiter with the boss's impacts, so either can drop the other.
+- After Restart or Retry the scene wipe is still leaving the top of the screen 450 ms into the
+  hush, so less than 900 ms of hush is seen.
+- A skipped intro never plays `rise`: the music enters in the fight's mood with the swell.
+- The guard takes about 0.4 s to reach its `open` pose after the phase scene, at Phase 2's
+  speed cap, with the ball already live. Skipped or not, it is the same.
+- The aim arrow swings on the held ball all through the intro.
+- `Backdrop.update` is not called on the frozen path, so a dim set during a frozen step would
+  not ease until play resumed. The director only dims and lifts in live steps.
+- `win()` still calls `lighting.celebrate()` and the haptic on a boss level. The phase names
+  only the music stop, the fanfare, the camera flash and `tail`.
+- The dev save at `127.0.0.1:5173` in Cursor's browser. The tutorial is now marked seen, level
+  1 is cleared, `level31` has new clears and an arcade run was played. I turned reduced motion
+  and god mode on for checks 9 and 11 and both are off again; music and sound are on.
+- My test tab is still open on the lab. The dev server was not mine and is still running.
+- The other session's diff as I found it is `other-session-before-phase3.patch` in this
+  agent's Cursor store. It matches commit `ef30407` and is no longer needed.
+
+For the user to confirm
+- Whether the placeholder moods (`build`, `groove`, `fever`, `menu`) and `fanfare_stab` as the
+  stinger are acceptable until the boss song exists.
+- The pacing of the hush, the reveal and the aftermath, and the Warden's three scenes and the
+  sounds picked for them.
+- The step from the aftermath into the next level's music. The lab is always the last level,
+  so it cannot be heard there.
+- Whether a boss level should keep the stars' sounds and `lighting.celebrate()` at the win.
+
+Later
+- Hold the level's ambient lightning while a boss scene plays.
+- Fade from the current level when music stops mid-swell.
+- Start the hush once the scene wipe has cleared.
+- Hide the aim arrow until the hint appears.
+- A check that the sound keys cues use are in `AUDIO_ASSETS`. They sit inside closures, so
+  today only reading finds a wrong one.
+
+## Phase 3 review: PASS, 2026-11-16, Grok (Cursor agent)
+
+Every Build item is in, the checks that belong to this phase pass, and the eleven manual checks
+match the phase file. Nobody has heard the mix. I read the same sequence off the live audio
+graph that the handoff describes, and the phase file already leaves the placeholder moods and
+the pacing for the user to judge. Three things to know:
+
+1. `pnpm test` is 486 passed and 1 failed. The failure is `tests/skills.test.ts` > "readies the
+   gun more often than bullet time" (`expected 6000 to be less than 3000`). I stashed this
+   phase's diff and the same test failed on HEAD (`ef30407`); the stash came back clean. This
+   phase does not touch `src/core/Skills.ts` or that test. Phase 2's review recorded the same
+   failure as unrelated.
+2. I heard nothing. Music claims below are the session's key, mood, gain ramps and an analyser
+   on `game.sound.masterVolumeNode`. The implementer heard nothing either. Listen before
+   treating the stand-in track as accepted, or accept the measured sequence.
+3. `git diff HEAD` is this phase and the handoff. `src/systems/BossBody.ts` is the one file
+   outside the phase's list, and the handoff explains it. No attacks, hazards, lock-on, or
+   tell/open rules were added.
+
+Ran
+- `pnpm typecheck`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm test`: 486 passed, 1 failed, in 23 files (was 458 passed and the same 1 failed, in 22).
+  The 28 new tests are `tests/cues.test.ts` (11), `describe('BossState flow')` (13),
+  `tests/bosses.test.ts` (3) and `tests/music.test.ts` (1). No earlier boss test was edited.
+- How the manual checks were run: the dev server already on port 5173, the Cursor browser at
+  `http://127.0.0.1:5173`, Easy (pool 10, lab is level 31). A script in the page slept the
+  loop, stepped it, and read `window.boss` and the Play scene. Pools were emptied with
+  `debugHit`. Taps were `boss.skip()`, which is what `onTap` calls. The music switch was a
+  real press of the pause menu's Toggle, which closes over the live audio. None of that is in
+  the repo. I put reduced motion and music back afterwards.
+- Manual 1: one unattended run, times from the restart. Hush with the ball held, no hint, bar
+  unshown, label still `LEVEL 31`, dim target 0.45, music empty. `launch()`, both `fireSlot`s,
+  `useSkill('gun')`, `useSkill('slowmo')` and `useStock` changed nothing; the paddle moved.
+  Entrance at about 909 ms: sprite alpha 0 to 1 and y 153.9 to 193.5 over 1800 ms, ball held,
+  no band. Reveal at about 2711 ms: band `KEEPER OF THE GATE` over `WARDEN`, bar filling
+  (0.34 at 804 ms of 2400), dim target 0, `ui_intro`, music `rise` with a 1.6 s ramp to 1.
+  Fight at about 5094 ms (designed 5100): `TAP TO LAUNCH`, bar full, music `low`. Phase scene:
+  world paused, label `WARDEN · CORE EXPOSED`, music `high`, arena still 12 bricks. Finale:
+  music cut on that frame, one `fanfare_stab`, death frame held at the last frame. Aftermath:
+  `+2,000`, bar gone, parts retired, bricks shattered, music `rest` with a 1.6 s ramp. Results:
+  ALL CLEAR, three stars, score 2500. No `fanfare_rise_a`, `fanfare_rise_b` or `fanfare_tail`.
+- Manual 2: the sequence in check 1, read from the graph. Silence through hush and entrance.
+  Swell at the reveal. `low` in the fight, `high` in phase 2. The last hit calls `stop` with a
+  0.01 s time constant and plays `fanfare_stab` once. Calm music fades in before the results.
+  `audio.fanfare` was not called.
+- Manual 3: a skip at about 365 ms returned true and the step stayed `hush` (the tap is eaten).
+  A skip once the step was past 450 ms jumped to `fight`: bar shown and full, hint up, ball
+  held. The handoff's real click at 233 ms did nothing and its click at 545 ms did the same
+  jump.
+- Manual 4: a skip after the 400 ms guard took the arena from 12 bricks to 18 and resumed the
+  world. The guard left y 176 for the open pose at 128. A skip during the finale returned true
+  and the step stayed `finale`, clock still running.
+- Manual 5: pause and resume in hush, entrance, reveal and fight. The clock held and the world
+  paused, then both carried on and the step was unchanged. The same in the phase scene and the
+  finale, except the world was still paused after resume. I did not pause the aftermath myself;
+  the implementer did, and it is the same `frozen` path.
+- Manual 6: three balls in the air held their positions through 240 ms of the phase scene and
+  moved again once the fight resumed, velocities kept.
+- Manual 7: lives to zero opened the usual GAME OVER (also seen on the `&phase=2` run, score
+  270, RETRY). The boss was still in `fight`. A scene restart came back to `hush` with no stale
+  hint, and a skip after the guard reached the fight. I did not press the canvas RETRY button;
+  the implementer did, and saw the same replay.
+- Manual 8: during the fight, the pause menu's music switch off left the analyser at 0. On
+  again, the mood came back as `low` within a moment, as a short section fade rather than a
+  1.6 s swell, because `refresh` starts the engine through `playMusic` and the next
+  `bossMusic` only changes mood. Off again was a 0.25 s fade. I did not repeat "off during the
+  hush"; the implementer did, and the code matches it (`bossMusic` sets nothing wanted until
+  its guards pass, and is not called while the mood is null).
+- Manual 9: with reduced motion on, the dim target stayed 0, the sprite faded in at its rest y
+  (no 40 px drop), the band faded in place instead of slamming, and the camera flash and shake
+  effects ran for 0 frames. The setting is off again.
+- Manual 10, `?map=bosslab.tmj&phase=2`: `fight` at phase 2 of 2, pool 10 of 10, bar shown and
+  full, label `WARDEN · CORE EXPOSED`, music `high`, dark 0, 18 bricks, guard already at the
+  open pose. I arrived after the level's ordinary intro had finished and the ball had launched.
+  Left alone, that run reached GAME OVER, which is the ordinary life loss, not a boss intro.
+- Manual 11, `?level=1`: no boss. A restart showed the band `HELL FOUNDRY · 1 / 10` over
+  `FIRST LIGHT`, the hint `TAP TO LAUNCH`, and music `calm`. Play after that is the ordinary
+  level: three hearts, no boss bar, countdown, ball on the paddle. I did not clear it. The
+  implementer did, with god mode, and got the banner, `audio.fanfare`, `fanfare_stab`,
+  `fanfare_rise_a`, `fanfare_tail` and Level 2. `?arcade=waves` was WAVE 1 with a ball in play,
+  three hearts, no boss and no boss bar. The tutorial was already marked seen on this origin
+  (`coach` was false on level 1), so I did not re-run its freeze; the implementer did, before
+  that flag was set, and saw play stop and release.
+
+Build items
+- `src/core/Cues.ts` and `tests/cues.test.ts`: done. Stable order, a cue at 0 and a cue at the
+  length both fire, a cue past the end never fires, `skip` finishes the sheet, and a bad `dt`
+  does not move the clock. The four tests past the phase's list are real assertions.
+- `src/core/Boss.ts`: done. The step order, the 400 ms skip guard, a transition only when the
+  next phase has an `enterMs`, and the mood defaults (low, then high on the last phase) match
+  the phase. `damage` outside `fight` returns nothing.
+- Audio: done. `play` ramps only when a new play starts. `bossMusic` uses `playMusic`'s guards
+  and then the fallback moods. `bossStinger` is `fanfare_stab`. The one music test checks that
+  every boss mood has a real playlist; it does not pin the fallback map, which matches
+  design.md in the code.
+- The director: done. The body is made at the entrance, not at construction. Cues run on the
+  handed `dt`. A scene started this update gets the state's leftover time. Setup and the pose
+  wait until the fight. The death animation is held. `skip` eats the tap through every
+  cinematic step and only the intro and the phase scene actually jump. Done differently, as
+  declared: the body is held at speed 0 while frozen, where design.md allows
+  `BODY_SCENE_SPEED`.
+- `src/scenes/Play.ts`: done. Opening a boss skips the ordinary hint, card and level music and
+  clears a leftover hint. Launch, slots, skills and stock do nothing while cinematic. `win()`
+  on a boss level skips the music stop, the fanfare, the camera flash and `tail`. It still
+  calls `lighting.celebrate()` and the haptic, which the phase does not name. The non-boss
+  intro card is the extracted `titleBand` with the same 1500 ms hold and 1200 ms calm delay.
+- The Warden: done. Epithet `Keeper of the gate`. Entrance 1800, phase-2 enter 1200, death
+  2200, with the cues the handoff tables. One light per scene at priority 7. Impacts are 480 ms
+  flashes at priority 8. No cue retires, spawns, poses or damages. The file imports types and
+  `src/core` only.
+- Content tests: done. The first phase has no `enter`, every cutscene length is positive, and
+  every cue time is inside that length. They do not run the cue closures, which need the
+  engine; the phase does not ask them to.
+
+Findings
+- None.
+
+Scope and shortcuts
+- Clean. Changed files are the phase's list, `src/systems/BossBody.ts` (`arrive`, 16 lines,
+  explained), and this log. Nothing under "Do not" was built. No `any`, `as unknown as`,
+  ts-ignore, eslint-disable, `Math.random`, timers, or `console` in the new fight code. The
+  `onComplete` callbacks only destroy a band or drop the faded sprite. No `juice.flash` in boss
+  code. The `?.` and `??` uses are the optional cast, a missing enter length, the epithet, and
+  a missing weak multiplier.
+
+For the user
+- Nobody has heard it. The measured stand-ins are `build` for the rise, `groove` for low,
+  `fever` for high, `menu` for the rest, and `fanfare_stab` as the one stinger. The Warden's
+  scene keys are `thunder`, `ab_meteor_impact`, `brick_steel`, `surge`, `brick_tnt` and
+  `brick_collapse`, plus `ui_intro` on the band.
+- The intro I measured was about 5094 ms against a designed 5100. Whether the hush, the reveal,
+  the aftermath and the three scenes feel right is still your call.
+- The aftermath-to-next-level music ramp cannot be heard in the lab. The lab is the last level,
+  so a win opens Results.
+- `win()` still celebrates the lights and plays the haptic, and the results screen still plays
+  the star sounds. The phase only required the music cut, no fanfare, no camera flash and no
+  tail.
+- Stopping the music inside the 1.6 s swell snaps to silence. That is in the handoff, read in
+  the code, not heard.
+- This origin's dev save now has a level 31 clear of 2500 and a game over from these runs.
+  Reduced motion is off and music is on. The tutorial was already marked seen, from the
+  implementer's check 11.

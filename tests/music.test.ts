@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MUSIC_TRACK } from '../src/art/music';
+import { BOSS_MOODS, BOSS_MOOD_FALLBACK } from '../src/core/Boss';
 import {
   DEFAULT_MUSIC,
   MUSIC_MOODS,
@@ -115,6 +116,16 @@ describe('music track', () => {
       const list = MUSIC_TRACK.moods[mood];
       expect(list.play.length, mood).toBeGreaterThan(0);
       expect(list.loop, mood).toBeLessThan(list.play.length);
+      for (const name of list.play) expect(MUSIC_TRACK.segments[name], name).toBeDefined();
+    }
+  });
+
+  it('has a playlist behind every boss mood', () => {
+    expect(Object.keys(BOSS_MOOD_FALLBACK).sort()).toEqual([...BOSS_MOODS].sort());
+    for (const mood of BOSS_MOODS) {
+      const list = MUSIC_TRACK.moods[BOSS_MOOD_FALLBACK[mood]];
+      expect(list, mood).toBeDefined();
+      expect(list.play.length, mood).toBeGreaterThan(0);
       for (const name of list.play) expect(MUSIC_TRACK.segments[name], name).toBeDefined();
     }
   });

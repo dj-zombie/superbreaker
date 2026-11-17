@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import { WIDTH } from '../config';
 import { panAt, variation } from '../core/AudioMix';
+import { BOSS_MOOD_FALLBACK, BOSS_STINGER, BOSS_SWELL_S, type BossMood } from '../core/Boss';
 import type { MusicCue, MusicMood } from '../core/MusicMood';
 import { DEFAULT_VOLUME } from '../core/SaveStore';
 import { save } from '../services';
@@ -277,6 +278,27 @@ class AudioSystem {
   /** Play's read on the moment, every frame. The menus keep their own mood. */
   steerMusic(cue: MusicCue): void {
     if (this.musicKey === 'music') this.music?.steer(cue);
+  }
+
+  /**
+   * The boss track at `mood`: swells in from silence, or moves there on the next beat. Play asks
+   * every frame, so music switched back on in the middle of a fight finds its mood by itself.
+   */
+  bossMusic(mood: BossMood): void {
+    if (!this.sound || !save.state.settings.music || this.sound.locked) return;
+    const music = this.musicEngine();
+    if (!music) return;
+    this.wantedMusic = 'music';
+    this.musicKey = 'music';
+    // Until the boss song exists, each boss mood plays from a section of the level song.
+    const mapped = BOSS_MOOD_FALLBACK[mood];
+    if (music.playing) music.setMood(mapped, true);
+    else music.play(mapped, MUSIC_VOLUME.music, BOSS_SWELL_S);
+  }
+
+  /** The phrase that ends a boss fight, over the silence the final hit leaves. */
+  bossStinger(): void {
+    this.sfx(BOSS_STINGER, 0.55);
   }
 
   /** The music muffles for a moment and opens back up, for a lost ball. */

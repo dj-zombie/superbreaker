@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   ABILITY_HITS,
+  AFTERMATH_MS,
   BOSS_TUNING,
   BossState,
   EXPLOSION_HITS,
+  HUSH_MS,
+  REVEAL_MS,
+  SKIP_GUARD_MS,
   hitsFor,
   sway,
+  type BossEvent,
   type BossSpec,
+  type BossStep,
 } from '../src/core/Boss';
 import { DIFFICULTY, FIREBALL_DAMAGE } from '../src/core/Difficulty';
 import { DIFFICULTIES } from '../src/core/types';
@@ -152,6 +158,208 @@ describe('BossState', () => {
     expect(fight({ phase: 1 }).progress).toBeCloseTo(12 / 40);
     // A phase past the end is the last one.
     expect(fight({ phase: 9 }).phase).toBe(2);
+  });
+});
+
+const ENTRANCE_MS = 1800;
+const ENTER_MS = 1200;
+const DEATH_MS = 2200;
+/** The same pools with every scene a boss can have: an entrance, an entry to phase 2, a death. */
+const staged: BossSpec = {
+  phases: [{ hits: 12 }, { hits: 8, enterMs: ENTER_MS }, { hits: 20 }],
+  entranceMs: ENTRANCE_MS,
+  deathMs: DEATH_MS,
+};
+const intro = (s: BossSpec = staged) => new BossState(s, BOSS_TUNING.normal, { intro: true });
+const live = (phase = 0) => new BossState(staged, BOSS_TUNING.normal, { phase });
+const step = (to: BossStep): BossEvent => ({ type: 'step', step: to });
+
+describe('BossState flow', () => {
+  it('starts in hush with an intro and in fight without one', () => {
+    expect(intro().step).toBe('hush');
+    expect(intro().stepMs).toBe(0);
+    expect(live().step).toBe('fight');
+    expect(live(1).step).toBe('fight');
+    expect(new BossState(staged, BOSS_TUNING.normal, { intro: false }).step).toBe('fight');
+  });
+
+  it('runs the intro to the millisecond', () => {
+    const s = intro();
+    expect(s.tick(HUSH_MS - 1, false)).toEqual([]);
+    expect(s.step).toBe('hush');
+    expect(s.stepMs).toBe(HUSH_MS - 1);
+    expect(s.tick(1, false)).toEqual([step('entrance')]);
+    expect(s.step).toBe('entrance');
+    expect(s.stepMs).toBe(0);
+    expect(s.tick(ENTRANCE_MS - 1, false)).toEqual([]);
+    expect(s.step).toBe('entrance');
+    expect(s.tick(1, false)).toEqual([step('reveal')]);
+    expect(s.step).toBe('reveal');
+    expect(s.tick(REVEAL_MS - 1, false)).toEqual([]);
+    expect(s.step).toBe('reveal');
+    expect(s.tick(1, false)).toEqual([step('fight')]);
+    expect(s.step).toBe('fight');
+    expect(s.phase).toBe(0);
+    expect(s.pool).toBe(12);
+  });
+
+  it('carries the time left over into the next step', () => {
+    const s = intro();
+    expect(s.tick(HUSH_MS + 250, false)).toEqual([step('entrance')]);
+    expect(s.stepMs).toBe(250);
+    expect(s.tick(ENTRANCE_MS - 250 + 40, false)).toEqual([step('reveal')]);
+    expect(s.stepMs).toBe(40);
+    // One long frame walks through every step it covers, in order.
+    const t = intro();
+    expect(t.tick(HUSH_MS + ENTRANCE_MS + REVEAL_MS + 5, false)).toEqual([
+      step('entrance'),
+      step('reveal'),
+      step('fight'),
+    ]);
+    expect(t.stepMs).toBe(5);
+  });
+
+  it('enters and leaves a zero-length entrance in one tick', () => {
+    const s = intro({ phases: [{ hits: 12 }] });
+    expect(s.tick(HUSH_MS - 1, false)).toEqual([]);
+    expect(s.tick(1, false)).toEqual([step('entrance'), step('reveal')]);
+    expect(s.step).toBe('reveal');
+    expect(s.stepMs).toBe(0);
+  });
+
+  it('ignores damage during the intro', () => {
+    const s = intro();
+    for (const [ms, at] of [
+      [0, 'hush'],
+      [HUSH_MS, 'entrance'],
+      [ENTRANCE_MS, 'reveal'],
+    ] as const) {
+      s.tick(ms, false);
+      expect(s.step).toBe(at);
+      expect(s.damage(999), at).toEqual([]);
+      expect(s.step, at).toBe(at);
+      expect(s.phase, at).toBe(0);
+      expect(s.pool, at).toBe(12);
+    }
+  });
+
+  it('ignores a skip until the guard has passed, then jumps to the fight', () => {
+    const s = intro();
+    expect(s.skip()).toEqual([]);
+    s.tick(SKIP_GUARD_MS - 1, false);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('hush');
+    s.tick(1, false);
+    expect(s.skip()).toEqual([step('fight')]);
+    expect(s.step).toBe('fight');
+    expect(s.stepMs).toBe(0);
+    expect(s.phase).toBe(0);
+    expect(s.pool).toBe(12);
+    // Nothing of the intro is left to run.
+    expect(s.tick(HUSH_MS + ENTRANCE_MS + REVEAL_MS, true)).toEqual([]);
+    expect(s.step).toBe('fight');
+  });
+
+  it('skips from the entrance and from the reveal as well', () => {
+    for (const ms of [HUSH_MS, HUSH_MS + ENTRANCE_MS]) {
+      const s = intro();
+      s.tick(ms, false);
+      expect(s.skip(), `${ms} ms`).toEqual([step('fight')]);
+      expect(s.step, `${ms} ms`).toBe('fight');
+    }
+  });
+
+  it('stops for a phase with an entry scene, then fights on with its full pool', () => {
+    const s = live();
+    expect(s.damage(100)).toEqual([{ type: 'phase', phase: 1 }, step('transition')]);
+    expect(s.step).toBe('transition');
+    expect(s.stepMs).toBe(0);
+    expect(s.phase).toBe(1);
+    expect(s.pool).toBe(8);
+    // Nothing lands while the scene plays.
+    expect(s.damage(5)).toEqual([]);
+    expect(s.pool).toBe(8);
+    expect(s.tick(ENTER_MS - 1, true)).toEqual([]);
+    expect(s.step).toBe('transition');
+    expect(s.tick(1, true)).toEqual([step('fight')]);
+    expect(s.step).toBe('fight');
+    expect(s.phase).toBe(1);
+    expect(s.pool).toBe(8);
+    expect(s.poolMax).toBe(8);
+    // The third phase has no entry scene, so the fight carries straight on.
+    expect(s.damage(8)).toEqual([{ type: 'phase', phase: 2 }]);
+    expect(s.step).toBe('fight');
+    expect(s.pool).toBe(20);
+  });
+
+  it('skips a phase scene once the guard has passed in that step', () => {
+    const s = live();
+    // A long fight first: the guard counts from the start of the scene, not of the fight.
+    s.tick(60_000, true);
+    s.damage(12);
+    expect(s.step).toBe('transition');
+    expect(s.skip()).toEqual([]);
+    s.tick(SKIP_GUARD_MS - 1, true);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('transition');
+    s.tick(1, true);
+    expect(s.skip()).toEqual([step('fight')]);
+    expect(s.step).toBe('fight');
+    expect(s.phase).toBe(1);
+    expect(s.pool).toBe(8);
+  });
+
+  it('cannot skip the fight, the finale, the aftermath or the end', () => {
+    const s = live(2);
+    s.tick(2 * SKIP_GUARD_MS, true);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('fight');
+    s.damage(20);
+    s.tick(2 * SKIP_GUARD_MS, true);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('finale');
+    s.tick(DEATH_MS, true);
+    expect(s.step).toBe('aftermath');
+    expect(s.stepMs).toBe(2 * SKIP_GUARD_MS);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('aftermath');
+    s.tick(AFTERMATH_MS, true);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('done');
+  });
+
+  it('runs the finale, the aftermath and the end to the millisecond', () => {
+    const s = live(2);
+    expect(s.damage(20)).toEqual([step('finale')]);
+    expect(s.stepMs).toBe(0);
+    expect(s.tick(DEATH_MS - 1, false)).toEqual([]);
+    expect(s.step).toBe('finale');
+    expect(s.tick(1, false)).toEqual([step('aftermath')]);
+    expect(s.step).toBe('aftermath');
+    expect(s.tick(AFTERMATH_MS - 1, false)).toEqual([]);
+    expect(s.step).toBe('aftermath');
+    expect(s.tick(1, false)).toEqual([step('done')]);
+    expect(s.step).toBe('done');
+    expect(s.progress).toBe(1);
+    expect(s.tick(60_000, false)).toEqual([]);
+    expect(s.step).toBe('done');
+  });
+
+  it('leaves a finale without a death scene on the next tick', () => {
+    const s = fight({ phase: 2 });
+    expect(s.damage(20)).toEqual([step('finale')]);
+    expect(s.step).toBe('finale');
+    expect(s.tick(0, false)).toEqual([step('aftermath')]);
+  });
+
+  it('changes nothing on a tick during the fight', () => {
+    const s = live();
+    s.damage(3);
+    expect(s.tick(60_000, true)).toEqual([]);
+    expect(s.tick(60_000, false)).toEqual([]);
+    expect(s.step).toBe('fight');
+    expect(s.phase).toBe(0);
+    expect(s.pool).toBe(9);
   });
 });
 

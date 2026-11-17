@@ -1,10 +1,11 @@
+import type { MusicMood } from './MusicMood';
 import { BRICK_HEALTH } from './procgen/grid';
 import type { DifficultyId } from './types';
 
 export const BOSS_IDS = ['warden'] as const;
 export type BossId = (typeof BOSS_IDS)[number];
 
-/** The fight flow, in order. A fight starts in `fight` until the intro steps are built. */
+/** The fight flow, in order. A fight without an intro starts in `fight`. */
 export type BossStep =
   | 'hush'
   | 'entrance'
@@ -20,7 +21,13 @@ export interface BossSpec {
   phases: Array<{
     /** The phase's pool, in plain ball hits on Normal. */
     hits: number;
+    /** Length of the phase's entry cutscene, in ms. Without one the fight never stops for it. */
+    enterMs?: number;
   }>;
+  /** Length of the entrance cutscene, in ms. */
+  entranceMs?: number;
+  /** Length of the death cutscene, in ms. */
+  deathMs?: number;
 }
 
 /** Multipliers by difficulty: pool size, wind-up time and the calm between attacks. */
@@ -58,6 +65,22 @@ export const SPRITE_DEPTH = 1;
 export const HURT_MS = 180;
 /** The least time between two flinches, in ms, so a stream of laser hits does not strobe. */
 export const HURT_GAP_MS = 250;
+/** Silence before the entrance, in ms. */
+export const HUSH_MS = 900;
+/** `Backdrop.setDark` amount from the hush until the reveal. Skipped under reduced motion. */
+export const HUSH_DARK = 0.45;
+/** How far above rest the sprite starts its entrance, in px. */
+export const ENTRANCE_DROP = 40;
+/** Length of the title band and the swell, in ms. */
+export const REVEAL_MS = 2400;
+/** Calm after the death before the level ends, in ms. */
+export const AFTERMATH_MS = 1800;
+/** Taps are ignored this long into the intro or a phase scene, in ms: a stray tap skips nothing. */
+export const SKIP_GUARD_MS = 400;
+/** Seconds the boss track takes to fade in from silence. */
+export const BOSS_SWELL_S = 1.6;
+/** Sound key of the ending phrase: a placeholder until the boss song brings its own. */
+export const BOSS_STINGER = 'fanfare_stab';
 
 export const BOSS_ANIMS = ['idle', 'tell', 'open', 'hurt', 'death'] as const;
 export type BossAnim = (typeof BOSS_ANIMS)[number];
@@ -88,6 +111,21 @@ export function sway(amplitude: number, periodMs: number): Motion {
   return (clockMs) => ({ x: amplitude * Math.sin((2 * Math.PI * clockMs) / periodMs), y: 0 });
 }
 
+/** The boss track's moods. Boss code names these; the framework decides when each plays. */
+export const BOSS_MOODS = ['rise', 'low', 'mid', 'high', 'rest'] as const;
+export type BossMood = (typeof BOSS_MOODS)[number];
+/** How hard the track plays during a phase. */
+export type BossIntensity = 'low' | 'mid' | 'high';
+
+/** Which mood of the level song stands in for each boss mood until the boss song exists. */
+export const BOSS_MOOD_FALLBACK: Record<BossMood, MusicMood> = {
+  rise: 'build',
+  low: 'groove',
+  mid: 'drive',
+  high: 'fever',
+  rest: 'menu',
+};
+
 export type BossEvent = { type: 'step'; step: BossStep } | { type: 'phase'; phase: number };
 
 /** The rules of a boss fight, without the engine: the step, the phase and its pool. */
@@ -95,21 +133,37 @@ export class BossState {
   /** Every phase's pool in hits, scaled for the difficulty. */
   private readonly pools: number[];
   private readonly total: number;
-  private at: BossStep = 'fight';
+  /** Every phase's entry cutscene length, in ms. */
+  private readonly enters: number[];
+  private readonly entranceMs: number;
+  private readonly deathMs: number;
+  private at: BossStep;
   private index: number;
   private left: number;
+  private inStep = 0;
+  /** Time since the state was created, in ms. The intro's skip guard counts from here. */
+  private age = 0;
 
-  /** Starts in 'fight' at `phase`. */
-  constructor(spec: BossSpec, tuning: BossTuning, opts: { phase?: number } = {}) {
+  /** Starts in 'fight' at `phase`, or in 'hush' when `intro` is set. */
+  constructor(spec: BossSpec, tuning: BossTuning, opts: { phase?: number; intro?: boolean } = {}) {
     if (spec.phases.length === 0) throw new Error('BossState needs at least one phase');
     this.pools = spec.phases.map((p) => Math.max(1, Math.round(p.hits * tuning.health)));
     this.total = this.pools.reduce((sum, pool) => sum + pool, 0);
+    this.enters = spec.phases.map((p) => Math.max(0, p.enterMs ?? 0));
+    this.entranceMs = Math.max(0, spec.entranceMs ?? 0);
+    this.deathMs = Math.max(0, spec.deathMs ?? 0);
     this.index = Math.max(0, Math.min(this.pools.length - 1, Math.floor(opts.phase ?? 0)));
     this.left = this.poolMax;
+    this.at = opts.intro ? 'hush' : 'fight';
   }
 
   get step(): BossStep {
     return this.at;
+  }
+
+  /** Time spent in the current step, in ms. */
+  get stepMs(): number {
+    return this.inStep;
   }
 
   /** The current phase, counted from 0. */
@@ -139,13 +193,66 @@ export class BossState {
     if (this.at !== 'fight' || !(hits > 0)) return [];
     this.left = Math.max(0, this.left - hits);
     if (this.left > 0) return [];
-    if (this.index === this.pools.length - 1) {
-      this.at = 'finale';
-      return [{ type: 'step', step: 'finale' }];
-    }
+    if (this.index === this.pools.length - 1) return [this.enter('finale')];
     this.index++;
     this.left = this.poolMax;
-    return [{ type: 'phase', phase: this.index }];
+    const events: BossEvent[] = [{ type: 'phase', phase: this.index }];
+    // A phase without an entry scene starts at once: the fight never stops for it.
+    if (this.enters[this.index]! > 0) events.push(this.enter('transition'));
+    return events;
+  }
+
+  /** Advances the fight clock by `dt` ms and moves on from every step whose time is up. */
+  tick(dt: number, _ballInPlay: boolean): BossEvent[] {
+    // Written this way round so a NaN leaves the clocks alone.
+    if (dt > 0) {
+      this.age += dt;
+      this.inStep += dt;
+    }
+    const events: BossEvent[] = [];
+    // Time left over carries on, so a step with no length is entered and left in the same tick.
+    for (let timed = this.timed(); timed && this.inStep >= timed.ms; timed = this.timed()) {
+      const over = this.inStep - timed.ms;
+      events.push(this.enter(timed.next));
+      this.inStep = over;
+    }
+    return events;
+  }
+
+  /** A tap: jumps to the fight from the intro or a phase scene, once the guard has passed. */
+  skip(): BossEvent[] {
+    const intro = this.at === 'hush' || this.at === 'entrance' || this.at === 'reveal';
+    if (!intro && this.at !== 'transition') return [];
+    // The intro's guard counts from its very start, a phase scene's from the scene's.
+    if ((intro ? this.age : this.inStep) < SKIP_GUARD_MS) return [];
+    return [this.enter('fight')];
+  }
+
+  /** How long the current step lasts and what follows it; null for a step time does not end. */
+  private timed(): { ms: number; next: BossStep } | null {
+    switch (this.at) {
+      case 'hush':
+        return { ms: HUSH_MS, next: 'entrance' };
+      case 'entrance':
+        return { ms: this.entranceMs, next: 'reveal' };
+      case 'reveal':
+        return { ms: REVEAL_MS, next: 'fight' };
+      case 'transition':
+        return { ms: this.enters[this.index]!, next: 'fight' };
+      case 'finale':
+        return { ms: this.deathMs, next: 'aftermath' };
+      case 'aftermath':
+        return { ms: AFTERMATH_MS, next: 'done' };
+      case 'fight':
+      case 'done':
+        return null;
+    }
+  }
+
+  private enter(step: BossStep): BossEvent {
+    this.at = step;
+    this.inStep = 0;
+    return { type: 'step', step };
   }
 }
 
