@@ -100,26 +100,29 @@ export function abilitiesCarryOver(difficulty: DifficultyId): boolean {
   return difficulty !== 'hard';
 }
 
-/** Abilities held at the end of a cleared level, waiting for the next one. Not saved. */
+/**
+ * Abilities held at the end of a cleared level, waiting for the next one. Not saved. Levels and
+ * boss stops are named by their save keys.
+ */
 export class RunCarry {
   private ids: AbilityId[] = [];
-  private forLevel: number | null = null;
+  private forStep: string | null = null;
 
-  stage(ids: readonly AbilityId[], nextLevel: number): void {
+  stage(ids: readonly AbilityId[], next: string): void {
     this.ids = [...ids];
-    this.forLevel = nextLevel;
+    this.forStep = next;
   }
 
-  /** Returns the staged abilities when `levelIndex` is the level they were staged for. */
-  take(levelIndex: number): AbilityId[] {
-    const ids = this.forLevel === levelIndex ? [...this.ids] : [];
+  /** Returns the staged abilities when `step` is the one they were staged for. */
+  take(step: string): AbilityId[] {
+    const ids = this.forStep === step ? [...this.ids] : [];
     this.discard();
     return ids;
   }
 
   discard(): void {
     this.ids = [];
-    this.forLevel = null;
+    this.forStep = null;
   }
 }
 

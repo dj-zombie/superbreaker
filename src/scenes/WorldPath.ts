@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WORLD_IDS, type WorldId } from '../art/backdrops';
 import { HEIGHT, IS_TOUCH, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
+import { stepKey } from '../core/Campaign';
 import { levelId } from '../core/SaveStore';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
@@ -25,6 +26,10 @@ interface PathData {
 
 interface Node {
   index: number;
+  /** The boss stop after level `index`. */
+  stop: boolean;
+  /** The world's last level, drawn larger. */
+  big: boolean;
   x: number;
   y: number;
   state: NodeState;
@@ -32,12 +37,17 @@ interface Node {
 
 const SWING = 150;
 
-/** A world's ten levels as nodes zig-zagging down the screen, sinking through the world. */
+/**
+ * A world's ten levels, and the boss stops between them, as nodes zig-zagging down the screen,
+ * sinking through the world.
+ */
 export class WorldPath extends BaseScene {
   private world: WorldId = 'hell';
   private t!: UiTheme;
   private flows: Phaser.GameObjects.TileSprite[] = [];
   private toast?: Phaser.GameObjects.Text;
+  /** The node the player is up to, in this world. */
+  private current?: Node;
 
   constructor() {
     super(SCENES.worldPath);
@@ -74,7 +84,7 @@ export class WorldPath extends BaseScene {
 
     const nodes = this.layoutNodes(first, header.bottom + 56, HEIGHT - Math.max(SAFE_BOTTOM, 0) - 74);
     for (let i = 0; i < nodes.length - 1; i++) this.link(nodes[i]!, nodes[i + 1]!, i);
-    const current = nodes.find((n) => n.state === 'open');
+    const current = (this.current = nodes.find((n) => n.state === 'open'));
     nodes.forEach((n, i) => this.node(n, i, n === current));
 
     this.toast = label(this, WIDTH / 2, HEIGHT - Math.max(SAFE_BOTTOM + 18, 26), '', 13, {
@@ -86,14 +96,26 @@ export class WorldPath extends BaseScene {
   }
 
   private layoutNodes(first: number, top: number, bottom: number): Node[] {
-    const step = (bottom - top) / 9;
-    return Array.from({ length: 10 }, (_, i) => {
-      const index = first + i;
-      const cleared = !!save.state.levels[levelId(index)];
-      const state: NodeState = cleared ? 'cleared' : index <= save.state.unlocked ? 'open' : 'locked';
-      const x = i === 9 ? WIDTH / 2 : WIDTH / 2 + Math.sin(i * 1.05 + 0.5) * SWING;
-      return { index, x, y: top + i * step, state };
+    const places: Array<{ index: number; stop: boolean }> = [];
+    for (let index = first; index < first + 10; index++) {
+      places.push({ index, stop: false });
+      if (this.stopAfter(index)) places.push({ index, stop: true });
+    }
+    const step = (bottom - top) / (places.length - 1);
+    return places.map(({ index, stop }, i) => {
+      const big = !stop && index === first + 9;
+      const x = big ? WIDTH / 2 : WIDTH / 2 + Math.sin(i * 1.05 + 0.5) * SWING;
+      return { index, stop, big, x, y: top + i * step, state: this.nodeState(index, stop) };
     });
+  }
+
+  private nodeState(index: number, stop: boolean): NodeState {
+    if (save.state.levels[stepKey({ index, stop })]) return 'cleared';
+    // A boss stop opens with its level's clear, or when the path is already open past it.
+    const open = stop
+      ? !!save.state.levels[levelId(index)] || save.state.unlocked > index
+      : index <= save.state.unlocked;
+    return open ? 'open' : 'locked';
   }
 
   /** Dotted trail between two nodes; cleared stretches carry flowing light. */
@@ -124,7 +146,7 @@ export class WorldPath extends BaseScene {
 
   private node(n: Node, order: number, current: boolean): void {
     const t = this.t;
-    const big = order === 9;
+    const big = n.big;
     const c = this.add.container(n.x, n.y).setDepth(10);
     const size = big ? 92 : 70;
     if (current) {
@@ -149,18 +171,23 @@ export class WorldPath extends BaseScene {
     }
     const plate = this.add.image(0, 0, nodeTexture(this, t.frame, n.state, big)).setScale(1 / TEX_SCALE);
     c.add(plate);
-    const num = display(this, 0, 1, String(n.index), big ? 30 : 24, {
-      color: n.state === 'locked' ? t.palette.textDim : n.state === 'cleared' ? t.palette.textOnAccent : t.palette.text,
-    });
-    if (n.state === 'cleared' && t.frame !== 'forged') num.setColor(t.palette.text);
-    c.add(num);
+    if (n.stop) {
+      const tint = n.state === 'locked' ? 0x8a8a8a : t.palette.accentHi;
+      c.add(icon(this, 0, 0, 'skull', 34, tint));
+    } else {
+      const num = display(this, 0, 1, String(n.index), big ? 30 : 24, {
+        color: n.state === 'locked' ? t.palette.textDim : n.state === 'cleared' ? t.palette.textOnAccent : t.palette.text,
+      });
+      if (n.state === 'cleared' && t.frame !== 'forged') num.setColor(t.palette.text);
+      c.add(num);
+    }
     if (n.state === 'locked') {
       c.add(icon(this, size * 0.3, size * 0.3, 'lock', 18, 0xffffff).setAlpha(0.7));
     }
-    const rec = save.state.levels[levelId(n.index)];
+    const rec = save.state.levels[stepKey(n)];
     if (rec) c.add(starRow(this, 0, size / 2 + 6, rec.stars, 14, 2));
     const spec = this.levels[n.index - 1];
-    if (spec?.lighting.lightsOut) {
+    if (!n.stop && spec?.lighting.lightsOut) {
       const moon = icon(this, -size * 0.36, -size * 0.34, 'moon', 20, t.palette.accentHi);
       c.add(moon);
     }
@@ -171,7 +198,10 @@ export class WorldPath extends BaseScene {
         this.tweens.add({ targets: marker, y: marker.y - 8, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
       }
     }
-    if (big) {
+    if (n.stop) {
+      // Below the plate: above it, the path's tight bends put the label on the previous level's stars.
+      c.add(label(this, 0, size / 2 + (rec ? 26 : 12), 'Boss', 12, { color: t.palette.textDim }));
+    } else if (big) {
       c.add(label(this, 0, -size / 2 - (current ? 46 : 12), 'Finale', 12, { color: t.palette.textDim }));
     }
 
@@ -187,12 +217,14 @@ export class WorldPath extends BaseScene {
         shake(this, c, 6);
         audio.sfx('ui_locked', 0.45);
         haptic('light');
-        this.say(`Clear level ${save.state.unlocked} first`);
+        const at = this.current;
+        const ahead = at?.stop ? 'Beat the boss' : `Clear level ${at?.index ?? save.state.unlocked}`;
+        this.say(`${ahead} first`);
         return;
       }
       audio.sfx('ui_select', 0.55);
       haptic('light');
-      this.scene.launch(SCENES.briefing, { from: this.scene.key, index: n.index });
+      this.scene.launch(SCENES.briefing, { from: this.scene.key, index: n.index, stop: n.stop });
       this.scene.pause();
     });
 

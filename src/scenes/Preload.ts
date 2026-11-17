@@ -18,6 +18,7 @@ import {
   type TiledTemplate,
   type TiledTileset,
 } from '../core/LevelParser';
+import { validStops, type BossStop } from '../core/Campaign';
 import { randomSeed } from '../core/Rng';
 import { GOAL_KINDS, RUN_LOOPS, goalFor, type RunConfig } from '../core/Run';
 import type { LevelSpec } from '../core/types';
@@ -29,6 +30,12 @@ import { installBack } from '../ui/nav';
 import { BaseScene } from './BaseScene';
 
 const LEVEL_INDEX = 'levels-index';
+
+/** `levels/index.json`: the campaign's levels in order, and the boss stops between them. */
+interface LevelIndex {
+  levels: string[];
+  bosses?: unknown;
+}
 const TILESET = 'tileset-bricks';
 const TEMPLATE_INDEX = 'templates-index';
 
@@ -51,6 +58,13 @@ function devLevel(levels: LevelSpec[]): number | undefined {
   }
   const n = Number(new URLSearchParams(location.search).get('level'));
   return Number.isInteger(n) && n >= 1 && n <= levels.length ? n : undefined;
+}
+
+/** Dev only: `?stop=5` starts the boss stop after level 5. */
+function devStop(stops: BossStop[]): number | undefined {
+  if (!import.meta.env.DEV) return undefined;
+  const n = Number(new URLSearchParams(location.search).get('stop'));
+  return stops.some((s) => s.after === n) ? n : undefined;
 }
 
 /**
@@ -108,11 +122,12 @@ export class Preload extends BaseScene {
         return;
       }
       if (key !== LEVEL_INDEX) return;
-      const index = this.cache.json.get(LEVEL_INDEX) as { levels: string[] };
+      const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex;
+      const stops = validStops(index.bosses, index.levels.length).map((s) => s.map);
       // A map opened from Tiled that isn't in the campaign yet is played as an extra level.
       const map = devMap();
-      if (map && !index.levels.includes(map)) index.levels.push(map);
-      for (const file of index.levels) this.load.json(`level:${file}`, `levels/${file}`);
+      if (map && !index.levels.includes(map) && !stops.includes(map)) index.levels.push(map);
+      for (const file of [...index.levels, ...stops]) this.load.json(`level:${file}`, `levels/${file}`);
     });
   }
 
@@ -136,13 +151,17 @@ export class Preload extends BaseScene {
     }
     const levels = this.parseLevels();
     this.registry.set('levels', levels);
+    const stops = this.parseStops(levels.length);
+    this.registry.set('bossStops', stops);
     loadingStop();
     // Reported on every load, not just on a clear: added levels lower a finished player's share.
     reportProgress((save.clearedCount() / Math.max(1, levels.length)) * 100);
     installBack(() => transitioning(this));
     const jump = devLevel(levels);
+    const stop = devStop(stops);
     const run = devRun();
     if (run) this.scene.start(SCENES.play, { run });
+    else if (stop) this.scene.start(SCENES.play, { index: stop, stop: true });
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
     // A new player lands in level 1 with no clicks, and the tutorial runs over real play.
@@ -155,30 +174,42 @@ export class Preload extends BaseScene {
   }
 
   private parseLevels(): LevelSpec[] {
-    const index = this.cache.json.get(LEVEL_INDEX) as { levels: string[] } | undefined;
+    const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex | undefined;
+    const levels: LevelSpec[] = [];
+    for (const file of index?.levels ?? []) {
+      const level = this.parseMap(file);
+      if (level) levels.push(level);
+    }
+    return levels;
+  }
+
+  /** The boss stops between levels. A stop whose map is missing or names no boss is left out. */
+  private parseStops(levelCount: number): BossStop[] {
+    const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex | undefined;
+    const stops: BossStop[] = [];
+    for (const { after, map } of validStops(index?.bosses, levelCount)) {
+      const level = this.parseMap(map);
+      if (level?.boss) stops.push({ after, level });
+      else if (level) console.warn(`[levels] boss stop ${map} names no boss`);
+    }
+    return stops;
+  }
+
+  private parseMap(file: string): LevelSpec | undefined {
     const tileset = this.cache.json.get(TILESET) as TiledTileset | undefined;
     const resolveTileset = (src: string) => (src.endsWith('bricks.tsj') ? tileset : undefined);
     const resolveTemplate = (path: string) =>
       this.cache.json.get(`template:${basename(path)}`) as TiledTemplate | undefined;
-    const levels: LevelSpec[] = [];
-    for (const file of index?.levels ?? []) {
-      const map = this.cache.json.get(`level:${file}`) as TiledMap | undefined;
-      if (!map) {
-        console.warn(`[levels] failed to load ${file}`);
-        continue;
-      }
-      const { level, warnings } = parseLevel(
-        map,
-        file.replace(/\.tmj$/, ''),
-        resolveTileset,
-        resolveTemplate,
-      );
-      if (import.meta.env.DEV) {
-        for (const w of [...warnings, ...validateLevel(level)]) console.warn(`[${level.id}] ${w}`);
-      }
-      levels.push(level);
+    const map = this.cache.json.get(`level:${file}`) as TiledMap | undefined;
+    if (!map) {
+      console.warn(`[levels] failed to load ${file}`);
+      return undefined;
     }
-    return levels;
+    const { level, warnings } = parseLevel(map, file.replace(/\.tmj$/, ''), resolveTileset, resolveTemplate);
+    if (import.meta.env.DEV) {
+      for (const w of [...warnings, ...validateLevel(level)]) console.warn(`[${level.id}] ${w}`);
+    }
+    return level;
   }
 
   /** The launch logo breathing over its glow, and a themed meter filling underneath. */

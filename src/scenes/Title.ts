@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, STAGE_W, WIDTH, designY } from '../config';
 import { ABILITY_IDS, abilityCost } from '../core/Abilities';
+import type { CampaignStep } from '../core/Campaign';
 import { DIFFICULTY } from '../core/Difficulty';
 import { canPurchase } from '../core/Economy';
 import { GOAL_LABELS, LOOP_LABELS, reachLabel, runKey } from '../core/Run';
@@ -38,9 +39,9 @@ const TILE_W = (CARD_W - TILE_GAP) / 2;
 const TILE_H = 156;
 
 /** Starts a campaign level, dropping anything carried from an earlier level. */
-export function startLevel(scene: Phaser.Scene, index: number, stop?: string[]): void {
+export function startLevel(scene: Phaser.Scene, step: CampaignStep, stopScenes?: string[]): void {
   runCarry.discard();
-  transitionTo(scene, SCENES.play, { index }, { stop });
+  transitionTo(scene, SCENES.play, { index: step.index, stop: step.stop }, { stop: stopScenes });
 }
 
 /**
@@ -338,7 +339,9 @@ export class Title extends BaseScene {
     const done = this.cleared();
     if (total > 0 && done >= total) return 'Campaign complete';
     const index = Math.max(1, Math.min(save.state.unlocked, total));
-    return `Level ${index}  ·  ${done}/${total} cleared`;
+    // A cleared level whose boss still stands holds the path there.
+    const boss = !!this.stopAfter(index) && !!save.state.levels[levelId(index)] && !save.bossBeaten(index);
+    return `${boss ? 'Boss fight' : `Level ${index}`}  ·  ${done}/${total} cleared`;
   }
 
   private upgradeReady(): boolean {

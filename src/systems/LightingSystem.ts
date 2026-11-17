@@ -24,6 +24,7 @@ import {
   type Budgeted,
   type Cookie,
   type Flicker,
+  type LevelLightingSpec,
   type LightAffects,
   type LightSpec,
   type SampleLight,
@@ -294,7 +295,8 @@ export class LightingSystem {
   static current?: LightingSystem;
 
   readonly enabled: boolean;
-  readonly look: LightingLook;
+  /** How the room is lit. Only `relook` changes it. */
+  look: LightingLook;
   readonly calm: boolean;
   /** Set by moods every frame: breathing forge, beat pulse. */
   ambientScale = 1;
@@ -324,6 +326,8 @@ export class LightingSystem {
   private height = HEIGHT;
   private stageW = STAGE_W;
   private clock = 0;
+  /** Clock time the look was last set: a lights-out preview counts from here. */
+  private lookAt = 0;
   private frame = 0;
   private bricks: readonly Brick[] = [];
   private paddle?: Phaser.GameObjects.Image;
@@ -397,6 +401,20 @@ export class LightingSystem {
 
   get time(): number {
     return this.clock;
+  }
+
+  /**
+   * Lights the room another way part-way through a level, as an Arcade round going dark or coming
+   * back on. The world's mood starts over, and a lights-out preview counts from now.
+   */
+  relook(spec: LevelLightingSpec): void {
+    this.look = resolveLook(this.world, spec);
+    this.lookAt = this.clock;
+    this.relight = this.relightTarget = 0;
+    this.reveal = this.revealPeak = 0;
+    if (!this.enabled) return;
+    this.mood?.destroy(false);
+    this.mood = createMood(this, this.scene, this.look.mood, this.scenery);
   }
 
   /** The bricks to tint and shadow, and the paddle to tint. Call once after both exist. */
@@ -723,7 +741,7 @@ export class LightingSystem {
   }
 
   private updateAmbient(dt: number): void {
-    const t = this.clock;
+    const t = this.clock - this.lookAt;
     const look = this.look;
     let base = look.ambient;
     let floor = look.brickFloor;

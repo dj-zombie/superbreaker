@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
 import { WIDTH } from '../config';
-import { panAt, variation } from '../core/AudioMix';
+import { audibleMs, detunedMs, panAt, variation } from '../core/AudioMix';
 import { BOSS_MOOD_FALLBACK, BOSS_STINGER, BOSS_SWELL_S, type BossMood } from '../core/Boss';
 import type { MusicCue, MusicMood } from '../core/MusicMood';
 import { DEFAULT_VOLUME } from '../core/SaveStore';
@@ -123,6 +123,10 @@ class AudioSystem {
   private note = 0;
   private gestures = false;
   private lastPlayed = new Map<string, number>();
+  /** Each loaded sound's audible length at its own pitch, in ms, worked out on first use. */
+  private audible = new Map<string, number>();
+  /** `performance.now()` by which every one-shot played so far has rung out. */
+  private ringsUntil = 0;
   private breakTimes: number[] = [];
   private analyser?: AnalyserNode;
   private bins?: Uint8Array<ArrayBuffer>;
@@ -217,6 +221,8 @@ class AudioSystem {
       delay: opts.delay ?? 0,
       pan: opts.x === undefined ? 0 : panAt(opts.x, WIDTH),
     };
+    const ends = now + config.delay * 1000 + detunedMs(this.heardMs(key), config.detune);
+    this.ringsUntil = Math.max(this.ringsUntil, ends);
     const bus = this.mix()?.sfx;
     if (!bus) {
       this.sound.play(key, config);
@@ -227,6 +233,26 @@ class AudioSystem {
     s.once('complete', () => s.destroy());
     s.play(config);
     return s;
+  }
+
+  /**
+   * How long a loaded sound is heard for at its own pitch, in ms, ignoring a quiet tail. 0 when it
+   * is not loaded, or not decoded for Web Audio.
+   */
+  heardMs(key: string): number {
+    const known = this.audible.get(key);
+    if (known !== undefined) return known;
+    const buffer: unknown = this.game?.cache.audio.get(key);
+    if (typeof AudioBuffer === 'undefined' || !(buffer instanceof AudioBuffer)) return 0;
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
+    const ms = audibleMs(channels, buffer.sampleRate);
+    this.audible.set(key, ms);
+    return ms;
+  }
+
+  /** How long until every one-shot played so far has rung out, in ms. */
+  ringingMs(): number {
+    return Math.max(0, this.ringsUntil - performance.now());
   }
 
   /**

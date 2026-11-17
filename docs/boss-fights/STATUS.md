@@ -32,6 +32,13 @@ entry.
 - Phase 5: sounds and music are placeholders in new files, which the user will replace.
 - Phase 5: the placeholder boss track is the recording at https://youtu.be/WfzurQ0XKNc
   ("Middle Boss Battle", The Legend of Zelda: Ocarina of Time), downloaded with yt-dlp.
+- 2026-11-17, replacing the two campaign and Arcade lines above: the Warden is a boss stop on the
+  world map between levels 5 and 6, with level numbers and saves unchanged; level 6 opens once it
+  is beaten. The user plans a boss every five levels, but only the stop after level 5 is placed
+  for now. Arcade has a boss every fifth wave (Waves) and every fifth tier (Descent).
+- 2026-11-17: both Arcade loops get occasional lights-out rounds.
+- 2026-11-17: Descent was far too easy (a full field cleared in seconds once abilities and combos
+  stacked), so rows come faster.
 
 ## Waiting on the user
 
@@ -2004,4 +2011,133 @@ Open
 Later
 - A test harness that runs a boss's cues against a stub stage could check more than flashes,
   such as that every `anim` and sound a scene names exists.
+
+## User request, outside the phases: DONE, 2026-11-17, Claude (Cursor agent)
+
+The user asked for the Warden right after level 5, a boss every fifth Arcade round in both loops,
+occasional lights-out Arcade rounds, and a faster Descent (see "Decisions from the user"). Every
+file below is outside the Phase 5 list.
+
+Built
+- `src/core/Campaign.ts` (new): boss stops, campaign steps, `stepKey`, `stepAfter`, `validStops`.
+- `public/assets/levels/boss05.tmj` (new, a copy of the lab titled "The Warden") and `index.json`
+  (`"bosses": [{"after": 5, "map": "boss05.tmj"}]`).
+- `src/core/SaveStore.ts`: `bossStopId`, `recordBoss`, `bossBeaten`; `recordWin` can hold the next
+  level shut behind an unbeaten stop; `clearedCount` counts levels only.
+- `src/core/Session.ts`: carried abilities are keyed by step (`level06`, `boss05`).
+- `src/scenes/Preload.ts`, `BaseScene.ts`: load and validate the stops; dev `?stop=5`.
+- `src/scenes/Play.ts`, `Results.ts`, `Pause.ts`, `Title.ts`, `Briefing.ts`, `WorldPath.ts`,
+  `src/ui/icons.ts`: play a stop, route a win to the stop and on to the next level, the skull
+  node and its Briefing, "Boss fight" on the title's campaign line.
+- `src/core/Run.ts`: the Descent step rule (4.2 s at tier 1, 0.2 s less a tier, 1.8 s floor,
+  down to 30% of that on a thin field), `isBossTier`, `isDarkTier` (from tier 3, 25%, seeded,
+  never a boss tier).
+- `src/systems/RunDirector.ts`: boss rounds in both loops, dark rounds, a 4-row rush after a
+  Descent clear or a Descent boss, the run clock stopped during a fight.
+- `src/systems/LightingSystem.ts`, `LightingMoods.ts`: `relook` changes the look mid-scene; moods
+  can be torn down and rebuilt (the Forge haze is shared per scene, timers start from now).
+- `src/systems/FeverSystem.ts`: `edgeAlpha` is settable, dimmed in dark rounds.
+- `src/systems/BossDirector.ts`: the `defeated` doc only.
+- Tests: `tests/campaign.test.ts` (new), `tests/run.test.ts`, `tests/session.test.ts`.
+
+Verified
+- pnpm typecheck, lint and build: clean.
+- pnpm test: 568 passed, 1 failed. The failure is `tests/skills.test.ts` "readies the gun more
+  often than bullet time", which failed before this work; the skills code is untouched.
+- Browser, `127.0.0.1:5199`, stepping the loop by hand:
+  - `?arcade=waves&seed=1K9ZQ2`: after wave 4 the board emptied into a dark boss room with the
+    ball held. The Warden's intro, fight and death ran; then wave 6 (66 bricks, lit) and the
+    level music.
+  - `?arcade=descent&seed=1K9ZQ2`: steps 4.5 to 7.5 s apart at tier 1 with the ball lost now and
+    then (the clock waits for a ball in play). A field clear brought 4 rows 0.38 s apart, then
+    steps 2.6 s apart on the thin field. Tier 5 cleared the formation, started the Warden in the
+    dark, and after the kill rushed 4 rows back under "TIER 5" with the lights on.
+  - `?arcade=waves&seed=7` (Crypt) and `&seed=C&lighting=high` (Hell): wave 3 dark with a 1.5 s
+    preview, wave 4 lit, wave 5 the boss. No console errors.
+  - Campaign, on a fresh save with levels 1 to 5 won: the title read "Boss fight · 5/30 cleared";
+    the map showed the skull after 5 as current and 6 locked; the skull opened a Briefing
+    ("World 1 · Boss", The Warden, chips Warden, Lights out, Storm); Play ran the fight, the win
+    saved `boss05` and unlocked 6, and level 6 started. Winning level 5 with the boss unbeaten
+    led into the stop.
+  - The "Boss" label on the map sat on level 4's stars; it now sits under the node.
+
+Not verified
+- The "Boss beaten" banner by eye (the screenshot lagged the game); its text is in code.
+- Timed and Rounds goals with a boss round; Results after a stop lost; Pause → Restart in a stop.
+- Sound by ear; a real phone.
+
+Open
+- Arcade boss rounds have no bricks, so no pickups beyond what the boss drops. Abilities carried
+  in still work.
+- The Arcade boss uses the campaign's pools (`EARLY_TIER_DAMAGE_MULT` unchanged). Tier 5 may be
+  long or short against a run's stacked powerups; it needs a human playthrough.
+- The new Descent pace is a first guess for the user to tune (`DESCENT_*` in `src/core/Run.ts`).
+- Side effects: the save at `127.0.0.1:5199` was backed up, replaced by a fresh one for the
+  campaign checks, and put back.
+
+## User request: boss music waits for the title, 2026-11-17, Claude (Cursor agent)
+
+The user found the boss music coming in over the title card's sound. `title.mp3` is loud for
+4.6 s, but the music started with the reveal and the fight began at 3.6 s.
+
+Built
+- `src/core/Boss.ts`: `TITLE_SOUND_MS = 4600`; `REVEAL_MS` is now that plus 1000 (was 3600).
+- `src/systems/BossDirector.ts`: the reveal is silent until `TITLE_SOUND_MS`, then `rise`.
+
+Verified
+- typecheck, lint, `tests/boss.test.ts` (77): clean.
+- `?stop=5`, stepping the loop: card and title sound at 0 s, music at 4.6 s, card gone at 5.1 s,
+  fight at 5.6 s with `low`.
+
+Open
+- `TITLE_SOUND_MS` must change with the title sound when the placeholder is replaced.
+
+## User request: boss intro sounds one after another, 2026-11-17, Claude (Cursor agent)
+
+The user still heard everything clashing. Logging every sound started showed why: the Warden's
+entrance ends with a 4.4 s roar 1 s before the title, and its growl and thunder were still going,
+so the title played over all three. This replaces the entry above; `TITLE_SOUND_MS` is gone.
+
+Built
+- `src/core/AudioMix.ts`: `audibleMs` (a recording is heard up to its last sample at -30 dB) and
+  `detunedMs`. Tests in `tests/audioMix.test.ts`.
+- `src/systems/AudioSystem.ts`: `heardMs(key)` from the decoded sound, cached; every one-shot
+  records when it will have rung out, and `ringingMs()` says how long that is from now.
+- `src/core/Boss.ts`: `BossState.holdUntil(ms)` keeps a timed step going at least that long and
+  never shortens one; `REVEAL_MS` is back to 3600, now the shortest reveal; `MUSIC_LEAD_MS = 1000`.
+  Tests in `tests/boss.test.ts`.
+- `src/systems/BossDirector.ts`: the entrance lasts until its sounds have rung out. The reveal
+  lasts the title sound's heard length plus `MUSIC_LEAD_MS`, the card stays for all but its last
+  `CARD_LEAD_MS`, and the boss track waits for the title sound to end.
+
+Verified
+- typecheck, lint: clean. pnpm test: 575 passed, the same 1 failure in `tests/skills.test.ts`.
+- `?stop=5`, real time, every sound start logged: entrance sounds from 2.0 s, the roar at 5.2 s
+  (heard to about 9.3 s), the title alone at 9.46 s, the boss track at 14.17 s, the fight at
+  15.1 s.
+
+Open
+- Lengths come from the files, so replacing a sound needs no code change.
+- Phase scenes and the death scene are not held for their sounds.
+
+## User request: the award waits for the victory theme, 2026-11-17, Claude (Cursor agent)
+
+The award card and its chime went up as the 11 s victory theme began, and the calm track came in
+at 6.5 s over both.
+
+Built
+- `src/core/Boss.ts`: `BossState.delayAward(ms)` and `awardMs`; the aftermath lasts the delay
+  plus `AFTERMATH_MS`, and the tap guard counts from the award. `AWARD_BREAK_MS = 1000`;
+  `STINGER_MS` is gone. Tests in `tests/boss.test.ts`.
+- `src/systems/BossDirector.ts`: the award goes up once every sound playing at the death has rung
+  out, plus `AWARD_BREAK_MS`; the calm track waits for the award's chime to ring out.
+- `docs/boss-fights/design.md`: the aftermath row and the constants table.
+
+Verified
+- typecheck, lint: clean. pnpm test: 577 passed, the same 1 failure in `tests/skills.test.ts`.
+- `?stop=5`, real time, from the kill: victory theme at 3.19 s (heard to about 13.5 s), the award
+  at 14.68 s, its chime at 15.58 s, the calm track at 17.5 s, the end by itself at 26.7 s.
+
+Open
+- Taps do nothing while the theme plays, about 11 s on an empty field with the bars down.
 

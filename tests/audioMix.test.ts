@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PAN_SPREAD, panAt, variation } from '../src/core/AudioMix';
+import { AUDIBLE_FLOOR, PAN_SPREAD, audibleMs, detunedMs, panAt, variation } from '../src/core/AudioMix';
 
 describe('panAt', () => {
   it('centers a sound in the middle of the field', () => {
@@ -47,5 +47,40 @@ describe('variation', () => {
     expect(high.detune).toBeCloseTo(40);
     expect(low.volume).toBeCloseTo(0.85);
     expect(high.volume).toBeCloseTo(1);
+  });
+});
+
+describe('audibleMs', () => {
+  const RATE = 1000;
+  /** One channel `n` samples long: loud for `loud` of them, then a tail just under the floor. */
+  const take = (n: number, loud: number) =>
+    Float32Array.from({ length: n }, (_, i) => (i < loud ? 0.8 : AUDIBLE_FLOOR * 0.9));
+
+  it('ends a sound at its last sample at the floor, not at the end of a quiet tail', () => {
+    expect(audibleMs([take(4000, 2500)], RATE)).toBe(2500);
+  });
+
+  it('counts a sample right at the floor as heard', () => {
+    const data = take(100, 0);
+    data[59] = -AUDIBLE_FLOOR;
+    expect(audibleMs([data], RATE)).toBe(60);
+  });
+
+  it('takes the channel heard longest', () => {
+    expect(audibleMs([take(3000, 1000), take(3000, 2200)], RATE)).toBe(2200);
+  });
+
+  it('is 0 for silence, no channels, or no sample rate', () => {
+    expect(audibleMs([take(500, 0)], RATE)).toBe(0);
+    expect(audibleMs([], RATE)).toBe(0);
+    expect(audibleMs([take(500, 500)], 0)).toBe(0);
+  });
+});
+
+describe('detunedMs', () => {
+  it('halves the length an octave up and doubles it an octave down', () => {
+    expect(detunedMs(1000, 1200)).toBeCloseTo(500);
+    expect(detunedMs(1000, -1200)).toBeCloseTo(2000);
+    expect(detunedMs(1000, 0)).toBe(1000);
   });
 });

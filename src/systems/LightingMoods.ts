@@ -11,7 +11,8 @@ import type { ParallaxBackdrop } from './ParallaxBackdrop';
 export interface MoodFx {
   update(dt: number, clock: number): void;
   onHit?(): void;
-  destroy(): void;
+  /** `final` is false when another mood takes over in the same scene. */
+  destroy(final?: boolean): void;
 }
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -51,7 +52,10 @@ export function createMood(
       failing?.update(clock);
     },
     onHit: () => fx?.onHit?.(),
-    destroy: () => fx?.destroy(),
+    destroy: (final = true) => {
+      keyed.destroy();
+      fx?.destroy(final);
+    },
   };
 }
 
@@ -80,12 +84,18 @@ class KeyLight {
     this.light.y = HEIGHT * k.y;
     this.light.radius = HEIGHT * k.radius;
   }
+
+  destroy(): void {
+    this.light?.kill();
+  }
 }
 
 // ---------------------------------------------------------------- Hell
 
 /** A breathing furnace: the ambient swells, embers rise with their own light, heat shimmers. */
 class Forge implements MoodFx {
+  /** A scene's haze outlives a mood that is replaced, since the backdrop's filter keeps reading it. */
+  private static hazes = new WeakMap<Phaser.Scene, Phaser.Textures.DynamicTexture>();
   private embers: Array<{ light: Light; vy: number; wobble: number }> = [];
   private haze?: Phaser.Textures.DynamicTexture;
 
@@ -112,10 +122,16 @@ class Forge implements MoodFx {
         this.embers.push({ light, vy: rand(22, 48), wobble: rand(0, Math.PI * 2) });
       }
     }
-    if (sys.budgetInfo.extras && !sys.calm) {
+    const kept = Forge.hazes.get(scene);
+    if (kept && scene.textures.exists('lm_haze')) {
+      this.haze = kept;
+    } else if (sys.budgetInfo.extras && !sys.calm) {
       if (scene.textures.exists('lm_haze')) scene.textures.remove('lm_haze');
       this.haze = scene.textures.addDynamicTexture('lm_haze', 64, 64) ?? undefined;
-      if (this.haze) sys.addHaze('lm_haze', 0.0035);
+      if (this.haze) {
+        Forge.hazes.set(scene, this.haze);
+        sys.addHaze('lm_haze', 0.0035);
+      }
     }
   }
 
@@ -141,8 +157,10 @@ class Forge implements MoodFx {
     }
   }
 
-  destroy(): void {
+  destroy(final = true): void {
     for (const e of this.embers) e.light.kill();
+    if (!final) return;
+    Forge.hazes.delete(this.scene);
     if (this.haze && this.scene.textures.exists('lm_haze')) this.scene.textures.remove('lm_haze');
   }
 }
@@ -231,7 +249,7 @@ class Lightning {
     private busy: () => boolean = () => false,
   ) {
     // Not during a lights-out level's preview, while the layout is still lit.
-    this.nextStrike = (sys.look.preview ?? 0) + 1 + interval * rand(0.3, 0.6);
+    this.nextStrike = sys.time + (sys.look.preview ?? 0) + 1 + interval * rand(0.3, 0.6);
   }
 
   update(clock: number): void {
@@ -296,7 +314,7 @@ class FailingLights {
   private due = 0;
 
   constructor(private sys: LightingSystem) {
-    this.nextAt = (sys.look.preview ?? 0) + rand(2.5, 5);
+    this.nextAt = sys.time + (sys.look.preview ?? 0) + rand(2.5, 5);
   }
 
   get active(): boolean {

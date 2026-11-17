@@ -47,15 +47,23 @@ describe('ability carry', () => {
     expect(abilitiesCarryOver('hard')).toBe(false);
 
     const carry = new RunCarry();
-    carry.stage(['meteor', 'bomb'], 3);
-    expect(carry.take(3)).toEqual(['meteor', 'bomb']);
-    expect(carry.take(3)).toEqual([]);
+    carry.stage(['meteor', 'bomb'], 'level03');
+    expect(carry.take('level03')).toEqual(['meteor', 'bomb']);
+    expect(carry.take('level03')).toEqual([]);
 
-    carry.stage(['sweep'], 4);
-    const staged = carry.take(4);
+    carry.stage(['sweep'], 'level04');
+    const staged = carry.take('level04');
     expect(abilitiesCarryOver('hard') ? staged : []).toEqual([]);
 
-    carry.stage(['frenzy'], 5);
-    expect(carry.take(2)).toEqual([]);
+    carry.stage(['frenzy'], 'level05');
+    expect(carry.take('level02')).toEqual([]);
+  });
+
+  it('carries into a boss stop, and not into the level after it', () => {
+    const carry = new RunCarry();
+    carry.stage(['bomb'], 'boss05');
+    expect(carry.take('level06')).toEqual([]);
+    carry.stage(['bomb'], 'boss05');
+    expect(carry.take('boss05')).toEqual(['bomb']);
   });
 });

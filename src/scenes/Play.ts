@@ -47,6 +47,7 @@ import { powerupStats } from '../core/Economy';
 import { LASER_MODE_DEFS } from '../core/Laser';
 import { randomSeed } from '../core/Rng';
 import {
+  BOSS_EVERY_TIERS,
   runHitDamage,
   runKey,
   scaleDifficulty,
@@ -64,8 +65,10 @@ import {
   type SkillView,
 } from '../core/Skills';
 import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
+import { stepAfter, stepKey, type CampaignStep } from '../core/Campaign';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BOSSES } from '../bosses';
+import { BOSS_IDS } from '../core/Boss';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
@@ -108,6 +111,8 @@ import { BaseScene } from './BaseScene';
 export interface PlayData {
   /** Campaign level, 1-based. */
   index?: number;
+  /** The boss stop after level `index`, rather than the level. */
+  stop?: boolean;
   /** Starts an Arcade run instead of a campaign level. */
   run?: RunConfig;
 }
@@ -123,6 +128,10 @@ export interface RunResults {
 export interface ResultsData {
   win: boolean;
   index: number;
+  /** The boss stop after level `index` was played. */
+  stop?: boolean;
+  /** Where a win leads in the campaign; unset past the last level. */
+  next?: CampaignStep;
   score: number;
   stars: number;
   isBest: boolean;
@@ -240,6 +249,8 @@ const SLOWMO_TINT = 0xa8c4ff;
 
 export class Play extends BaseScene {
   levelIndex = 1;
+  /** Campaign: this is the boss stop after level `levelIndex`. */
+  atStop = false;
   /** Set when this is an Arcade run rather than a campaign level. */
   runConfig?: RunConfig;
   hud!: HudState;
@@ -316,6 +327,7 @@ export class Play extends BaseScene {
     this.levelIndex = data.run
       ? 0
       : Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
+    this.atStop = !data.run && !!data.stop && !!this.stopAfter(this.levelIndex);
     this.world = data.run ? worldForRun(data.run.seed) : worldForLevel(this.levelIndex);
     useWorld(this.world);
     if (!data.run) pickWorld(this.world);
@@ -333,10 +345,20 @@ export class Play extends BaseScene {
     this.countdownShown = 0;
   }
 
+  /** Campaign: where this level sits, a level or the boss stop after one. */
+  get campaignStep(): CampaignStep {
+    return this.atStop ? { index: this.levelIndex, stop: true } : { index: this.levelIndex };
+  }
+
+  /** Campaign: the map this scene plays. */
+  private campaignLevel(): LevelSpec | undefined {
+    return this.atStop ? this.stopAfter(this.levelIndex)?.level : this.levels[this.levelIndex - 1];
+  }
+
   preload(): void {
     ParallaxBackdrop.preload(this, this.world);
     // A boss's sheet loads with its level, so the levels without one never fetch it.
-    const boss = this.runConfig ? undefined : this.levels[this.levelIndex - 1]?.boss;
+    const boss = this.runConfig ? undefined : this.campaignLevel()?.boss;
     if (!boss) return;
     BossBody.preload(this, BOSSES[boss]);
     // So does the boss track. A second boss level finds it in the cache.
@@ -352,12 +374,13 @@ export class Play extends BaseScene {
     this.input.enabled = true;
     onBack(this, () => this.requestPause());
     this.runDirector = this.runConfig ? new RunDirector(this.runConfig) : undefined;
-    this.level = this.runDirector?.firstLevel() ?? this.levels[this.levelIndex - 1]!;
+    if (this.runConfig) this.loadBosses();
+    this.level = this.runDirector?.firstLevel() ?? this.campaignLevel()!;
     const world = this.world;
     const base = DIFFICULTY[save.state.difficulty];
     this.diff = this.runConfig ? base : scaleSpeeds(base, campaignSpeedScale(this.levelIndex));
     this.hud = {
-      title: `LEVEL ${this.levelIndex}`,
+      title: this.atStop ? 'BOSS' : `LEVEL ${this.levelIndex}`,
       detail: null,
       clockMs: null,
       score: 0,
@@ -426,7 +449,9 @@ export class Play extends BaseScene {
             (ball) => Math.abs(ball.x - b.x) < reachX && Math.abs(ball.y - b.y) < reachY,
           );
         },
+        // A boss's parts are bricks, and only the boss removes them.
         collapseReady: () =>
+          !this.boss?.active &&
           collapseReady({
             fever: this.fever.active,
             balls: this.freeBallCount,
@@ -649,6 +674,7 @@ export class Play extends BaseScene {
       this.boss.update(dt);
       // A pool that emptied on this frame stops the world on this frame.
       this.syncFreeze();
+      this.dropBeatenBoss();
     }
     // Dev only: the boss counts the frames a ball spends inside one of its parts.
     if (import.meta.env.DEV && this.boss) {
@@ -684,6 +710,7 @@ export class Play extends BaseScene {
     this.boss?.update(dt);
     // The boss dying ends the level from inside its update.
     if (this.finished) return;
+    this.dropBeatenBoss();
     this.updateBossMusic();
     this.syncLights();
     this.hud.slots = this.abilities.slots;
@@ -1577,7 +1604,7 @@ export class Play extends BaseScene {
 
   /** Loads abilities carried from the last level, then any bought ones still in stock. */
   private loadRunAbilities(): void {
-    const carried = runCarry.take(this.levelIndex);
+    const carried = runCarry.take(stepKey(this.campaignStep));
     const keep = abilitiesCarryOver(save.state.difficulty);
     if (keep) {
       for (const id of carried) this.abilities.grantSpecific(id);
@@ -1802,11 +1829,17 @@ export class Play extends BaseScene {
     this.fever.reset();
     this.abilities.clearEffects();
     if (this.skills.slowmo.active) this.endSlowmo();
-    runCarry.stage(this.abilities.held(), this.levelIndex + 1);
+    const here = this.campaignStep;
+    // Worked out before the win is saved: a level's stop is next only while its boss stands.
+    const next = stepAfter(here, (i) => !!this.stopAfter(i), (i) => save.bossBeaten(i));
+    runCarry.stage(this.abilities.held(), stepKey(next));
     const stars = starsForLives(this.hud.lives);
-    const prevBest = save.state.levels[this.level.id]?.bestScore ?? 0;
-    const isBest = save.recordWin(this.levelIndex, stars, this.hud.score, this.levels.length);
-    const finale = worldLevels(this.world).last === this.levelIndex;
+    const prevBest = save.state.levels[stepKey(here)]?.bestScore ?? 0;
+    const total = this.levels.length;
+    const isBest = this.atStop
+      ? save.recordBoss(this.levelIndex, stars, this.hud.score, total)
+      : save.recordWin(this.levelIndex, stars, this.hud.score, total, !!next.stop);
+    const finale = !this.atStop && worldLevels(this.world).last === this.levelIndex;
     reportProgress((save.clearedCount() / Math.max(1, this.levels.length)) * 100);
     // Finishing a world only, so the page confetti stays a rare thing.
     if (finale) celebrate();
@@ -1822,6 +1855,8 @@ export class Play extends BaseScene {
     const data: ResultsData = {
       win: true,
       index: this.levelIndex,
+      stop: this.atStop,
+      next: next.index <= total ? next : undefined,
       score: this.hud.score,
       stars,
       isBest,
@@ -1829,7 +1864,7 @@ export class Play extends BaseScene {
       bestScore: Math.max(prevBest, this.hud.score),
       tail: !bossLevel && (stars === 3 || finale),
     };
-    if (this.levelIndex >= this.levels.length) {
+    if (!data.next) {
       this.inputSys.enabled = false;
       this.time.delayedCall(RESULTS_DELAY_MS, () => this.showResults(data));
       return;
@@ -1848,11 +1883,11 @@ export class Play extends BaseScene {
     this.laser.clear();
     this.physics.world.pause();
 
-    const next = d.index + 1;
+    const next = d.next ?? { index: d.index + 1 };
     const t = theme();
     const root = this.add.container(WIDTH / 2, ARENA_MID).setDepth(30);
     root.add(framePanel(this, 0, 0, 440, 340, t, { ornament: true }));
-    const head = heading(this, 0, -122, `Level ${d.index} clear`, 36, { t });
+    const head = heading(this, 0, -122, d.stop ? 'Boss beaten' : `Level ${d.index} clear`, 36, { t });
     root.add(head);
     slam(this, head, { delay: 120 });
     root.add(
@@ -1888,7 +1923,8 @@ export class Play extends BaseScene {
 
     const bar = new Meter(this, 0, 120, 320, 10, 0, t.palette.accent);
     root.add(bar);
-    root.add(label(this, 0, 146, `Level ${next}  ·  tap to go`, 14, { t, color: t.palette.text }));
+    const ahead = next.stop ? 'Boss fight' : `Level ${next.index}`;
+    root.add(label(this, 0, 146, `${ahead}  ·  tap to go`, 14, { t, color: t.palette.text }));
 
     root.setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: root, scale: 1, alpha: 1, duration: 260, ease: 'Back.Out' });
@@ -1901,7 +1937,7 @@ export class Play extends BaseScene {
       const c = Phaser.Display.Color.IntegerToColor(t.palette.base);
       this.cameras.main.fadeOut(220, c.red, c.green, c.blue);
       this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
-        this.scene.restart({ index: next }),
+        this.scene.restart({ index: next.index, stop: next.stop }),
       );
     };
     const fill = { v: 0 };
@@ -1936,11 +1972,12 @@ export class Play extends BaseScene {
       this.showResults({
         win: false,
         index: this.levelIndex,
+        stop: this.atStop,
         score: this.hud.score,
         stars: 0,
         isBest: false,
         coinsEarned: this.hud.coinsEarned,
-        bestScore: save.state.levels[this.level.id]?.bestScore ?? 0,
+        bestScore: save.state.levels[stepKey(this.campaignStep)]?.bestScore ?? 0,
       }),
     );
   }
@@ -2013,7 +2050,38 @@ export class Play extends BaseScene {
         this.hud.title = title;
         this.hud.detail = detail;
       },
+      relook: (lighting) => {
+        this.lighting.relook(lighting);
+        this.fever.edgeAlpha = this.lighting.look.lightsOut ? 0.35 : 1;
+      },
+      startBoss: (tier, seed) => this.startBoss(tier, seed),
     };
+  }
+
+  /** Arcade: a run meets bosses later on, so their sheets and the boss track load behind play. */
+  private loadBosses(): void {
+    for (const def of Object.values(BOSSES)) BossBody.preload(this, def);
+    if (!this.cache.audio.exists(BOSS_MUSIC_KEY)) {
+      this.load.audio(BOSS_MUSIC_KEY, `assets/${BOSS_TRACK.path}`);
+    }
+    this.load.start();
+  }
+
+  /** Arcade: a boss takes the field part-way through a run, opening the way a boss level does. */
+  private startBoss(tier: number, seed: number): void {
+    const id = BOSS_IDS[(Math.floor(tier / BOSS_EVERY_TIERS) - 1) % BOSS_IDS.length]!;
+    this.clearHint();
+    this.boss = new BossDirector(BOSSES[id], this.bossHost(), { seed });
+    exposeBoss(this.boss);
+  }
+
+  /** Arcade: a beaten boss leaves once its award is over, and the run's music steers again. */
+  private dropBeatenBoss(): void {
+    if (!this.runDirector || !this.boss || this.boss.active) return;
+    this.boss.destroy();
+    this.boss = undefined;
+    exposeBoss(undefined);
+    audio.playMusic('music');
   }
 
   private bossHost(): BossHost {
@@ -2043,7 +2111,8 @@ export class Play extends BaseScene {
         // A tap can end the award before the calm came in, and Results must not play in silence.
         const mood = this.boss?.music;
         if (mood) audio.bossMusic(mood);
-        this.win();
+        if (this.runDirector) this.runDirector.onBossDefeated();
+        else this.win();
       },
       setHud: (view) => {
         this.hud.boss = view;

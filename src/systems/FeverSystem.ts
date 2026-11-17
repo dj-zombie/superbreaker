@@ -21,7 +21,7 @@ export class FeverSystem {
     private backdrop: Backdrop,
     private onChange: (active: boolean) => void,
     /** Edge glow brightness; lights-out levels keep it low so the walls don't light up. */
-    private edgeAlpha = 1,
+    public edgeAlpha = 1,
   ) {}
 
   get active(): boolean {

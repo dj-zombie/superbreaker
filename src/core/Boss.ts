@@ -81,16 +81,18 @@ export const HUSH_MS = 1600;
 export const HUSH_DARK = 1;
 /** How far above rest the sprite starts its entrance, in px. */
 export const ENTRANCE_DROP = 40;
-/** Length of the title card and the swell, in ms. */
+/** The shortest the title card and the swell last, in ms. A longer title sound holds them longer. */
 export const REVEAL_MS = 3600;
-/** The award stays up this long after the death before the level ends by itself, in ms. */
+/** The boss track plays this long after the title's sound has ended before play begins, in ms. */
+export const MUSIC_LEAD_MS = 1000;
+/** The award stays up this long before the level ends by itself, in ms. */
 export const AFTERMATH_MS = 12_000;
-/** Taps are ignored this long into the aftermath, in ms, so the award is seen before it is left. */
+/** Taps are ignored this long after the award goes up, in ms, so it is seen before it is left. */
 export const AWARD_GUARD_MS = 1800;
-/** The keepsake lands this long into the aftermath, in ms. The award's chime plays with it. */
+/** The keepsake lands this long after the award goes up, in ms. The award's chime plays with it. */
 export const AWARD_TROPHY_MS = 900;
-/** The calm track waits this long into the aftermath, in ms, while the ending phrase plays. */
-export const STINGER_MS = 6500;
+/** The quiet between the ending phrase ringing out and the award going up, in ms. */
+export const AWARD_BREAK_MS = 1000;
 /** Taps are ignored this long into the intro or a phase scene, in ms: a stray tap skips nothing. */
 export const SKIP_GUARD_MS = 400;
 /** The letterbox bars take this long to come in or to go out, in ms. */
@@ -287,6 +289,10 @@ export class BossState {
   private index: number;
   private left: number;
   private inStep = 0;
+  /** The current step lasts at least this long, in ms. */
+  private held = 0;
+  /** How far into the aftermath the award goes up, in ms. */
+  private awardAt = 0;
   /** Time since the state was created, in ms. The intro's skip guard counts from here. */
   private age = 0;
   private win: AttackWindow = 'gap';
@@ -428,7 +434,7 @@ export class BossState {
    * the step's guard has passed. The death scene is never cut short.
    */
   skip(): BossEvent[] {
-    if (this.at === 'aftermath') return this.inStep < AWARD_GUARD_MS ? [] : [this.enter('done')];
+    if (this.at === 'aftermath') return this.awardMs < AWARD_GUARD_MS ? [] : [this.enter('done')];
     const intro = this.at === 'hush' || this.at === 'entrance' || this.at === 'reveal';
     if (!intro && this.at !== 'transition') return [];
     // The intro's guard counts from its very start, a phase scene's from the scene's.
@@ -436,8 +442,34 @@ export class BossState {
     return [this.enter('fight')];
   }
 
+  /**
+   * The current step, if time ends it, lasts at least `ms` from its start: a sound it played can
+   * ring out. Never shortens a step; the next step starts with no hold.
+   */
+  holdUntil(ms: number): void {
+    if (ms > this.held) this.held = ms;
+  }
+
+  /**
+   * In the aftermath, the award goes up `ms` in rather than at once: the ending phrase is heard on
+   * its own first. Its guard and its time on screen count from then.
+   */
+  delayAward(ms: number): void {
+    if (this.at === 'aftermath' && ms > this.awardAt) this.awardAt = ms;
+  }
+
+  /** Time the award has been up, in ms. Negative while it waits, and outside the aftermath. */
+  get awardMs(): number {
+    return this.at === 'aftermath' ? this.inStep - this.awardAt : -Infinity;
+  }
+
   /** How long the current step lasts and what follows it; null for a step time does not end. */
   private timed(): { ms: number; next: BossStep } | null {
+    const timed = this.baseTimed();
+    return timed && { ms: Math.max(timed.ms, this.held), next: timed.next };
+  }
+
+  private baseTimed(): { ms: number; next: BossStep } | null {
     switch (this.at) {
       case 'hush':
         return { ms: HUSH_MS, next: 'entrance' };
@@ -450,7 +482,7 @@ export class BossState {
       case 'finale':
         return { ms: this.deathMs, next: 'aftermath' };
       case 'aftermath':
-        return { ms: AFTERMATH_MS, next: 'done' };
+        return { ms: this.awardAt + AFTERMATH_MS, next: 'done' };
       case 'fight':
       case 'done':
         return null;
@@ -460,6 +492,8 @@ export class BossState {
   private enter(step: BossStep): BossEvent {
     this.at = step;
     this.inStep = 0;
+    this.held = 0;
+    this.awardAt = 0;
     return { type: 'step', step };
   }
 

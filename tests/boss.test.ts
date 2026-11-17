@@ -242,6 +242,28 @@ describe('BossState flow', () => {
     expect(t.stepMs).toBe(5);
   });
 
+  it('holds a step until a sound it played has rung out, then starts the next with no hold', () => {
+    const s = intro();
+    s.tick(HUSH_MS, false);
+    s.holdUntil(ENTRANCE_MS + 3000);
+    expect(s.stepLength).toBe(ENTRANCE_MS + 3000);
+    expect(s.tick(ENTRANCE_MS + 2999, false)).toEqual([]);
+    expect(s.step).toBe('entrance');
+    expect(s.tick(1, false)).toEqual([step('reveal')]);
+    expect(s.stepLength).toBe(REVEAL_MS);
+    expect(s.tick(REVEAL_MS, false)).toEqual([step('fight')]);
+  });
+
+  it('never shortens a step with a hold', () => {
+    const s = intro();
+    s.tick(HUSH_MS, false);
+    s.holdUntil(ENTRANCE_MS + 500);
+    s.holdUntil(10);
+    expect(s.stepLength).toBe(ENTRANCE_MS + 500);
+    s.holdUntil(Number.NaN);
+    expect(s.stepLength).toBe(ENTRANCE_MS + 500);
+  });
+
   it('enters and leaves a zero-length entrance in one tick', () => {
     const s = intro({ phases: [{ hits: 12 }] });
     expect(s.tick(HUSH_MS - 1, false)).toEqual([]);
@@ -361,6 +383,38 @@ describe('BossState flow', () => {
     expect(s.step).toBe('done');
     // The end is reported once: time passing after the tap has nothing more to say.
     expect(s.tick(AFTERMATH_MS, true)).toEqual([]);
+  });
+
+  it('puts the award off for the ending phrase, counting its guard and its time from when it goes up', () => {
+    const s = live(2);
+    s.damage(20);
+    s.tick(DEATH_MS, true);
+    s.delayAward(11_000);
+    expect(s.awardMs).toBe(-11_000);
+    s.tick(11_000 + AWARD_GUARD_MS - 1, true);
+    expect(s.awardMs).toBe(AWARD_GUARD_MS - 1);
+    expect(s.skip()).toEqual([]);
+    s.tick(1, true);
+    expect(s.skip()).toEqual([step('done')]);
+
+    const t = live(2);
+    t.damage(20);
+    t.tick(DEATH_MS, true);
+    t.delayAward(11_000);
+    t.delayAward(5);
+    expect(t.stepLength).toBe(11_000 + AFTERMATH_MS);
+    expect(t.tick(11_000 + AFTERMATH_MS - 1, true)).toEqual([]);
+    expect(t.tick(1, true)).toEqual([step('done')]);
+  });
+
+  it('only puts the award off in the aftermath', () => {
+    const s = live(2);
+    s.delayAward(5000);
+    expect(s.awardMs).toBe(-Infinity);
+    s.damage(20);
+    s.tick(DEATH_MS, true);
+    expect(s.awardMs).toBe(0);
+    expect(s.stepLength).toBe(AFTERMATH_MS);
   });
 
   it('ends the award by itself when nobody taps', () => {

@@ -25,7 +25,7 @@ pnpm dev          # http://localhost:5173
 | `pnpm desktop:dev`  | Electron window on the Vite dev server, with hot reload      |
 | `pnpm desktop:dist` | Build the desktop app and package installers into `release/` |
 
-In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. The Phaser game is also available as `window.game` in the browser console:
+In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=5` plays the campaign's boss stop after level 5 (the Warden). The Phaser game is also available as `window.game` in the browser console:
 
 ```js
 game.scene.getScene('Title').scene.start('Play', { index: 24 });
@@ -157,14 +157,16 @@ python3 scripts/process-logo.py concept-2-shattered
 
 Arcade plays generated levels instead of the campaign. Pick a loop and a goal on the Arcade screen:
 
-- **Waves:** clear a generated board and a harder one drops in. **Descent:** rows keep pushing down from the top, and a brick crossing the danger line costs a life.
+- **Waves:** clear a generated board and a harder one drops in. **Descent:** rows keep pushing down from the top, and a brick crossing the danger line costs a life. A row comes every 4.2 s at tier 1, 0.2 s sooner each tier down to 1.8 s, and faster still while the field is thin (down to 30% of that when it is nearly empty). Clearing the field pays a bonus once and rushes 4 rows back in.
+- **Bosses:** every fifth wave or tier (5, 10, 15, …) is a boss fight in a dark, empty arena. In Descent the formation is cleared for it and rushes back in after. The run clock stops during the fight. The bosses take turns in a fixed order (only the Warden exists so far).
+- **Lights out:** from round 3 on, about one round in four (never a boss round) goes dark after showing its layout for 1.5 s. Which rounds go dark depends only on the seed.
 - **Endless** (until out of lives), **Rounds** (10) or **Timed** (3 minutes; in Waves each clear adds 15 seconds).
 
 Boards come from a seeded generator (`src/core/procgen/`) that unlocks mechanics in the same order as the campaign and checks every board against the campaign's rules: reachable bricks, bounded explosion chains, small regen clusters and safe movers. The same seed always gives the same run, and the results screen can replay it. The design, tuning values and roadmap are in [docs/procedural-mode.md](docs/procedural-mode.md).
 
 ## Editing levels with Tiled
 
-Levels are [Tiled](https://www.mapeditor.org) maps in `public/assets/levels/*.tmj`, listed in order in `public/assets/levels/index.json`. They share the external tileset `public/assets/tilesets/bricks.tsj`.
+Levels are [Tiled](https://www.mapeditor.org) maps in `public/assets/levels/*.tmj`, listed in order in `public/assets/levels/index.json`. They share the external tileset `public/assets/tilesets/bricks.tsj`. The index's `bosses` list puts a boss stop on the world map after a level (`{"after": 5, "map": "boss05.tmj"}`); the map names its boss, and the next level opens once that boss is beaten.
 
 1. Open `superbreaker.tiled-project` in Tiled. It defines the custom property types used below.
 2. Duplicate an existing level (for example `level24.tmj`), place bricks as tile objects on an object layer, and add the file to `index.json`.

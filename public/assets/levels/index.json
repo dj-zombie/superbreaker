@@ -30,5 +30,11 @@
     "level28.tmj",
     "level29.tmj",
     "level30.tmj"
+  ],
+  "bosses": [
+    {
+      "after": 5,
+      "map": "boss05.tmj"
+    }
   ]
 }

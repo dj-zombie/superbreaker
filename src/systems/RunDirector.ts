@@ -1,11 +1,16 @@
 import Phaser from 'phaser';
 import { ARENA_MID, LEVEL_OFFSET_Y, WIDTH } from '../config';
-import { LEVEL_LIGHTING_DEFAULTS } from '../core/Lighting';
+import { LEVEL_LIGHTING_DEFAULTS, type LevelLightingSpec } from '../core/Lighting';
+import { hashSeed } from '../core/Rng';
 import {
   BREACH_ROWS,
+  DESCENT_RUSH_ROWS,
   DESCENT_START_ROWS,
   RunState,
   WAVE_CLEAR_BONUS,
+  descentStepMs,
+  isBossTier,
+  isDarkTier,
   type RunConfig,
   type RunProgress,
 } from '../core/Run';
@@ -41,6 +46,10 @@ export interface RunHost {
   endRun(): void;
   /** HUD label; a null detail shows the bricks left. */
   setLabel(title: string, detail: string | null): void;
+  /** The room's light changes for the next round: lights out, or back on. */
+  relook(lighting: LevelLightingSpec): void;
+  /** A boss fight begins on the field as it stands. Its plans draw from `seed`. */
+  startBoss(tier: number, seed: number): void;
 }
 
 const MECHANIC_NAMES: Record<Mechanic, string> = {
@@ -55,6 +64,15 @@ const WAVE_GAP_MS = 900;
 const STEP_TWEEN_MS = 260;
 /** Rows of warning above the danger line. */
 const DANGER_ROWS = 4;
+/** Descent: ms between the rows rushed in after a clear, on top of each step's own tween. */
+const RUSH_STEP_MS = 120;
+/** A dark round shows its layout this long, in seconds, before the lights go. */
+const DARK_PREVIEW_S = 1.5;
+
+const LIT: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS };
+const DARK: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS, lightsOut: true, previewTime: DARK_PREVIEW_S };
+/** A boss round is lit the way the boss lab is: lights out, with lightning. */
+const BOSS_ROOM: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS, lightsOut: true, lightning: true };
 
 /** Runs an Arcade run inside Play: wave transitions, Descent steps, the clock and the end. */
 export class RunDirector {
@@ -67,10 +85,16 @@ export class RunDirector {
   private chunkIndex = 0;
   private sinceStepMs = 0;
   private stepping = false;
-  /** Field clear: rows are being fed in early. */
-  private feeding = false;
+  /** Rows still to rush in, one right after another, after a clear. */
+  private rush = 0;
+  /** Bricks on the field when the run began: what a full field holds. */
+  private fullCount = 1;
   /** Field clear: the bonus is paid once until bricks are back. */
   private clearPaid = false;
+  /** A boss fight has the field: no steps, no clock, no danger line. */
+  private bossing = false;
+  /** How the room is lit now, so a round that keeps the light leaves it alone. */
+  private room: LevelLightingSpec = LIT;
   /** Screen y of brick row 0, captured at the start so a resize can't misalign new rows. */
   private top = LEVEL_OFFSET_Y;
   private danger?: Phaser.GameObjects.Rectangle;
@@ -115,25 +139,54 @@ export class RunDirector {
   attach(host: RunHost): void {
     this.host = host;
     this.top = LEVEL_OFFSET_Y;
+    this.fullCount = Math.max(1, host.bricks.remaining);
     host.setTier(this.state.tier);
     if (this.descent) this.makeDangerLine(host.scene);
+    this.refreshLabel();
+  }
+
+  /** The boss's award is over: Waves counts the wave as cleared, Descent rushes rows back in. */
+  onBossDefeated(): void {
+    const host = this.host;
+    if (!host || !this.bossing) return;
+    this.bossing = false;
+    if (!this.descent) {
+      this.waveCleared(host);
+      return;
+    }
+    this.light(host, this.state.tier);
+    host.rearm();
+    // The boss left an empty field: the rows come straight back, and the clear pays nothing.
+    this.clearPaid = true;
+    this.rush = DESCENT_RUSH_ROWS;
+    this.sinceStepMs = 0;
+    this.announce(host, `TIER ${this.state.tier}`, { tierUp: true, extraLife: false });
     this.refreshLabel();
   }
 
   update(dt: number): void {
     const host = this.host;
     if (!host || !this.state.playing) return;
-    const live = host.ballInPlay() && !this.between;
+    // A boss fight stops the clock: it is a round of its own, not time taken from the run.
+    const live = host.ballInPlay() && !this.between && !this.bossing;
     if (live) this.state.tick(dt);
     if (!this.state.playing) {
       host.endRun();
       return;
     }
-    if (this.descent) {
+    if (this.descent && !this.bossing) {
       if (this.clearPaid && host.bricks.remaining > 0) this.clearPaid = false;
-      if (live && !this.stepping) {
+      // Rows rushed in after a clear come whether or not a ball is in play.
+      if ((live || this.rush > 0) && !this.stepping) {
         this.sinceStepMs += dt;
-        if (this.sinceStepMs >= this.state.stepMs) this.step();
+        const due =
+          this.rush > 0
+            ? RUSH_STEP_MS
+            : descentStepMs(this.state.tier, host.bricks.remaining / this.fullCount);
+        if (this.sinceStepMs >= due) {
+          if (this.rush > 0) this.rush--;
+          this.step();
+        }
       }
       this.drawDanger();
     }
@@ -180,11 +233,61 @@ export class RunDirector {
     if (!this.state.playing) return;
     const tier = this.state.tier;
     host.setTier(tier);
+    if (isBossTier(tier)) {
+      // The boss's wave is an empty arena: the boss brings its own bricks.
+      host.bricks.load(this.arena(tier));
+      host.bricksAdded(host.bricks.bricks, true);
+      this.between = false;
+      this.bossRound(host);
+      return;
+    }
+    this.light(host, tier);
     host.bricks.load(this.board(tier));
     host.bricksAdded(host.bricks.bricks, true);
     this.between = false;
     this.announce(host, `WAVE ${tier}`, progress);
     this.refreshLabel();
+  }
+
+  /** A level with no bricks, lit like a boss's room, for the wave a boss fights in. */
+  private arena(tier: number): LevelSpec {
+    return {
+      id: `arcade-${this.config.seed.toString(36)}-boss-${tier}`,
+      title: 'Boss',
+      bricks: [],
+      lights: [],
+      lighting: { ...BOSS_ROOM },
+    };
+  }
+
+  /** The field goes to a boss: the lights go out and the fight begins with the ball held. */
+  private bossRound(host: RunHost): void {
+    this.bossing = true;
+    this.rush = 0;
+    this.danger?.setAlpha(0);
+    this.dangerGlow?.setAlpha(0);
+    // Descent's formation goes; a boss needs the field to itself.
+    if (this.descent) host.bricks.shatterBelow(-Infinity);
+    this.relight(host, BOSS_ROOM);
+    host.rearm();
+    this.refreshLabel();
+    const tier = this.state.tier;
+    host.startBoss(tier, hashSeed(this.config.seed, 'boss', tier));
+  }
+
+  /** Lights the room for a round: out on the seed's dark rounds, on otherwise. */
+  private light(host: RunHost, tier: number): void {
+    const dark = isDarkTier(this.config.seed, tier);
+    if (dark && this.room !== DARK) {
+      host.juice.popText(WIDTH / 2, ARENA_MID + 70, 'LIGHTS OUT', '#9fb4ff', 22);
+    }
+    this.relight(host, dark ? DARK : LIT);
+  }
+
+  private relight(host: RunHost, room: LevelLightingSpec): void {
+    if (room === this.room) return;
+    this.room = room;
+    host.relook(room);
   }
 
   /** Tier banner, plus the mechanic it unlocks and any extra life. */
@@ -239,8 +342,14 @@ export class RunDirector {
         return;
       }
       if (progress.tierUp) {
-        this.announce(host, `TIER ${this.state.tier}`, progress);
         host.setTier(this.state.tier);
+        // The extra life a boss tier could bring comes with the tier after it, never on one.
+        if (isBossTier(this.state.tier)) {
+          this.bossRound(host);
+          return;
+        }
+        this.announce(host, `TIER ${this.state.tier}`, progress);
+        this.light(host, this.state.tier);
       }
       this.checkBreach(host);
     });
@@ -257,9 +366,9 @@ export class RunDirector {
     host.breach();
   }
 
-  /** Clearing the whole field pays out and brings rows in right away. */
+  /** Clearing the whole field pays out and rushes rows straight back in. */
   private descentEmpty(): void {
-    if (this.stepping || this.feeding) return;
+    if (this.bossing || this.rush > 0) return;
     const host = this.host!;
     if (!this.clearPaid) {
       this.clearPaid = true;
@@ -274,11 +383,8 @@ export class RunDirector {
       );
       audio.sfx('field_clear', 0.5);
     }
-    this.feeding = true;
-    host.scene.time.delayedCall(400, () => {
-      this.feeding = false;
-      if (this.state.playing && !this.stepping) this.step();
-    });
+    this.rush = DESCENT_RUSH_ROWS;
+    this.sinceStepMs = 0;
   }
 
   private makeDangerLine(scene: Phaser.Scene): void {
@@ -295,7 +401,7 @@ export class RunDirector {
 
   /** The line glows harder as the formation closes in. */
   private drawDanger(): void {
-    if (!this.danger || !this.dangerGlow || !this.host) return;
+    if (!this.danger || !this.dangerGlow || !this.host || this.bossing) return;
     const gap = this.dangerY - this.host.bricks.lowestBottom();
     const near = Phaser.Math.Clamp(1 - gap / (DANGER_ROWS * BH), 0, 1);
     this.near = near;

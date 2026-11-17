@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import {
   AFTERMATH_MS,
+  AWARD_BREAK_MS,
   AWARD_GUARD_MS,
   AWARD_TROPHY_MS,
   BODY_MAX_SPEED,
@@ -16,7 +17,7 @@ import {
   LETHAL_GAP_MS,
   MAX_HAZARDS,
   REVEAL_MS,
-  STINGER_MS,
+  MUSIC_LEAD_MS,
   envelope,
   hitsFor,
   letterbox,
@@ -246,7 +247,7 @@ export interface BossHost {
   addCoins(n: number): void;
   /** HUD label; a null detail shows the bricks left. */
   setLabel(title: string, detail: string | null): void;
-  /** The boss is dead and the level is won. */
+  /** The boss is dead and its award is over: the level is won, or the Arcade run goes on. */
   defeated(): void;
   /** The health bar. Null takes it down. */
   setHud(view: BossHud | null): void;
@@ -402,6 +403,10 @@ export class BossDirector implements BrickOwner {
   private readonly look: Shot = { zoom: 1, x: 0, y: 0 };
   /** The award's chime has played. */
   private chimed = false;
+  /** Aftermath time the calm track comes in: once the award's chime has rung out. */
+  private calmAt = Infinity;
+  /** How long the title's sound is heard, in ms. The boss track waits for it. */
+  private titleMs = 0;
   /** The key light of the reveal, until the fight begins. */
   private spot?: Light;
   /** Phases whose setup has run, counted from the first. */
@@ -509,13 +514,13 @@ export class BossDirector implements BrickOwner {
       case 'finale':
         return null;
       case 'reveal':
-        return 'rise';
+        return this.state.stepMs < this.titleMs ? null : 'rise';
       case 'fight':
       case 'transition':
         return this.intensity();
       case 'aftermath':
-        // The ending phrase has the silence to itself before the calm comes in.
-        return this.state.stepMs < STINGER_MS ? null : 'rest';
+        // The ending phrase, then the award's chime, each have the silence to themselves first.
+        return this.state.stepMs < this.calmAt ? null : 'rest';
       case 'done':
         return 'rest';
     }
@@ -605,13 +610,15 @@ export class BossDirector implements BrickOwner {
     if (this.over) return;
     // A scene that began in this update has run only for what the step had left over.
     if (this.playing !== before) this.runCues(state.stepMs);
+    // The title's sound must start in quiet, so the entrance waits for its own sounds to ring out.
+    if (state.step === 'entrance') state.holdUntil(state.stepMs + audio.ringingMs());
     // Hazards keep the attack's time: like its windows, they wait while no ball is in play.
     // Last of the state changes, since a skull that lands comes back in through onLifeLost.
     if (state.step === 'fight' && inPlay) this.hazards.update(tick);
     const body = this.cast?.body;
     if (body) {
       // A step with no length is passed straight through, so an entrance seen here has one.
-      if (state.step === 'entrance') body.arrive(state.stepMs / this.entranceMs);
+      if (state.step === 'entrance') body.arrive(Math.min(1, state.stepMs / this.entranceMs));
       // Balls hang still while play is frozen, so the body holds still too and cannot cover one.
       const speed = this.frozen ? 0 : inPlay ? BODY_MAX_SPEED : BODY_SCENE_SPEED;
       body.move(this.offset(), (speed * tick) / 1000);
@@ -684,6 +691,10 @@ export class BossDirector implements BrickOwner {
         this.card.kicker = this.def.epithet ?? theme().name;
         this.card.name = this.def.name;
         audio.sfx(TITLE_SFX, 0.6);
+        // The boss track comes in once the title's sound is over, and plays a while before the fight.
+        this.titleMs = audio.heardMs(TITLE_SFX);
+        this.state.holdUntil(this.titleMs + MUSIC_LEAD_MS);
+        this.card.holdMs = this.state.stepLength - CARD_LEAD_MS;
         this.label();
         this.veiled = false;
         this.spotlight();
@@ -860,9 +871,12 @@ export class BossDirector implements BrickOwner {
     this.host.addScore(BOSS_DEFEAT_BONUS);
     this.host.addCoins(BOSS_DEFEAT_COINS);
     audio.bossStinger();
+    // The ending phrase, and whatever the death scene left ringing, is heard on its own first.
+    this.state.delayAward(audio.ringingMs() + AWARD_BREAK_MS);
     this.prize.name = this.def.name;
     this.prize.trophy = this.def.trophy ?? null;
     this.chimed = false;
+    this.calmAt = Infinity;
   }
 
   /** Starts a cutscene. A boss that has none for this moment shows nothing. */
@@ -924,15 +938,17 @@ export class BossDirector implements BrickOwner {
     } else {
       c.title = null;
     }
-    if (step === 'aftermath') {
+    const shown = state.awardMs;
+    if (shown >= 0) {
       const prize = this.prize;
-      prize.ms = stepMs;
-      prize.ready = stepMs >= AWARD_GUARD_MS;
-      prize.left = 1 - stepMs / AFTERMATH_MS;
+      prize.ms = shown;
+      prize.ready = shown >= AWARD_GUARD_MS;
+      prize.left = 1 - shown / AFTERMATH_MS;
       c.award = prize;
-      if (!this.chimed && stepMs >= AWARD_TROPHY_MS) {
+      if (!this.chimed && shown >= AWARD_TROPHY_MS) {
         this.chimed = true;
         audio.sfx(AWARD_SFX, 0.5);
+        this.calmAt = stepMs + audio.ringingMs();
       }
     } else {
       c.award = null;

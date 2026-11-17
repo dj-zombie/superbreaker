@@ -210,6 +210,11 @@ export function levelId(index: number): string {
   return `level${String(index).padStart(2, '0')}`;
 }
 
+/** The save key of the boss stop after level `after`, kept in `levels` beside the levels. */
+export function bossStopId(after: number): string {
+  return `boss${String(after).padStart(2, '0')}`;
+}
+
 export class SaveStore {
   private data: SaveData = defaultSave();
   private writeChain: Promise<void> = Promise.resolve();
@@ -326,9 +331,25 @@ export class SaveStore {
     return 'ok';
   }
 
-  /** Records a cleared level; returns true if it is a new best score. */
-  recordWin(index: number, stars: number, score: number, totalLevels: number): boolean {
-    const id = levelId(index);
+  /**
+   * Records a cleared level; returns true if it is a new best score. `gated` holds the next level
+   * shut behind a boss stop that is still unbeaten.
+   */
+  recordWin(index: number, stars: number, score: number, totalLevels: number, gated = false): boolean {
+    return this.record(levelId(index), stars, score, gated ? index : index + 1, totalLevels);
+  }
+
+  /** Records a beaten boss stop and opens the level after it; true if it is a new best score. */
+  recordBoss(after: number, stars: number, score: number, totalLevels: number): boolean {
+    return this.record(bossStopId(after), stars, score, after + 1, totalLevels);
+  }
+
+  /** The boss stop after level `after` has been beaten. */
+  bossBeaten(after: number): boolean {
+    return !!this.data.levels[bossStopId(after)];
+  }
+
+  private record(id: string, stars: number, score: number, unlock: number, totalLevels: number): boolean {
     const prev = this.data.levels[id] ?? { stars: 0, bestScore: 0 };
     const isBest = score > prev.bestScore;
     this.update((d) => {
@@ -336,14 +357,15 @@ export class SaveStore {
         stars: Math.max(prev.stars, clamp(stars, 0, 3)),
         bestScore: Math.max(prev.bestScore, score),
       };
-      d.unlocked = Math.min(totalLevels, Math.max(d.unlocked, index + 1));
+      d.unlocked = Math.min(totalLevels, Math.max(d.unlocked, unlock));
     });
     return isBest;
   }
 
-  /** Campaign levels cleared with at least one star. */
+  /** Campaign levels cleared with at least one star. Boss stops are not levels. */
   clearedCount(): number {
-    return Object.values(this.data.levels).filter((l) => l.stars > 0).length;
+    return Object.entries(this.data.levels).filter(([id, l]) => id.startsWith('level') && l.stars > 0)
+      .length;
   }
 
   /** Nobody has played on this save: nothing cleared or unlocked, and no tutorial seen or skipped. */

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { worldForLevel } from '../art/backdrops';
 import { HEIGHT, SAFE_TOP, SCENES, STAGE_W, WIDTH } from '../config';
+import { stepKey, type CampaignStep } from '../core/Campaign';
 import { randomSeed } from '../core/Rng';
 import { GOAL_LABELS, LOOP_LABELS, reachLabel } from '../core/Run';
 import { runCarry } from '../core/Session';
@@ -69,8 +70,7 @@ export class Results extends Overlay {
     // Coins already earned are in the balance; the pill starts below and counts up as they land.
     this.coins = new CurrencyPill(this, WIDTH - 16, SAFE_TOP + 36, save.state.coins - d.coinsEarned).setDepth(20);
 
-    const total = this.levels.length;
-    const hasNext = d.index < total;
+    const hasNext = !!d.next;
     const cy = HEIGHT / 2 - 20;
     const root = this.add.container(WIDTH / 2, cy);
     root.add(framePanel(this, 0, 0, PANEL_W, PANEL_H, t, { ornament: true }));
@@ -78,7 +78,8 @@ export class Results extends Overlay {
     root.setAlpha(0).setScale(0.92);
     this.tweens.add({ targets: root, alpha: 1, scale: 1, duration: 320, ease: 'Back.Out' });
 
-    const title = d.run ? runHeading(d.run) : d.win ? (hasNext ? 'Level clear' : 'All clear') : 'Game over';
+    const cleared = d.stop ? 'Boss beaten' : 'Level clear';
+    const title = d.run ? runHeading(d.run) : d.win ? (hasNext ? cleared : 'All clear') : 'Game over';
     const head = heading(this, 0, top + 62, title, 52, lost ? { color: css(t.palette.danger) } : {});
     root.add(head);
     slam(this, head, {
@@ -127,7 +128,7 @@ export class Results extends Overlay {
     const best = label(this, 0, y + 44, d.isBest ? '' : `Best ${d.bestScore.toLocaleString()}`, 13);
     root.add(best);
 
-    const buttons = this.buttons(root, top + PANEL_H - 130, hasNext, lost);
+    const buttons = this.buttons(root, top + PANEL_H - 130, lost);
     cascade(this, buttons, { delay: tallyDelay + 300, stagger: 70 });
     this.events.on(Phaser.Scenes.Events.RESUME, () => this.coins.refresh());
   }
@@ -185,7 +186,7 @@ export class Results extends Overlay {
     root.add(label(this, 0, y + 50, `Seed ${seedLabel(run.config.seed)}`, 11, { color: t.palette.textDim }));
   }
 
-  private buttons(root: Phaser.GameObjects.Container, y: number, hasNext: boolean, lost: boolean): Button[] {
+  private buttons(root: Phaser.GameObjects.Container, y: number, lost: boolean): Button[] {
     const d = this.result;
     const small = { width: 156, height: 50, fontSize: 16, variant: 'secondary' as const };
     let main: Button;
@@ -196,19 +197,20 @@ export class Results extends Overlay {
       root.add(new Button(this, -170, y + 82, 'Menu', () => this.goArcade(), { ...small, icon: 'home' }));
       root.add(new Button(this, 170, y + 82, 'Same seed', () => this.goRun(run, run.config.seed), small));
     } else {
-      const next = d.win && hasNext;
+      const next = d.win ? d.next : undefined;
+      const here: CampaignStep = { index: d.index, stop: d.stop };
       main = new Button(
         this,
         0,
         y,
-        next ? 'Next level' : d.win ? 'Play again' : 'Retry',
-        () => this.goPlay(next ? d.index + 1 : d.index),
+        next ? (next.stop ? 'Boss fight' : 'Next level') : d.win ? 'Play again' : 'Retry',
+        () => this.goPlay(next ?? here),
         { width: 320, height: 70, hero: true, icon: next ? 'next' : 'retry', variant: lost ? 'danger' : 'primary' },
       );
       root.add(main);
       root.add(new Button(this, -170, y + 82, 'Map', () => this.goLevels(), { ...small, icon: 'grid' }));
       root.add(
-        new Button(this, 170, y + 82, d.win ? 'Replay' : 'Menu', () => (d.win ? this.goPlay(d.index) : this.goLevels()), small),
+        new Button(this, 170, y + 82, d.win ? 'Replay' : 'Menu', () => (d.win ? this.goPlay(here) : this.goLevels()), small),
       );
     }
     root.add(new Button(this, 0, y + 82, 'Armory', () => this.openChild(SCENES.upgrades), { ...small, icon: 'armory' }));
@@ -240,9 +242,12 @@ export class Results extends Overlay {
     transitionTo(this, SCENES.arcadeSelect, undefined, { stop: [SCENES.play, SCENES.hud] });
   }
 
-  private goPlay(index: number): void {
-    if (!(this.result.win && index === this.result.index + 1)) runCarry.discard();
-    void this.adBreak(() => transitionTo(this, SCENES.play, { index }, { stop: [SCENES.hud] }));
+  private goPlay(step: CampaignStep): void {
+    // Abilities staged by the win wait only for the step it leads to.
+    const next = this.result.win ? this.result.next : undefined;
+    if (!next || stepKey(step) !== stepKey(next)) runCarry.discard();
+    const data = { index: step.index, stop: step.stop };
+    void this.adBreak(() => transitionTo(this, SCENES.play, data, { stop: [SCENES.hud] }));
   }
 
   private goLevels(): void {

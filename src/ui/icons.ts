@@ -103,6 +103,29 @@ const GLYPHS: Record<string, (ctx: Ctx) => void> = {
     c.fill();
     c.globalCompositeOperation = 'source-over';
   },
+  skull: (c) => {
+    c.beginPath();
+    c.arc(32, 28, 21, Math.PI * 0.85, Math.PI * 2.15);
+    c.lineTo(46, 50);
+    c.lineTo(18, 50);
+    c.closePath();
+    c.fill();
+    c.fillRect(22, 48, 20, 10);
+    c.globalCompositeOperation = 'destination-out';
+    c.beginPath();
+    c.arc(24, 30, 6.5, 0, Math.PI * 2);
+    c.arc(40, 30, 6.5, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.moveTo(32, 36);
+    c.lineTo(28, 43);
+    c.lineTo(36, 43);
+    c.closePath();
+    c.fill();
+    c.fillRect(27.5, 50, 2.5, 8);
+    c.fillRect(34, 50, 2.5, 8);
+    c.globalCompositeOperation = 'source-over';
+  },
   campaign: (c) => {
     c.fillRect(14, 8, 5, 50);
     c.beginPath();

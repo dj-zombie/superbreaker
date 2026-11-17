@@ -48,3 +48,28 @@ export function variation(key: string, rand: () => number = Math.random): Variat
     volume: MIN_VOLUME + rand() * (1 - MIN_VOLUME),
   };
 }
+
+/** A sound is heard until its last sample this loud (-30 dB of full scale); after that is a tail nobody notices. */
+export const AUDIBLE_FLOOR = 10 ** (-30 / 20);
+/** The floor as a sample holds it, so a sample stored at the floor counts as heard. */
+const SAMPLE_FLOOR = Math.fround(AUDIBLE_FLOOR);
+
+/** How long a recording is heard for, in ms: up to its last sample at AUDIBLE_FLOOR or louder. */
+export function audibleMs(channels: readonly Float32Array[], sampleRate: number): number {
+  if (!(sampleRate > 0)) return 0;
+  let last = -1;
+  for (const data of channels) {
+    for (let i = data.length - 1; i > last; i--) {
+      if (Math.abs(data[i]!) >= SAMPLE_FLOOR) {
+        last = i;
+        break;
+      }
+    }
+  }
+  return ((last + 1) / sampleRate) * 1000;
+}
+
+/** How long a sound heard for `ms` at its own pitch is heard for when played `detune` cents off. */
+export function detunedMs(ms: number, detune: number): number {
+  return ms / 2 ** (detune / 1200);
+}

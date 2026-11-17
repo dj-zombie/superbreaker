@@ -76,7 +76,7 @@ export class Pause extends Overlay {
     };
     add('Resume', () => this.close(), 'primary', 'play');
     add(run ? 'New run' : 'Restart', () => {
-      const data = run ? { run: { ...run, seed: randomSeed() } } : { index: play.levelIndex };
+      const data = run ? { run: { ...run, seed: randomSeed() } } : play.campaignStep;
       transitionTo(this, SCENES.play, data);
     }, 'secondary', 'retry');
     add('Armory', () => this.openChild(SCENES.upgrades), 'secondary', 'armory');

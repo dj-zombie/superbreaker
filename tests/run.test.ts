@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { DIFFICULTY } from '../src/core/Difficulty';
 import {
+  BOSS_EVERY_TIERS,
+  DARK_CHANCE,
+  DARK_FROM_TIER,
   DEFAULT_ROUNDS,
   DEFAULT_TIME_MS,
+  DESCENT_CATCH_UP,
+  DESCENT_FIRST_STEP_MS,
+  DESCENT_MIN_STEP_MS,
   DESCENT_ROWS_PER_TIER,
   ONE_HIT_TIERS,
   RunState,
   WAVE_TIME_BONUS_MS,
   descentStepMs,
+  isBossTier,
+  isDarkTier,
   goalFor,
   reachLabel,
   runHitDamage,
@@ -93,9 +101,54 @@ describe('RunState: Descent', () => {
   });
 
   it('steps faster each tier down to a floor', () => {
-    expect(descentStepMs(1)).toBe(9000);
+    expect(descentStepMs(1)).toBe(DESCENT_FIRST_STEP_MS);
     expect(descentStepMs(2)).toBeLessThan(descentStepMs(1));
-    expect(descentStepMs(100)).toBe(3500);
+    expect(descentStepMs(100)).toBe(DESCENT_MIN_STEP_MS);
+  });
+
+  it('opens with a row every few seconds, so a tier of rows takes under a minute', () => {
+    expect(descentStepMs(1) * DESCENT_ROWS_PER_TIER).toBeLessThan(60_000);
+  });
+
+  it('steps sooner while the field is thin, down to a share of the full wait', () => {
+    expect(descentStepMs(1, 1)).toBe(descentStepMs(1));
+    expect(descentStepMs(1, 2)).toBe(descentStepMs(1));
+    expect(descentStepMs(1, 0.5)).toBe(descentStepMs(1) * 0.5);
+    expect(descentStepMs(1, 0)).toBe(descentStepMs(1) * DESCENT_CATCH_UP);
+    expect(descentStepMs(100, 0)).toBe(DESCENT_MIN_STEP_MS * DESCENT_CATCH_UP);
+  });
+});
+
+describe('Arcade boss and dark rounds', () => {
+  it('makes every fifth tier a boss round, and no other', () => {
+    const bosses = Array.from({ length: 30 }, (_, i) => i + 1).filter(isBossTier);
+    expect(bosses).toEqual([5, 10, 15, 20, 25, 30]);
+    expect(BOSS_EVERY_TIERS).toBe(5);
+    expect(isBossTier(0)).toBe(false);
+  });
+
+  it('never goes dark before DARK_FROM_TIER or on a boss round', () => {
+    for (let seed = 0; seed < 50; seed++) {
+      for (let tier = 1; tier < DARK_FROM_TIER; tier++) expect(isDarkTier(seed, tier)).toBe(false);
+      for (let tier = BOSS_EVERY_TIERS; tier <= 60; tier += BOSS_EVERY_TIERS) {
+        expect(isDarkTier(seed, tier)).toBe(false);
+      }
+    }
+  });
+
+  it('goes dark on about DARK_CHANCE of the other rounds, the same way for the same seed', () => {
+    let dark = 0;
+    let rounds = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      for (let tier = DARK_FROM_TIER; tier < 40; tier++) {
+        if (isBossTier(tier)) continue;
+        rounds++;
+        if (isDarkTier(seed, tier)) dark++;
+        expect(isDarkTier(seed, tier)).toBe(isDarkTier(seed, tier));
+      }
+    }
+    expect(dark / rounds).toBeGreaterThan(DARK_CHANCE - 0.05);
+    expect(dark / rounds).toBeLessThan(DARK_CHANCE + 0.05);
   });
 });
 

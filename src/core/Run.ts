@@ -1,5 +1,6 @@
 import { scaleSpeeds, type DifficultyConfig } from './Difficulty';
 import { tierParams } from './procgen/curve';
+import { hashSeed, Rng } from './Rng';
 
 export const RUN_LOOPS = ['waves', 'descent'] as const;
 export type RunLoop = (typeof RUN_LOOPS)[number];
@@ -60,9 +61,50 @@ export function reachLabel(loop: RunLoop, reach: number): string {
   return `${reach} ${unit}${reach === 1 ? '' : 's'}`;
 }
 
-/** Descent: time between steps. Faster each tier, with a floor. */
-export function descentStepMs(tier: number): number {
-  return Math.max(3500, 9000 - 400 * (Math.max(1, tier) - 1));
+/** Descent: ms between steps on the first tier, what each tier takes off, and the floor. */
+export const DESCENT_FIRST_STEP_MS = 4200;
+export const DESCENT_STEP_CUT_MS = 200;
+export const DESCENT_MIN_STEP_MS = 1800;
+/**
+ * Descent: a thinned field steps sooner, in proportion to the bricks left against a full one, so
+ * clearing fast brings rows in fast. A nearly empty field never steps faster than this share.
+ */
+export const DESCENT_CATCH_UP = 0.3;
+/** Descent: rows fed in one after another when the field is cleared, or a boss is beaten. */
+export const DESCENT_RUSH_ROWS = 4;
+
+/**
+ * Descent: time between steps. Faster each tier, with a floor, and faster again while the field is
+ * thin. `fill` is the bricks left over a full field's worth.
+ */
+export function descentStepMs(tier: number, fill = 1): number {
+  const base = Math.max(
+    DESCENT_MIN_STEP_MS,
+    DESCENT_FIRST_STEP_MS - DESCENT_STEP_CUT_MS * (Math.max(1, tier) - 1),
+  );
+  return base * Math.min(1, Math.max(DESCENT_CATCH_UP, fill));
+}
+
+/** Every this many rounds an Arcade run stops for a boss: on the wave in Waves, at the start of the tier in Descent. */
+export const BOSS_EVERY_TIERS = 5;
+
+/** The tier is a boss fight: Waves plays it as the wave, Descent clears the field for it. */
+export function isBossTier(tier: number): boolean {
+  return tier > 0 && tier % BOSS_EVERY_TIERS === 0;
+}
+
+/** Arcade rounds never go dark before this tier, so a run opens with the layout in view. */
+export const DARK_FROM_TIER = 3;
+/** The share of the other rounds played with the lights out. */
+export const DARK_CHANCE = 0.25;
+
+/**
+ * The round is played with the lights out: a wave in Waves, a tier in Descent. Fixed by the
+ * seed, so the same seed goes dark on the same rounds. A boss round has its own dark.
+ */
+export function isDarkTier(seed: number, tier: number): boolean {
+  if (tier < DARK_FROM_TIER || isBossTier(tier)) return false;
+  return new Rng(hashSeed(seed, 'dark', tier)).chance(DARK_CHANCE);
 }
 
 /** Early tiers keep the pace up: ball hits there deal this much more damage... */

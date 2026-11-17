@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { WORLD_IDS, worldForLevel } from '../art/backdrops';
 import { POWERUP_INFO, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
 import { DIFFICULTY } from '../core/Difficulty';
-import { levelId } from '../core/SaveStore';
+import { BOSSES } from '../bosses';
+import { stepKey, type CampaignStep } from '../core/Campaign';
 import { DIFFICULTIES, type LevelSpec } from '../core/types';
 import { save } from '../services';
 import { Button } from '../ui/Button';
@@ -19,6 +20,8 @@ import { startLevel } from './Title';
 
 interface BriefingData extends OverlayData {
   index: number;
+  /** The boss stop after level `index`. */
+  stop?: boolean;
 }
 
 const SHEET_H = 560;
@@ -27,6 +30,7 @@ const SHEET_H = 560;
 function features(spec: LevelSpec): Array<[IconName, string]> {
   const kinds = new Set(spec.bricks.map((b) => b.kind));
   const out: Array<[IconName, string]> = [];
+  if (spec.boss) out.push(['skull', BOSSES[spec.boss].name]);
   if (kinds.has('steel')) out.push(['steel', 'Steel']);
   if (kinds.has('explosive')) out.push(['tnt', 'TNT']);
   if (kinds.has('armored')) out.push(['armored', 'Armored']);
@@ -40,6 +44,7 @@ function features(spec: LevelSpec): Array<[IconName, string]> {
 /** Level details, difficulty and loadout in a sheet over the world path. */
 export class Briefing extends Overlay {
   private index = 1;
+  private stop = false;
   private t!: UiTheme;
   private sheet!: Sheet;
   private loadout?: Phaser.GameObjects.Container;
@@ -51,6 +56,7 @@ export class Briefing extends Overlay {
   override init(data: BriefingData): void {
     super.init(data);
     this.index = data.index;
+    this.stop = !!data.stop && !!this.stopAfter(data.index);
   }
 
   create(): void {
@@ -58,7 +64,8 @@ export class Briefing extends Overlay {
     this.input.enabled = true;
     const world = worldForLevel(this.index);
     const t = (this.t = useWorld(world));
-    const spec = this.levels[this.index - 1];
+    const spec = this.stop ? this.stopAfter(this.index)?.level : this.levels[this.index - 1];
+    const step: CampaignStep = { index: this.index, stop: this.stop };
     const height = SHEET_H + SAFE_BOTTOM;
     this.sheet = new Sheet(this, {
       height,
@@ -77,10 +84,11 @@ export class Briefing extends Overlay {
 
     const worldNo = WORLD_IDS.indexOf(world) + 1;
     const levelNo = ((this.index - 1) % 10) + 1;
-    add(label(this, 0, top + 52, `World ${worldNo}  ·  Level ${levelNo}`, 13, { color: css(t.palette.accentHi) }));
+    const place = this.stop ? 'Boss' : `Level ${levelNo}`;
+    add(label(this, 0, top + 52, `World ${worldNo}  ·  ${place}`, 13, { color: css(t.palette.accentHi) }));
     add(heading(this, 0, top + 90, spec?.title ?? `Level ${this.index}`, 38));
 
-    const rec = save.state.levels[levelId(this.index)];
+    const rec = save.state.levels[stepKey(step)];
     add(starRow(this, -70, top + 138, rec?.stars ?? 0, 24, 6));
     add(
       label(this, 40, top + 138, rec ? `Best ${rec.bestScore.toLocaleString()}` : 'Not cleared yet', 13, {
@@ -173,6 +181,6 @@ export class Briefing extends Overlay {
 
   private play(): void {
     this.input.enabled = false;
-    startLevel(this, this.index, [this.from]);
+    startLevel(this, { index: this.index, stop: this.stop }, [this.from]);
   }
 }

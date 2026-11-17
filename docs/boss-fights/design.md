@@ -61,7 +61,7 @@ the way the tutorial freezes play.
 | `fight` | both | live | The hint appears and the serve clock runs. Phases, attacks, openings. The track follows the phase's intensity. | a pool empties |
 | `transition` | boss | frozen | A hit-stop on the kill shot. Hazards clear. The bars close and the camera pushes in. The next phase's `enter` cutscene plays, then its `setup` runs and its pose applies. | after the cutscene's length |
 | `finale` | boss | frozen | A hit-stop, hazards clear, the music cuts dead, the bars close and the camera pushes in. The `death` animation and cutscene play. | after the cutscene's length |
-| `aftermath` | framework | frozen | Every part is retired and the arena is cleared. The ending theme plays and the award card shows the trophy, the score bonus and the coins. The level song comes back at `rest` after `STINGER_MS`. | a tap after `AWARD_GUARD_MS`, or after `AFTERMATH_MS` |
+| `aftermath` | framework | frozen | Every part is retired and the arena is cleared. The ending theme plays out alone; `AWARD_BREAK_MS` later the award card shows the trophy, the score bonus and the coins. The level song comes back at `rest` once the award's chime has rung out. | a tap `AWARD_GUARD_MS` after the award goes up, or `AFTERMATH_MS` after it |
 | `done` | | | `host.defeated()` | |
 
 A step whose length is zero is passed through without stopping. A tap during `hush`, `entrance`
@@ -595,11 +595,12 @@ Starting values. They are tuning, not truth; change them with a reason in STATUS
 | `HUSH_MS` | 1600 | Fade to black and silence before the entrance. |
 | `HUSH_DARK` | 1 | How black the HUD's curtain goes from the hush until the entrance unveils the boss. Skipped under reduced motion. |
 | `ENTRANCE_DROP` | 40 px | How far above rest the sprite starts its entrance. |
-| `REVEAL_MS` | 3600 | The title card. |
-| `AFTERMATH_MS` | 12000 | The award card goes on by itself after this. |
+| `REVEAL_MS` | 3600 | The shortest title card. It lasts the title sound's heard length plus `MUSIC_LEAD_MS` when that is longer. |
+| `MUSIC_LEAD_MS` | 1000 | The boss track plays this long after the title sound before the fight. |
+| `AFTERMATH_MS` | 12000 | The award card goes on by itself this long after it goes up. |
+| `AWARD_BREAK_MS` | 1000 | Quiet between the ending theme ringing out and the award going up. |
 | `AWARD_GUARD_MS` | 1800 | Taps are ignored this long into the award. |
-| `AWARD_TROPHY_MS` | 900 | When the trophy lands on the award card. |
-| `STINGER_MS` | 6500 | The ending theme plays alone this long before the level song returns. |
+| `AWARD_TROPHY_MS` | 900 | When the trophy lands on the award card, with its chime. The level song returns once the chime has rung out. |
 | `BARS_MS` | 450 | The letterbox bars close and open over this. |
 | `BOSS_DEFEAT_COINS` | 25 | Coins for the kill. |
 | `SKULL_POP_RADIUS` | 26 px | A free ball this close to a flying skull breaks it. |
@@ -673,6 +674,16 @@ the user after playing Phase 4 (see STATUS.md); each is one line.
   `high` sound the same. A track with a section per mood needs only a new cue sheet.
 - **The Warden grew a third phase** in Phase 5 (it had two), so that a phase scene is seen twice
   and the skull waits for the last phase.
+- **Campaign bosses are stops between levels, not levels.** After Phase 5 the user asked for the
+  Warden right after level 5. `index.json`'s `bosses` list puts a stop after a level: a skull
+  node on the world map, its own Briefing, and its own save record (`boss05`). Level numbers and
+  saves are unchanged; the next level opens once the boss is beaten.
+- **Arcade bosses in both loops.** Every fifth wave (Waves) or tier (Descent) is a boss round in
+  an empty, dark arena. Descent clears its formation for the fight and rushes rows back after.
+  The run clock stops during the fight. `BossHost.defeated` hands back to `RunDirector` instead of
+  winning the level.
+- **Lighting can change mid-scene.** `LightingSystem.relook` swaps the look between Arcade rounds,
+  for the boss room and for the dark rounds the user also asked for.
 
 ## Left out of this build
 
@@ -682,11 +693,8 @@ Listed so nobody builds them by accident. Each is a possible follow-up.
   `low`, `mid`, `high`, `rest` and the stinger. The second engine that plays it is built (see "As
   built"); what is left is the file, its cue sheet in `src/art/bossMusic.ts` and its cut in
   `scripts/build-boss-music.py`, and optionally `MusicEngine` made generic over its mood type.
-- **Arcade boss waves.** The design is agreed (every fifth tier, Waves only). It is one more work
-  order after Phase 5.
-- **Bosses in the shipped campaign.** The map property works from Phase 1. Levels 10, 20 and 30
-  get it when real bosses exist; the Warden is throwaway. A Briefing chip and a WorldPath label
-  go with that.
+- **More campaign boss stops.** The user plans one every five levels. Only the stop after level 5
+  (the Warden) is placed; the rest wait for real bosses.
 - Parts with their own health that break off; shots the paddle can bat back; shots the ball can
   pop; arena changes inside attack plans; shuffled decks.
 - Beat-synced cues, fading the HUD during cutscenes, a shadow under the sprite,
