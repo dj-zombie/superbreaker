@@ -9,7 +9,7 @@ The log for this work. Newest entries go at the bottom. Agents append; nobody re
 | 1. A boss you can kill | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
 | 2. Sprite body and HUD | pass | Claude (Cursor agent), 2026-11-16 | Claude (Cursor agent), 2026-11-16 |
 | 3. Cinematic flow | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
-| 4. Attacks | not started | | |
+| 4. Attacks | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
 | 5. Reference boss and authoring guide | not started | | |
 
 States: `not started`, `in progress`, `stopped` (needs a new agent), `blocked` (needs the user),
@@ -1140,3 +1140,299 @@ For the user
 - This origin's dev save now has a level 31 clear of 2500 and a game over from these runs.
   Reduced motion is off and music is on. The tutorial was already marked seen, from the
   implementer's check 11.
+
+## Phase 4: DONE, 2026-11-16, Claude (Cursor agent)
+
+Every build item is in and all eleven manual checks gave the expected result. Five things to
+know before reviewing:
+
+1. `pnpm test` is not green: 534 pass and 1 fails. The failure is the one Phase 3 reported,
+   `tests/skills.test.ts` > "readies the gun more often than bullet time" (`expected 6000 to be
+   less than 3000`). It is in HEAD (`3962b72`). This phase did not touch `src/core/Skills.ts`
+   or that test.
+2. I heard nothing. Every sound below is a key the code asked `audio.sfx` to play, read from
+   the page.
+3. Nobody has played it by hand. A script moved the paddle in every check. Whether the attacks
+   read well and feel fair is not established by anything below.
+4. The frame rate check cannot show a cost smaller than the display's 60 Hz cap. Both numbers
+   are 60. I added the main-thread time per frame, which is not capped.
+5. Check 10 ran 309 s of fight, stepped at 1/60 s per frame faster than real time, in three
+   runs. It was not five minutes of someone playing.
+
+Built
+- `src/core/Boss.ts`: the attack cycle in `BossState` (`window`, `attack`, the
+  `{ type: 'window' }` event, `onLifeLost`, `tick(dt, ballInPlay)`), `BossSpec.phases[].deck`
+  and `gapMs`, the plan types (`HazardSpec`, `PaddleEffect`, `AttackPlan`, `BossView`,
+  `AttackDef`), `safeGap`, `planProblems`, and the constants `MIN_WINDUP_MS`, `MIN_FLIGHT_MS`,
+  `MIN_SKULL_FLIGHT_MS`, `MAX_SKULLS`, `MAX_JAM_MS`, `REGROUP_MS`, `MAX_HAZARDS`, `SAFE_GAP`,
+  `SHOT_RADIUS`, `SKULL_RADIUS`, `LAND_MS`.
+- `src/entities/Paddle.ts`: `jam(ms)`, `jammed`, the hold and the dimming in `step`.
+- `src/art/procedural.ts`: `hazard_shot`, `hazard_skull`, `hazard_mark`, all in
+  `ALWAYS_PROCEDURAL`.
+- `src/systems/HazardSystem.ts` (new, 418 lines): `arm`, `go`, `update`, `clear`, `count`,
+  `destroy`. No physics bodies. Pooled images and rectangles. At most three lights.
+- `src/systems/BossDirector.ts`: `PhaseDef.deck` and `gapMs`, `BossHost.balls` and `hurt`, the
+  seeded `Rng`, the wind-up (`BossView`, `plan`, `planProblems` warnings in dev, the tell
+  sound), `lock`, the reticle, the `open` and `tell` animations, `onLifeLost`, `hazardCount`,
+  and `&attack=<id>`.
+- `src/scenes/Play.ts`: the seed, `LOCK_TURN`, the lock-on in `updatePacing`,
+  `boss?.onLifeLost()` and `paddle.jam(0)` in `loseLife`, two new members in `bossHost()`.
+- `src/platform/debugOverlay.ts`: the boss line gains `<window>  <attack>  hazards <n>`.
+- `src/bosses/warden.ts`: three attacks and the decks.
+- `tests/boss.test.ts`: 35 tests in three new blocks, `BossState attack cycle` (16), `safeGap`
+  (5), `planProblems` (14). 67 in the file. No earlier test was edited.
+- `tests/bosses.test.ts`: 13 tests. Six run for every boss: attack ids unique; every plan fair
+  over 5 paddle positions, 3 pool levels and 20 seeds on all three difficulties; the same seed
+  and view give the same plan; the Hard wind-up is at least `MIN_WINDUP_MS`; opening poses and
+  locks exist; tell sounds are in `AUDIO_ASSETS`. Seven are about the Warden. 30 in the file.
+
+The Warden's attacks. Times are the design's, before the difficulty's wind-up factor:
+
+| Attack | Wind-up | Live | Recover | Hazards | Tell |
+| --- | --- | --- | --- | --- | --- |
+| `volley` | 900 | 1200 | 2200 | 3 to 5 shots from `body`, 40 px apart, centred on the paddle, 70 ms apart, 800 ms flight, each jams 600 ms. 3 at a full pool, 4 from a quarter drained, 5 from three quarters. | `laser_spinup` |
+| `sweep` | 1000 | 900 | 2200 | 2 beams 190 px wide over two of the three 200 px lanes, the second 250 ms after the first, each burns 600 ms, each shrinks to 0.8. The third lane is free. | `ab_meteor_whoosh` |
+| `reaper` | 1100 | 1900 | 2200 | 1 skull from `core` at the paddle, 1800 ms flight. 2 shots from `body` 130 px either side of it (both on the open side near a wall), landing at 900 and 1300 ms, each shrinks to 0.8. | `ui_deny` |
+
+Phase 1 (`guard-up`) plays `volley`. Phase 2 (`core-exposed`) plays `sweep`, `reaper`, `volley`
+with gaps of 2000 to 1200 ms. Every attack opens with pose `open` and locks on `core`. Hazard
+counts do not change with lighting tier or difficulty.
+
+Sound keys, all in `AUDIO_ASSETS`: the three tells above; `ui_locked` (jam); `sfx_smaller`
+(shrink); `ab_blackhole_open` (skull leaves); `breach` (skull hits), after which `loseLife`
+plays its own `death`.
+
+Verified
+- `pnpm typecheck`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm test`: 534 passed, 1 failed, in 23 files (was 486 passed and the same 1 failed). All
+  three were run again after the manual checks. No code changed during them.
+- Prettier: nothing new. `--check` flags `src/core/Boss.ts` and `src/scenes/Play.ts`, as it
+  does at HEAD (1 and 9 places). The other eight files pass.
+- How the manual checks were run: the Vite server already running on port 5173, the Cursor
+  browser at `http://127.0.0.1:5173`, Easy (pool 10, wind-up and gap both x 1.25), a 1561 x
+  1283 window (field 600 x 800, paddle line y 740). A script in the page logged every change
+  of step, phase, window, attack, hazard count, lives, jam, paddle width and lock, and the keys
+  passed to `audio.sfx`. For numbers I put `game.loop` to sleep and stepped it 1/60 s at a
+  time. For screenshots and frame rates I let it run in real time and froze it at a chosen
+  moment. Tweens run on the wall clock, so stepped runs do not show tweened looks. Hazards and
+  markers use no tweens. Times below are the fight clock in ms.
+- Manual 1: full intro. `fight` began at 5115. The ball sat on the paddle for 180 frames
+  (3000 ms). The window was `gap` with 0 hazards on every one. The serve clock launched it at
+  8115 and the first wind-up began at 10849. With `&phase=1`: launch 3016, wind-up 6266, which
+  is the full-pool gap of 3250 ms.
+- Manual 2, `volley` (pool 10, paddle at x 300): on the wind-up's first frame there were three
+  X marks on the paddle line at x 340, 300 and 260, each inside a ring 111 px wide, and
+  `laser_spinup` was requested. The rings were 65 px when the window went live and 46 px
+  450 ms later. I did not sample a ring on its landing frame; by the code it closes in a
+  straight line to 32 px. The shots left `body`, were on the lines to their marks mid-flight
+  (the first at (334, 482) on its way to x 340) and were counted as landed 783, 866 and 933 ms
+  into the live window. Standing clear: armed at x 100 (marks 140, 100, 60), I moved to 548.
+  All three landed. No jam, width 104, lives 3.
+- Manual 2, `sweep`: two columns 190 px wide at alpha 0.07 from the HUD to a strip under the
+  paddle line. The strips read 0.01 full on the first frame and 0.49 and 0.41 after 600 ms of a
+  1250 ms wind-up. The first beam lit (alpha 0.42, one area light) on the first live frame.
+  150 ms in, the second was still warming up, its strip 0.94 full. 433 ms in, both were lit.
+  They went out 584 and 834 ms into the window. With beams at x 300 and 100 I stood at 500:
+  width and lives unchanged.
+- Manual 2, `reaper` (paddle at 300): on the first frame, a small skull at x 300 inside a
+  124 px ring and X marks at 430 and 170, with `ui_deny`. The skull left `core` at (258, 144)
+  on the first live frame with `ab_blackhole_open`. The shots landed 900 and 1284 ms in and the
+  skull 1784 ms in. Standing at 540, clear of all three: lives 2 to 2, width 104, and the
+  opening followed.
+- Manual 2, markers: in the five plans whose markers I read in full (one volley, two sweeps,
+  two reapers) every hazard had its mark and ring, or its column and strip, on the wind-up's
+  first frame. For the other plans I read positions and counts only. `arm` builds a marker for
+  every hazard it is given.
+- Manual 3, jam: one shot on the paddle jammed it for 616 ms (clock 30283 to 30899). Alpha was
+  0.45 on every jammed frame and 1 on the next. With the pointer target moved to x 100 during a
+  jam the paddle stayed at 300 on every jammed frame and was at 100 afterwards. A ball dropped
+  on the jammed paddle at 520 px/s left at -322 px/s and stayed in play. Three shots of one
+  volley on a still paddle: `ui_locked` three times, jammed for 767 ms, which is 600 ms after
+  the third.
+- Manual 3, shrink: standing in a beam for its whole 600 ms took the paddle from 104 to 83 px
+  once, with one `sfx_smaller`. A shrinking shot did the same.
+- Manual 4: the skull in flight is a red skull 40 px across, upright, with its own red light.
+  Its marker is the same picture at 28 px inside the closing ring. Screenshot looked at, with
+  no pickup beside it. Pickups are 34 px icons that wobble as they fall; the skull is one
+  colour, does not wobble and flies to a ringed mark. Marker at x 300, last seen at (300,
+  738), paddle line 740. Paddle under it: lives 3 to 2, `breach` and `death` requested, the
+  same ball still in flight, hazards cleared, window `gap`. Paddle at 540: lives 2 to 2. God
+  mode on, paddle under it: lives 2 to 2, ball still in flight, hazards cleared.
+- Manual 5: in the 2200 ms after the volley, `lock` was the core's centre (257, 144), the
+  reticle was there (the gold ring at 60 x 44, turning), the animation was `warden-open` and
+  the core's body was enabled. A ball set at (520, 640) heading straight up at 329 px/s turned
+  from -90 to -99.3 degrees in 6 frames, -108.9 in 12 and -119.2 in 18, against a bearing of
+  -119.6 to the core, and held it. In the next gap `lock` was null, the reticle hidden, the
+  animation `warden-idle`, and the same ball kept -90.0 degrees and x 520 for 24 frames. Sweep
+  and reaper also showed `lock` through their recover windows.
+- Manual 6: with three shots in flight (9 hazard objects visible) I dropped the ball. On the
+  frame the life went (3 to 2) there were 0 hazards, 0 visible objects and window `gap`. While
+  the ball sat on the paddle (3017 ms) that did not change. Relaunch at 45016, next wind-up at
+  46216: 1200 ms. With five shots in flight (15 objects) I emptied the pool with the dev hit.
+  Next frame: step `transition`, phase 2, 0 hazards, 0 visible, no lock, reticle hidden, paddle
+  not jammed.
+- Manual 7: with the skull in flight I used bullet time (time scale 2.2). The skull went from
+  5.54 to 2.51 px per frame, the ball from 5.53 to 2.51, the fight clock from 16.7 to 7.6 ms
+  per frame. Paused from the game (`requestPause`) and stepped 60 frames: clock 8894 to 8894,
+  skull y 572.09 to 572.09, ring 56.78 to 56.78 px. Resumed: all three moved again.
+- Manual 8: Chrome emulation at 420 x 900, 2x (canvas 1200 x 2572, field 600 x 1286, paddle
+  line y 1226), `?lighting=low`, five balls (seven after a power surge), real time.
+  - `volley` at pool 2, so five shots each, 45 s, six volleys: 60.0 fps over the 1844 frames
+    with no hazard on screen (95th percentile frame 18.6 ms, worst 25.6) and 60.1 fps over the
+    858 frames with hazards (18.6, worst 27.1). The overlay's fps read 60.1 to 60.8 in both.
+    Main thread per frame, measured as the overlay's `cpu` is: 0.99 ms without, 1.03 ms with.
+  - `sweep`, 35 s, four sweeps: 60.0 fps and 1.06 ms with nothing on screen, 60.1 fps and
+    1.14 ms with the columns marked, 60.0 fps and 1.15 ms with beams burning.
+- Manual 9: reduced motion on, `reaper`. The rings stayed at 44 px (skull) and 32 px (shots) at
+  alpha 1 on all 44 frames sampled. Each marker had a timing strip: 0.01 full on the first
+  frame, 0.23, 0.32 and 0.27 after 700 ms. Marks did not turn or change size. In the opening
+  the reticle's rotation was 0.000 on all 36 frames. Screenshot looked at.
+- Manual 10: `console.warn` was hooked. The paddle followed the lowest falling ball and god
+  mode kept the run alive. (a) A whole fight from phase 1 to the defeat, 39 s: five volleys and
+  one sweep. (b) Phase 2 held for 180 s at pools 10, 5 and 1: 28 attacks in the order reaper,
+  volley, sweep, repeating; 4 skull hits, 11 jams, 12 shrinks. (c) Phase 1 held for 90 s at
+  pools 10, 5 and 1: 13 volleys of 3, 4 and 5 shots, 7766, 7150 and 6650 ms apart. In all: 47
+  wind-ups, never more than 5 hazards at once, 0 warnings, 0 page errors. No warning in any
+  other run of these checks either.
+- Manual 11: `?level=1` (tutorial skipped with its own button), 60 s: bricks 50 to 21, score
+  180 to 3310. `?arcade=waves`, 60 s: bricks 47 to 24, score 270 to 2370. `?arcade=descent`,
+  60 s: score 190 to 3130, three balls. In all three `window.boss` and `p.boss` were undefined,
+  `hud.boss` was null, the paddle was jammed on 0 frames (of 11864, 3961 and 3961), its alpha
+  was 1 on every frame, no hazard object was in the scene, and there were no errors or
+  warnings. "As before" means it launched, broke bricks and scored. I did not run the build
+  from before this phase beside it.
+
+Not verified
+- Any sound: nothing is audible to me.
+- Readability and fairness by feel. See point 3.
+- Normal and Hard in the browser. Easy was on screen. The tests cover plans and the wind-up
+  floor on all three.
+- The Medium lighting tier. I ran High (the default here) and Low.
+- A real phone. The phone-sized window was Chrome emulation on a desktop GPU.
+- Keyboard and gamepad play, and the 16:9 layout, with attacks running.
+- A magnet catch during an attack. Read: with every ball held, the attack clock and the
+  hazards both stop until one flies again.
+- `pnpm build` and the desktop build.
+
+Deviations from the documents
+- `core/Boss.ts` exports three things the design does not name: `windupFor(attack, tuning)`
+  (the director and the state must agree on the wind-up length), `DEFAULT_GAP_MS` and
+  `AttackTiming` (the four fields of an `AttackDef` the state needs, so `BossSpec` carries no
+  functions).
+- `onLifeLost`, "a gap of at least `REGROUP_MS`": lost mid-attack, the new gap is exactly
+  `REGROUP_MS`. Lost during a gap, that gap ends at the later of its own end and `REGROUP_MS`
+  from now.
+- A pool emptied mid-attack sends the `window` gap event before the `phase` and `step` events.
+  The gap's length follows the pool as it drains. A non-finite tick is ignored by the cycle.
+- Hazards advance only while a ball is in play, as the attack clock does, not on every frame
+  of `fight`.
+- On the frame of `arm` and of `go` the hazards get that frame's whole tick, so they run up to
+  one frame ahead of the state. Shots landed 783 ms into a window where the plan says 800.
+- The seed comes from the existing `randomSeed()` in `src/core/Rng.ts`, called once in Play.
+- `boss.onLifeLost()` runs on every `loseLife`, god mode included, as `pacing.onLifeLost()`
+  does. So a skull that hits ends its attack with no opening, in god mode too.
+- The gap handler resets the pose of the phase that is set up, not `state.phase`. Otherwise a
+  pool emptied mid-attack would show the next phase's pose before its entry scene.
+- The reticle is the `ring` texture at 60 x 44, so its slow turn can be seen, turned by the
+  fight clock (one turn in 7 s). With reduced motion it does not turn.
+- Marker pictures: `hazard_mark` (an X) for a shot, a small `hazard_skull` for the skull,
+  `ring` for the closing ring, pooled rectangles for beam columns and timing strips. Reduced
+  motion is read once, at `arm`.
+- `Paddle.step` sets the alpha on every frame (1 when not jammed). Nothing else sets it. The
+  alpha changes one frame after a jam starts and one frame after it ends.
+- `&attack=<id>` is read in the director and ignored when no deck has that id.
+  `BossDirector.hazardCount` exists for the debug line.
+- Constants the documents do not name are in `HazardSystem.ts` (depths, sizes, alphas, light
+  strengths), the director (`RETICLE_*`, `TELL_VOLUME`) and `warden.ts` (the attack numbers in
+  the table above).
+- No hazard trail on Medium and High. The phase makes it optional.
+
+Open
+- The failing test in point 1.
+- The corner buttons cover part of the paddle line. In the portrait window a marker or strip
+  right of about x 480 sits partly under the two skill buttons. In the phone-sized window the
+  ability button covers the left end too. The paddle itself already passes under them.
+- Shrinks stack. `paddle.resize(0.8)` multiplies, so three shrinks reach the paddle's floor of
+  0.6 (62 px), and it stays there until a ball is lost. A skull hit does not reset it. In the
+  180 s run the paddle was at 62 px from the second minute on.
+- A full volley on a paddle that does not move holds it for 600 ms after the last shot: 767 ms
+  measured for three shots, up to 880 ms for five.
+- A skull that hits costs the opening as well as the life: the attack ends, a 1200 ms gap
+  follows, then the next wind-up.
+- An idle paddle loses lives quickly: the reaper's skull is aimed at it. A tab I left alone for
+  17 s was down to one life.
+- My first god mode attempt switched a second copy of the save module (a dynamic import
+  without the `?t=` the game uses) and the skull took a life as normal. The result above is
+  from the game's own copy.
+- Two frame rate recordings were thrown away. In one the balls killed the boss in seconds (my
+  script's ceiling was above the boss, which sits at y 460 to 526 in the tall field). In the
+  other, waking the loop after stepping it froze the game for a few seconds.
+- The first test tab closed by itself mid-check (`target closed while handling command`). I
+  saw no game error before it. The checks continued in a new tab, which has its own storage.
+- The dev save at `127.0.0.1:5173` in that tab: the tutorial is skipped, `level31` has a
+  3-star clear of 9000, and Waves and Descent were each started. God mode and reduced motion
+  were turned on for checks 4, 9 and 10 and are off again. Music and sound are on.
+- My test tab is still open. The dev server was not mine and is still running.
+
+For the user to confirm
+- Whether each attack is readable and fair by feel, the skull above all, and whether the skull
+  is unlike a pickup at a glance. I judged that from one screenshot with no pickup on screen.
+- The jam length (600 ms), the shrink (0.8 a hit, stacking to 0.6) and the lock-on strength
+  (`LOCK_TURN` 1.8 rad/s, the same as the stall nudge).
+- The placeholder sounds: `laser_spinup`, `ab_meteor_whoosh` and `ui_deny` for the tells,
+  `ui_locked` for the jam, `ab_blackhole_open` and `breach` for the skull.
+- Whether a skull hit should still be followed by the opening.
+
+Later
+- Keep markers and strips clear of the corner buttons, or draw them above the HUD.
+- Give the paddle its size back after a while, or at each opening.
+- Trails behind shots and the skull on Medium and High.
+- Sounds for a shot leaving and a beam firing, and real hazard sounds.
+- A count of jams, shrinks and skull hits per fight in the `?debug` line, for tuning.
+
+## Phase 4 review: PASS, 2026-11-16, Grok (Cursor agent)
+
+Every Build item is in, the checks that belong to this phase pass, and the manual checks that decide whether an attack is fair passed on the live fight. I heard nothing. I did not repeat the phone-sized frame-rate pair; the implementer did, and the numbers below are theirs. Two things to know:
+
+1. `pnpm test` is 534 passed and 1 failed. The failure is the one Phase 3 recorded, `tests/skills.test.ts` > "readies the gun more often than bullet time" (`expected 6000 to be less than 3000`). `src/core/Skills.ts` and that test are not in this diff. Gun cooldown is 6000 and bullet time is 3000 in the current file.
+2. I heard nothing. Sound claims are keys that reached the live sound manager. The placeholder set is for the user to judge.
+
+Ran
+- `pnpm typecheck`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm test`: 534 passed, 1 failed, in 23 files (was 486 passed and the same 1 failed). The new tests are `describe('BossState attack cycle')` (16), `describe('safeGap')` (5), `describe('planProblems')` (14) and the attack block in `tests/bosses.test.ts`. No earlier assertion was removed or weakened.
+- How the manual checks were run: the dev server already on port 5173, the Cursor browser at `http://127.0.0.1:5173`, Easy (pool 10). I slept `game.loop` and stepped 1/60 s, read `window.boss` and the Play scene, and looked at screenshots of the wind-up, the opening and the skull. A script moved the paddle. None of that is in the repo. God mode and reduced motion were turned on for those checks and are off again.
+- Manual 1: 150 frames with the ball held, window `gap`, 0 hazards. After launch the first wind-up was frame 196, about 3267 ms against Easy's 3250 ms gap.
+- Manual 2: volley wind-up showed three X marks at x 260, 300 and 340 inside rings (111 px, closing). Sweep showed two columns 190 px wide at alpha 0.07, with timing strips. Reaper showed a 28 px skull mark at x 300 and X marks at 170 and 430. Standing at 540 through a reaper whose marks were 170, 300 and 430: no `resize` and no `jam`, and the window reached `recover`. Standing at 80 through a sweep whose columns were at 300 and 500: width stayed 104, no jam.
+- Manual 3: a shot on the paddle held it at x 300 with alpha 0.45 while the target was 100, then it went to 100 and alpha returned to 1. A ball dropped on the jammed paddle at 700 px/s left upward at about 359 px/s and stayed in play. One beam took the paddle from 104 to 83 along a single resize tween and left it at 83.
+- Manual 4: the skull in flight is a 40 px upright red face with its own glow, not a coin or a capsule. Under the paddle: lives 3 to 2, `breach` and `death` played, the same ball still in flight, hazards 0, window `gap`. God mode, paddle under it: lives stayed 3, ball stayed in flight, hazards 0. The attack still ends, as the handoff says.
+- Manual 5: during recover, lock was the core, the reticle was the gold ring at 60 by 44, the animation was `warden-open`, and a rising ball's heading moved from about -90 toward the core (about -121 after 18 frames). The debug line read `recover volley hazards 0`.
+- Manual 6: dropping the ball during a live attack with 3 hazards went to 0 hazards, window `gap`, lives 3 to 2, ball back on the paddle. The next wind-up was 72 frames later, 1200 ms. The 90 frames before that launch stayed in `gap` with no hazards.
+- Manual 7: with bullet time active the world scale was 2.2 and the skull moved 30.1 px in 12 frames against 66.22 px in the previous 12 at scale 1. Pause held the skull's y for 15 frames; after resume it moved.
+- Manual 8: not repeated here. The implementer measured, at `?lighting=low` in a 420 by 900 window with five balls, 60.0 fps and about 1.0 ms of main-thread time with nothing on screen, and 60.0 to 60.1 fps and about 1.0 to 1.2 ms with volley and sweep hazards up. The desktop overlay during this review read 60 to 61 fps. I did not put five balls in a phone-sized low-lighting window.
+- Manual 9: reduced motion on, rings held at 32 px while the timing fills went from 0.01 to about 0.26. In the opening the reticle's rotation stayed 0. Tint was gold (`0xffc93c`).
+- Manual 10: 18000 stepped frames, five minutes of phase 2 with the ball parked and the pool held at 10. 49 attacks in the order sweep, reaper, volley. Max hazards at once was 3, because the pool never drained (a full-pool volley is 3). 0 `planProblems` warnings. The fight was still in `fight` at the end.
+- Manual 11: `?level=1`, 180 frames: level01, no boss, paddle jammed on 0 frames, alpha 1, no hazard sprite, bricks 52 to 51, score 90. `?arcade=waves`: WAVE 1, no boss, no jam, 52 bricks. `?arcade=descent`: TIER 1, ROW 0, no boss, no jam, 16 bricks.
+
+Build items
+- `src/core/Boss.ts`: done. The cycle is gap, windup, live, recover, and it wraps the deck. It waits while no ball is in play. A phase with no deck stays in `gap`. Gap interpolates and scales by `tuning.gap`. Wind-up is `windupFor`, floored at `MIN_WINDUP_MS`. Leaving the fight or changing phase returns to `gap` and the next phase starts at the top of its deck. `onLifeLost` during an attack starts a gap of `REGROUP_MS` and does not replay that attack. `safeGap` and `planProblems` match the occupancy rules and the named cases. The tests for those cases fail if the numbers move.
+- `Paddle.jam`: done. `jam(ms)` holds, `jam(0)` releases, `step` counts real frame time, keeps `x`, zeroes `vx`, still clamps `targetX`, and sets alpha to 0.45 while jammed and 1 after. Tint is untouched.
+- `src/systems/HazardSystem.ts`: done. No physics bodies. Markers on the paddle line, shots and the skull fly from the part to `(x, paddle.y)`, beams are faint then bright and apply once, skull calls `hurt`. Pools recycle. At most three lights, priority 7, none on shots. Depths sit between 4 and 5. `clear` removes markers. Trails were left out; the phase allows that.
+- The director: done. One `Rng` from `opts.seed`. `Play` passes `randomSeed()` once. Wind-up builds a `BossView`, warns in dev, drops past `MAX_HAZARDS`, arms, and plays the tell. Live calls `go`. Recover applies the opening pose, the lock and `open`; otherwise idle. Gap clears hazards, restores the phase pose and idles. Leaving for a transition or the finale clears hazards, the lock and the jam. `lock` is the part centre only in `recover` while it stands. `&attack=` replaces every deck with that attack. The debug line shows window, attack and hazard count. Animation order is death, hurt, a cue, open, tell, idle.
+- `src/scenes/Play.ts`: done. `LOCK_TURN` is 1.8. A lock steers free rising balls and skips the other homing. `loseLife` calls `onLifeLost` on every life and `jam(0)` where the size is reset. `hurt` is `loseLife(true)`.
+- The Warden: done. `volley` is 3 to 5 jamming shots from `body`, 600 ms, with a free side. `sweep` is two shrink-0.8 beams and one free lane. `reaper` is one 1800 ms skull and two shrink shots, no jam. Each opens with pose `open` and lock `core`. Phase 1 plays `[volley]` and has no pose. Phase 2 keeps `open` and plays `[sweep, reaper, volley]` with gap 2000 to 1200. The file imports types and `src/core` only.
+- Content tests: done. Five paddle positions, three pool levels, twenty seeds, on every attack. Same seed and view match. Hard wind-up is at least `MIN_WINDUP_MS` before the floor. Openings point at a real pose and the core. Ids are unique. `AUDIO_ASSETS` imported, and every `tell.sfx` is one of its keys.
+
+Findings
+- None.
+
+Scope and shortcuts
+- Clean. The diff is this phase plus this log. `src/platform/debugOverlay.ts` and `src/art/procedural.ts` are the debug line and the three painted textures the phase asks for. Nothing under "Do not" was built. No `any`, `as unknown as`, ts-ignore, eslint-disable, skipped tests, or `Math.random` in the new boss code. The one new random call is `randomSeed()` in `Play`, and `Math.random` stays inside `Rng`. `console.warn` is inside the dev guard. No `juice.flash` in the boss or hazard code. The paddle alpha is the jam; the tint is still the lighting system's.
+
+For the user
+- Nobody has heard it. The keys that reached the sound manager are `laser_spinup`, `ab_meteor_whoosh` and `ui_deny` for the tells, `ui_locked` for the jam, `sfx_smaller` for the shrink, `ab_blackhole_open` when the skull leaves, and `breach` then `death` when it lands.
+- Whether each attack reads as fair, especially the skull. Jam is 600 ms, a shrink is 0.8 and they stack until a ball is lost, and the lock turns at 1.8 rad/s.
+- A skull hit ends the attack, so the opening does not follow. God mode spends no life and still ends the attack.
+- I did not repeat the phone-sized `?lighting=low` frame-rate pair. The implementer's numbers are in their handoff: both sides at 60 fps, main thread about 1 ms without hazards and about 1.1 ms with them.
+- Hazard counts I saw on a full pool: volley 3, sweep 2, reaper 3. A drained pool raises the volley to 5; the content tests cover that, and this run never drained the pool.

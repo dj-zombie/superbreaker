@@ -2,21 +2,78 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BOSSES } from '../src/bosses';
-import { BOSS_ANIMS, BOSS_IDS } from '../src/core/Boss';
+import { AUDIO_ASSETS } from '../src/config';
+import {
+  BOSS_ANIMS,
+  BOSS_IDS,
+  BOSS_TUNING,
+  MIN_WINDUP_MS,
+  SAFE_GAP,
+  SHOT_RADIUS,
+  planProblems,
+  safeGap,
+  type AttackDef,
+  type BossView,
+  type HazardSpec,
+} from '../src/core/Boss';
 import {
   parseLevel,
   validateLevel,
   type TiledMap,
   type TiledTileset,
 } from '../src/core/LevelParser';
+import { Rng } from '../src/core/Rng';
 import { BH, BW, COLS } from '../src/core/procgen/grid';
-import { LEVEL_MAX_Y } from '../src/core/types';
+import { FIELD_WIDTH, LEVEL_MAX_Y } from '../src/core/types';
 import type { BossDef, Cutscene } from '../src/systems/BossDirector';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
 const tileset = readJson<TiledTileset>(join(ASSETS, 'tilesets', 'bricks.tsj'));
 const resolve = (source: string) => (source.endsWith('bricks.tsj') ? tileset : undefined);
+
+/** The paddle's ordinary width, in px. PADDLE_BASE_WIDTH sits beside Phaser, out of a node test's reach. */
+const PADDLE_WIDTH = 104;
+/** Paddle centres to plan against: hard against each wall, a quarter in from each, and the middle. */
+const PADDLE_XS = [PADDLE_WIDTH / 2, 150, 300, 450, FIELD_WIDTH - PADDLE_WIDTH / 2];
+const PROGRESS = [0, 0.5, 1];
+const SEEDS = Array.from({ length: 20 }, (_, i) => i + 1);
+
+/** Every attack a boss can play, once each however many decks it is in. */
+function attacksOf(def: BossDef): AttackDef[] {
+  return [...new Set(def.phases.flatMap((phase) => phase.deck ?? []))];
+}
+
+/** The field as a wind-up would find it: the parts at rest, one ball on its way up. */
+function viewOf(def: BossDef, x: number, phaseProgress: number, seed: number): BossView {
+  const parts: BossView['parts'] = {};
+  for (const p of def.parts) {
+    parts[p.id] = {
+      x: (p.col + p.cols / 2) * BW,
+      y: (p.row + p.rows / 2) * BH,
+      width: p.cols * BW,
+      height: p.rows * BH,
+    };
+  }
+  return {
+    rng: new Rng(seed),
+    phaseProgress,
+    paddle: { x, width: PADDLE_WIDTH },
+    balls: [{ x: 300, y: 500, vx: 120, vy: -320 }],
+    parts,
+  };
+}
+
+/** Calls `check` with a fresh view for every paddle position, pool level and seed. */
+function everyView(def: BossDef, check: (view: () => BossView, at: string) => void): void {
+  for (const x of PADDLE_XS) {
+    for (const progress of PROGRESS) {
+      for (const seed of SEEDS) {
+        check(() => viewOf(def, x, progress, seed), `paddle ${x}, pool ${progress}, seed ${seed}`);
+      }
+    }
+  }
+}
 
 /** Every cutscene a boss has, named by where it plays. */
 function cutscenes(def: BossDef): Array<[string, Cutscene]> {
@@ -104,6 +161,54 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
     }
   });
 
+  it('gives every attack its own id', () => {
+    const ids = attacksOf(def).map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('keeps every plan of every attack fair', () => {
+    const parts = def.parts.map((p) => p.id);
+    for (const attack of attacksOf(def)) {
+      everyView(def, (view, at) => {
+        expect(planProblems(attack.plan(view()), attack, parts), `${attack.id}: ${at}`).toEqual([]);
+      });
+    }
+  });
+
+  it('plans the same attack twice from the same seed and view', () => {
+    for (const attack of attacksOf(def)) {
+      everyView(def, (view, at) => {
+        expect(attack.plan(view()), `${attack.id}: ${at}`).toEqual(attack.plan(view()));
+      });
+    }
+  });
+
+  it('warns for at least MIN_WINDUP_MS before every attack, on Hard too', () => {
+    for (const attack of attacksOf(def)) {
+      // The scaled time itself, not what the floor would make of it.
+      expect(attack.windupMs * BOSS_TUNING.hard.windup, attack.id).toBeGreaterThanOrEqual(
+        MIN_WINDUP_MS,
+      );
+    }
+  });
+
+  it('opens only into a pose and onto a part that exist', () => {
+    const parts = new Set(def.parts.map((p) => p.id));
+    for (const attack of attacksOf(def)) {
+      const { pose, lock } = attack.opening ?? {};
+      if (pose !== undefined) expect(def.poses?.[pose], `${attack.id}: ${pose}`).toBeDefined();
+      if (lock !== undefined) expect(parts.has(lock), `${attack.id}: ${lock}`).toBe(true);
+    }
+  });
+
+  it('tells its attacks only with sounds the game loads', () => {
+    const keys = new Set<string>(AUDIO_ASSETS.map((a) => a.key));
+    for (const attack of attacksOf(def)) {
+      const sfx = attack.tell?.sfx;
+      if (sfx !== undefined) expect(keys.has(sfx), `${attack.id}: ${sfx}`).toBe(true);
+    }
+  });
+
   describe.runIf(def.sprite !== undefined)('sprite', () => {
     const sprite = def.sprite!;
 
@@ -138,6 +243,117 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
         for (const frame of sprite.anims[name].frames) {
           expect(frame, name).toBeLessThan(across * down);
         }
+      }
+    });
+  });
+});
+
+describe('the Warden attacks', () => {
+  const def = BOSSES.warden;
+  const [guardUp, coreExposed] = def.phases;
+  const named = (id: string): AttackDef => attacksOf(def).find((a) => a.id === id)!;
+  const kinds = (hazards: readonly HazardSpec[], kind: HazardSpec['kind']) => {
+    return hazards.filter((h) => h.kind === kind);
+  };
+
+  it('plays the volley alone with its guard up, then all three with its core exposed', () => {
+    expect(guardUp!.deck?.map((a) => a.id)).toEqual(['volley']);
+    expect(guardUp!.pose).toBeUndefined();
+    expect(coreExposed!.deck?.map((a) => a.id)).toEqual(['sweep', 'reaper', 'volley']);
+    expect(coreExposed!.pose).toBe('open');
+  });
+
+  it('presses harder in its second phase', () => {
+    const [full, empty] = coreExposed!.gapMs!;
+    expect(guardUp!.gapMs).toBeUndefined();
+    expect(full).toBeLessThan(2600);
+    expect(empty).toBeLessThan(1600);
+    expect(empty).toBeLessThan(full);
+  });
+
+  it('lifts the guard off the core after every attack, and marks the core', () => {
+    const all = attacksOf(def);
+    expect(all).toHaveLength(3);
+    for (const attack of all) {
+      expect(attack.opening, attack.id).toEqual({ pose: 'open', lock: 'core' });
+      expect(attack.recoverMs, attack.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('uses every hazard and every effect between its attacks', () => {
+    const hazards = attacksOf(def).flatMap((a) => a.plan(viewOf(def, 300, 0.5, 1)).hazards);
+    for (const kind of ['shot', 'beam', 'skull'] as const) {
+      expect(kinds(hazards, kind).length, kind).toBeGreaterThan(0);
+    }
+    const effects = hazards.flatMap((h) => (h.kind === 'skull' ? [] : [h.onPaddle.kind]));
+    expect(new Set(effects)).toEqual(new Set(['jam', 'shrink']));
+  });
+
+  it('rakes three to five jamming shots across where the paddle stood', () => {
+    const volley = named('volley');
+    const count = (progress: number) => volley.plan(viewOf(def, 300, progress, 1)).hazards.length;
+    expect(count(0)).toBe(3);
+    expect(count(1)).toBe(5);
+    everyView(def, (view, at) => {
+      const v = view();
+      const { hazards } = volley.plan(v);
+      expect(hazards.length, at).toBeGreaterThanOrEqual(3);
+      expect(hazards.length, at).toBeLessThanOrEqual(5);
+      const xs: number[] = [];
+      for (const h of hazards) {
+        expect(h, at).toMatchObject({
+          kind: 'shot',
+          from: 'body',
+          onPaddle: { kind: 'jam', ms: 600 },
+        });
+        xs.push(h.x);
+      }
+      // The paddle is under the rake, and a whole side of the rake is free.
+      expect(Math.min(...xs), at).toBeLessThanOrEqual(v.paddle.x);
+      expect(Math.max(...xs), at).toBeGreaterThanOrEqual(v.paddle.x);
+      const left = Math.min(...xs) - SHOT_RADIUS;
+      const right = FIELD_WIDTH - Math.max(...xs) - SHOT_RADIUS;
+      expect(Math.max(left, right), at).toBeGreaterThanOrEqual(SAFE_GAP);
+    });
+  });
+
+  it('burns two shrinking beams and leaves the middle or one side free', () => {
+    const sweep = named('sweep');
+    const free = new Set<string>();
+    everyView(def, (view, at) => {
+      const { hazards } = sweep.plan(view());
+      expect(hazards, at).toHaveLength(2);
+      for (const h of hazards) {
+        expect(h, at).toMatchObject({ kind: 'beam', onPaddle: { kind: 'shrink', factor: 0.8 } });
+      }
+      const xs = hazards.map((h) => h.x).sort((a, b) => a - b);
+      const third = FIELD_WIDTH / 3;
+      free.add(xs[0]! > third ? 'left' : xs[1]! < 2 * third ? 'right' : 'middle');
+      // With both beams lit at once there is still room to stand.
+      const together = hazards.map((h): HazardSpec => ({ ...h, at: 0 }));
+      expect(safeGap({ hazards: together }), at).toBeGreaterThanOrEqual(SAFE_GAP);
+    });
+    // Chance picks the free lane, and over these seeds it picks each of them.
+    expect([...free].sort()).toEqual(['left', 'middle', 'right']);
+  });
+
+  it('sends one slow skull at where the paddle stood, with two shrinking shots elsewhere', () => {
+    const reaper = named('reaper');
+    everyView(def, (view, at) => {
+      const v = view();
+      const { hazards } = reaper.plan(v);
+      const skulls = kinds(hazards, 'skull');
+      const shots = kinds(hazards, 'shot');
+      expect(hazards, at).toHaveLength(3);
+      expect(skulls, at).toHaveLength(1);
+      expect(shots, at).toHaveLength(2);
+      expect(skulls[0], at).toMatchObject({ flightMs: 1800 });
+      // The paddle is under the skull as the warning goes up.
+      expect(Math.abs(skulls[0]!.x - v.paddle.x), at).toBeLessThanOrEqual(PADDLE_WIDTH / 2);
+      for (const h of shots) {
+        expect(h, at).toMatchObject({ onPaddle: { kind: 'shrink' } });
+        // Elsewhere: a paddle that stays under the skull is not under a shot as well.
+        expect(Math.abs(h.x - skulls[0]!.x), at).toBeGreaterThan(PADDLE_WIDTH / 2 + SHOT_RADIUS);
       }
     });
   });

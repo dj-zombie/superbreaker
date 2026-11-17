@@ -10,7 +10,8 @@ function bossLine(): string {
   const { state, def } = boss;
   return (
     `\nboss ${def.id}  ${state.step}  phase ${state.phase + 1}/${def.phases.length}  ` +
-    `pool ${state.pool.toFixed(1)}/${state.poolMax}  embedded ${boss.embedded}`
+    `pool ${state.pool.toFixed(1)}/${state.poolMax}  embedded ${boss.embedded}` +
+    `\n${state.window}  ${state.attack ?? '-'}  hazards ${boss.hazardCount}`
   );
 }
 

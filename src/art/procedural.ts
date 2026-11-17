@@ -341,6 +341,65 @@ const painters: Record<string, [number, number, Painter]> = {
       ctx.stroke();
     },
   ],
+  /** A boss's shot, white so it can be tinted: a dart pointing right, turned to face its flight. */
+  hazard_shot: [
+    48,
+    32,
+    (ctx, w, h) => {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(w - 2, h / 2);
+      ctx.lineTo(4, 3);
+      ctx.lineTo(16, h / 2);
+      ctx.lineTo(4, h - 3);
+      ctx.closePath();
+      ctx.fill();
+    },
+  ],
+  /** A skull, face on and white so it can be tinted. Nothing a player picks up has a face. */
+  hazard_skull: [
+    64,
+    64,
+    (ctx, w, h) => {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(w / 2, h * 0.42, w * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      roundRect(ctx, w * 0.28, h * 0.6, w * 0.44, h * 0.34, 6);
+      ctx.fill();
+      // The sockets, the nose and the gaps between the teeth are cut out, so they stay see-through.
+      ctx.globalCompositeOperation = 'destination-out';
+      for (const x of [w * 0.33, w * 0.67]) {
+        ctx.beginPath();
+        ctx.arc(x, h * 0.45, w * 0.11, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.moveTo(w / 2, h * 0.55);
+      ctx.lineTo(w * 0.44, h * 0.67);
+      ctx.lineTo(w * 0.56, h * 0.67);
+      ctx.closePath();
+      ctx.fill();
+      for (const x of [w * 0.42, w * 0.5, w * 0.58]) ctx.fillRect(x - 1.5, h * 0.78, 3, h * 0.16);
+      ctx.globalCompositeOperation = 'source-over';
+    },
+  ],
+  /** A cross, white so it can be tinted, for the spot on the paddle line where a shot will land. */
+  hazard_mark: [
+    32,
+    32,
+    (ctx, w, h) => {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(6, 6);
+      ctx.lineTo(w - 6, h - 6);
+      ctx.moveTo(w - 6, 6);
+      ctx.lineTo(6, h - 6);
+      ctx.stroke();
+    },
+  ],
   crack1: [
     60,
     32,
@@ -576,6 +635,9 @@ export const ALWAYS_PROCEDURAL = [
   'shard',
   'spark',
   'ring',
+  'hazard_shot',
+  'hazard_skull',
+  'hazard_mark',
   'crack1',
   'crack2',
   'shield_bar',

@@ -42,6 +42,7 @@ import {
 import { unlockedAbilities, type AbilityId } from '../core/Abilities';
 import { powerupStats } from '../core/Economy';
 import { LASER_MODE_DEFS } from '../core/Laser';
+import { randomSeed } from '../core/Rng';
 import {
   runHitDamage,
   runKey,
@@ -192,6 +193,8 @@ const AIM_SPEED = 2.4;
 /** Homing turn rates in rad/s. */
 const NUDGE_TURN = 1.8;
 const ENDGAME_TURN = 1.1;
+/** Toward the part a boss's opening marks: as strong as a nudge, so the lock is felt. */
+const LOCK_TURN = 1.8;
 const NUDGE_MS = 4_000;
 /** The steel comes down once per board after this long without a break... */
 const WALLS_DOWN_IDLE_MS = 10_000;
@@ -516,6 +519,8 @@ export class Play extends BaseScene {
     this.boss = this.level.boss
       ? new BossDirector(BOSSES[this.level.boss], this.bossHost(), {
           startPhase: FORCED_BOSS_PHASE,
+          // Picked once, here: everything a fight leaves to chance comes out of this seed.
+          seed: randomSeed(),
         })
       : undefined;
     exposeBoss(this.boss);
@@ -1466,7 +1471,11 @@ export class Play extends BaseScene {
     const boss = this.boss?.active ? this.boss : undefined;
     const endgame = !boss && this.pacing.endgameAssist(remaining);
     const turn = this.nudgeMs > 0 ? NUDGE_TURN : endgame ? ENDGAME_TURN : 0;
-    if (turn > 0) {
+    const lock = boss?.lock;
+    if (lock) {
+      // A boss's opening marks one part, and every rising ball bends to it and to nothing else.
+      for (const b of free) b.steerToward(lock.x, lock.y, LOCK_TURN, dt);
+    } else if (turn > 0) {
       const targets = this.bricks.targets.map(homingBox);
       const walls: HomingBox[] = [];
       for (const brick of this.bricks.bricks) {
@@ -1629,6 +1638,8 @@ export class Play extends BaseScene {
     this.hud.combo = 0;
     this.pacing.onLifeLost();
     this.musicMood.onLifeLost();
+    // A boss ends its attack and gives a breather, whether the ball or a skull took the life.
+    this.boss?.onLifeLost();
     audio.musicDip();
     if (!breach) {
       this.abilities.clearEffects();
@@ -1640,6 +1651,7 @@ export class Play extends BaseScene {
       if (this.skills.slowmo.active) this.endSlowmo();
       this.removeShield();
       this.paddle.resetSize();
+      this.paddle.jam(0);
       this.coach?.ballReturned(false);
     }
     audio.sfx('death', 0.3, 0, { delay: breach ? BREACH_DEATH_DELAY : 0 });
@@ -2032,6 +2044,8 @@ export class Play extends BaseScene {
       titleCard: (kicker, name, holdMs) => this.titleBand(kicker, name, holdMs),
       showHint: () => this.showHint(),
       impact: (x, y, scale, color) => this.bossImpact(x, y, scale, color),
+      balls: () => this.ballList,
+      hurt: () => this.loseLife(true),
     };
   }
 
