@@ -14,6 +14,7 @@ import { PadButton, onPadButton, padHeld, padStick } from '../platform/gamepad';
 import { KeyBindings } from '../platform/keyboard';
 import { save } from '../services';
 import type { Paddle } from '../entities/Paddle';
+import { stickSensitivityGain } from './stickSensitivity';
 
 /** Pointers that start on the pause button, a slot or a skill belong to the HUD, not the paddle. */
 function onHudControl(x: number, y: number): boolean {
@@ -81,8 +82,12 @@ export class InputSystem {
     const digital =
       (this.keys.held('right') || padHeld(PadButton.right) ? 1 : 0) -
       (this.keys.held('left') || padHeld(PadButton.left) ? 1 : 0);
-    // Keys and the d-pad steer at full speed; the stick scales with its deflection.
-    const dir = digital !== 0 ? digital : padStick().x;
+    // Keys and the d-pad steer at full speed. The stick scales with its deflection and
+    // the sensitivity setting, read live so a change applies on the next step.
+    const dir =
+      digital !== 0
+        ? digital
+        : padStick().x * stickSensitivityGain(save.state.settings.stickSensitivity);
     if (dir !== 0) this.paddle.targetX = this.paddle.x + dir * KEY_SPEED * (dtMs / 1000) * 2;
   }
 

@@ -53,6 +53,8 @@ export interface Settings {
   /** Volume slider positions, 0..1. */
   musicVolume: number;
   sfxVolume: number;
+  /** Controller stick speed, 0..1. Center is the speed the stick shipped with. */
+  stickSensitivity: number;
   /** The same sound in both ears: no stereo panning. */
   monoAudio: boolean;
   haptics: boolean;
@@ -95,6 +97,9 @@ export const SAVE_KEY = 'superbreaker.save';
 /** Where the volume sliders start: the mix as set, with room above it to turn things up. */
 export const DEFAULT_VOLUME = 0.8;
 
+/** Where the stick slider starts: the speed the stick shipped with. */
+export const DEFAULT_STICK_SENSITIVITY = 0.5;
+
 export function defaultSave(): SaveData {
   return {
     version: 1,
@@ -112,6 +117,7 @@ export function defaultSave(): SaveData {
       sfx: true,
       musicVolume: DEFAULT_VOLUME,
       sfxVolume: DEFAULT_VOLUME,
+      stickSensitivity: DEFAULT_STICK_SENSITIVITY,
       monoAudio: false,
       haptics: true,
       reducedMotion: false,
@@ -162,7 +168,7 @@ export function normalizeSave(raw: unknown): SaveData {
     for (const k of Object.keys(out) as (keyof Settings)[]) {
       const v = raw[k];
       if (typeof out[k] === 'boolean' && typeof v === 'boolean') out[k] = v;
-      // The only number settings are volumes.
+      // Number settings are 0..1 slider positions (volumes and stick sensitivity).
       if (typeof out[k] === 'number' && typeof v === 'number' && Number.isFinite(v)) {
         out[k] = clamp(v, 0, 1);
       }

@@ -19,13 +19,22 @@ type KeysOf<T> = {
   [K in keyof SettingsData]: SettingsData[K] extends T ? K : never;
 }[keyof SettingsData];
 
-interface Row {
+interface ToggleRow {
   key: KeysOf<boolean>;
   label: string;
   hint?: string;
   /** A volume slider beside the switch. */
   volume?: KeysOf<number>;
 }
+
+/** A slider with no switch, such as stick sensitivity. */
+interface SliderRow {
+  label: string;
+  hint?: string;
+  slider: KeysOf<number>;
+}
+
+type Row = ToggleRow | SliderRow;
 
 const SECTIONS: Array<{ title: string; rows: Row[] }> = [
   {
@@ -41,6 +50,11 @@ const SECTIONS: Array<{ title: string; rows: Row[] }> = [
     rows: [
       { key: 'haptics', label: 'Vibration', hint: 'Phones and controllers' },
       { key: 'screenShake', label: 'Screen shake' },
+      {
+        label: 'Stick sensitivity',
+        hint: 'Half to double speed on a controller',
+        slider: 'stickSensitivity',
+      },
     ],
   },
   {
@@ -117,30 +131,42 @@ export class Settings extends Overlay {
         const c = this.add.container(0, y);
         c.add(body(this, left, row.hint ? -9 : 0, row.label, 19, { originX: 0, align: 'left' }));
         if (row.hint) c.add(label(this, left, 13, row.hint, 10, { originX: 0 }));
-        let slider: Slider | undefined;
-        const toggle = new Toggle(this, right, 0, save.state.settings[row.key], (on) => {
-          save.update((d) => (d.settings[row.key] = on));
-          audio.refresh();
-          slider?.setAlpha(on ? 1 : MUTED_ALPHA);
-          if (row.key === 'batterySaver') applyQuality(this.game);
-          if (row.key === 'fullscreen') setFullscreen(on);
-        });
-        c.add(toggle);
-        const volume = row.volume;
-        if (volume) {
-          const x = right - 56 - SLIDER_W / 2;
-          slider = new Slider(this, x, 0, SLIDER_W, save.state.settings[volume], (v) => {
-            // Turning a switched-off sound up switches it back on.
-            if (!toggle.checked) toggle.set(true, true);
-            slider?.setAlpha(1);
-            save.update((d) => {
-              d.settings[volume] = v;
-              d.settings[row.key] = true;
-            });
+        if ('slider' in row) {
+          const sliderKey = row.slider;
+          // Right edge lines up with the switches. No toggle on this row.
+          const x = right + 33 - SLIDER_W / 2;
+          c.add(
+            new Slider(this, x, 0, SLIDER_W, save.state.settings[sliderKey], (v) => {
+              save.update((d) => (d.settings[sliderKey] = v));
+            }),
+          );
+        } else {
+          let slider: Slider | undefined;
+          const key = row.key;
+          const toggle = new Toggle(this, right, 0, save.state.settings[key], (on) => {
+            save.update((d) => (d.settings[key] = on));
             audio.refresh();
+            slider?.setAlpha(on ? 1 : MUTED_ALPHA);
+            if (key === 'batterySaver') applyQuality(this.game);
+            if (key === 'fullscreen') setFullscreen(on);
           });
-          slider.setAlpha(toggle.checked ? 1 : MUTED_ALPHA);
-          c.add(slider);
+          c.add(toggle);
+          const volume = row.volume;
+          if (volume) {
+            const x = right - 56 - SLIDER_W / 2;
+            slider = new Slider(this, x, 0, SLIDER_W, save.state.settings[volume], (v) => {
+              // Turning a switched-off sound up switches it back on.
+              if (!toggle.checked) toggle.set(true, true);
+              slider?.setAlpha(1);
+              save.update((d) => {
+                d.settings[volume] = v;
+                d.settings[key] = true;
+              });
+              audio.refresh();
+            });
+            slider.setAlpha(toggle.checked ? 1 : MUTED_ALPHA);
+            c.add(slider);
+          }
         }
         root.add(c);
         items.push(c);

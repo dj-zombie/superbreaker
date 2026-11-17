@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_STICK_SENSITIVITY,
   DEFAULT_VOLUME,
   SAVE_KEY,
   SaveStore,
@@ -111,6 +112,21 @@ describe('settings', () => {
     expect(bad.musicVolume).toBe(DEFAULT_VOLUME);
     expect(bad.sfxVolume).toBe(DEFAULT_VOLUME);
     expect(normalizeSave({ settings: { music: 0 } }).settings.music).toBe(true);
+  });
+
+  it('adds stick sensitivity to older saves at the default, and keeps a stored one in range', () => {
+    expect(normalizeSave({ settings: { music: false } }).settings.stickSensitivity).toBe(
+      DEFAULT_STICK_SENSITIVITY,
+    );
+    expect(normalizeSave({ settings: { stickSensitivity: 0.25 } }).settings.stickSensitivity).toBe(
+      0.25,
+    );
+    expect(normalizeSave({ settings: { stickSensitivity: 1.5 } }).settings.stickSensitivity).toBe(
+      1,
+    );
+    expect(
+      normalizeSave({ settings: { stickSensitivity: Number.NaN } }).settings.stickSensitivity,
+    ).toBe(DEFAULT_STICK_SENSITIVITY);
   });
 });
 

@@ -92,7 +92,7 @@ While `Play` is the interactive scene:
 
 | Input | Action |
 | --- | --- |
-| Left stick X, past a dead zone of about 0.18 | Paddle velocity = deflection × the same speed the arrow keys use (`KEY_SPEED` in `src/systems/InputSystem.ts`, including the factor the keys apply) |
+| Left stick X, past a dead zone of about 0.18 | Paddle velocity = deflection × the arrow-key speed (`KEY_SPEED` in `src/systems/InputSystem.ts`, including the factor the keys apply) × the Settings stick sensitivity. The default slider position is 1×. The menu cursor is not affected. |
 | D-pad left / right | Same as the arrow keys, full speed |
 | Button 0 (south) | Launch, same as Space |
 | Button 9 (Start, Options, +) | Pause, same as P |
