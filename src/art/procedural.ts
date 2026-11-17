@@ -341,6 +341,36 @@ const painters: Record<string, [number, number, Painter]> = {
       ctx.stroke();
     },
   ],
+  /** A boss's lock: white so it can be tinted, with a black edge that tint leaves black. */
+  crosshair: [
+    128,
+    128,
+    (ctx, w, h) => {
+      const c = w / 2;
+      const ring = w / 2 - 10;
+      const gap = 16;
+      const reach = ring - 8;
+      const stroke = (width: number, color: string) => {
+        ctx.strokeStyle = color;
+        ctx.lineCap = 'round';
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.arc(c, c, ring, 0, Math.PI * 2);
+        ctx.moveTo(c, c - reach);
+        ctx.lineTo(c, c - gap);
+        ctx.moveTo(c, c + gap);
+        ctx.lineTo(c, c + reach);
+        ctx.moveTo(c - reach, c);
+        ctx.lineTo(c - gap, c);
+        ctx.moveTo(c + gap, c);
+        ctx.lineTo(c + reach, c);
+        ctx.stroke();
+      };
+      // The black edge first, then the mark. Tint turns the white red and leaves the edge black.
+      stroke(16, '#000');
+      stroke(8, '#fff');
+    },
+  ],
   /** A boss's shot, white so it can be tinted: a dart pointing right, turned to face its flight. */
   hazard_shot: [
     48,
@@ -692,6 +722,7 @@ export const ALWAYS_PROCEDURAL = [
   'shard',
   'spark',
   'ring',
+  'crosshair',
   'hazard_shot',
   'hazard_skull',
   'hazard_mark',

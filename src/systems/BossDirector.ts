@@ -313,9 +313,8 @@ const TITLE_SFX = 'boss_title';
 const AWARD_SFX = 'boss_award';
 /** The lock reticle draws over the aim arrow (4) and under the hazards and the ball (5). */
 const RETICLE_DEPTH = 4.1;
-/** The reticle on screen, in px. It is a ring a little flattened, so its turning shows. */
-const RETICLE_WIDTH = 60;
-const RETICLE_HEIGHT = 44;
+/** The reticle on screen, in px. Square, so the cross shows it turning. */
+const RETICLE_SIZE = 72;
 /** The reticle takes this long to turn once round, in ms of the fight clock. */
 const RETICLE_TURN_MS = 7000;
 /** How loud an attack's wind-up sound plays. */
@@ -795,10 +794,10 @@ export class BossDirector implements BrickOwner {
       this.reticle?.setVisible(false);
       return;
     }
-    this.reticle ??= this.host.scene.add.image(0, 0, 'ring').setDepth(RETICLE_DEPTH);
+    this.reticle ??= this.host.scene.add.image(0, 0, 'crosshair').setDepth(RETICLE_DEPTH);
     this.reticle
-      .setDisplaySize(RETICLE_WIDTH, RETICLE_HEIGHT)
-      .setTint(theme().palette.gold)
+      .setDisplaySize(RETICLE_SIZE, RETICLE_SIZE)
+      .setTint(theme().palette.danger)
       .setPosition(at.x, at.y)
       // Turned by the fight clock, so it slows and stops with everything else.
       .setRotation(calm() ? 0 : (2 * Math.PI * this.clock) / RETICLE_TURN_MS)
