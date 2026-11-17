@@ -99,6 +99,11 @@ export interface LightOptions {
   igniteAt?: number;
   /** High tier: also lights brick and paddle bevels per pixel. Keep to a few strong lights. */
   relief?: boolean;
+  /**
+   * Shine even when `follow` is hidden. A boss part is an invisible hit zone under the picture,
+   * and its light is the glow on that picture.
+   */
+  covered?: boolean;
 }
 
 export class Light implements Budgeted {
@@ -115,6 +120,7 @@ export class Light implements Budgeted {
   negative: boolean;
   baked: boolean;
   readonly relief: boolean;
+  readonly covered: boolean;
   /** Current brightness including flicker, fades and ignition. */
   level = 0;
   /** Extra multiplier for callers (fades, moods); keeps `intensity` as authored. */
@@ -152,6 +158,7 @@ export class Light implements Budgeted {
     this.negative = o.negative ?? false;
     this.baked = o.baked ?? false;
     this.relief = o.relief ?? false;
+    this.covered = o.covered ?? false;
     this.follow = o.follow;
     this.halo = o.halo ?? 0;
     this.haloAlpha = o.haloAlpha ?? 0.7;
@@ -225,7 +232,7 @@ export class Light implements Budgeted {
       // A struck match: a brief over-bright flare as it catches.
       this.ignite = calm || t >= 1 ? t : t * (1 + 0.8 * Math.sin(t * Math.PI));
     }
-    if (f && f.visible === false) k = 0;
+    if (f && f.visible === false && !this.covered) k = 0;
     this.level = k * this.ignite;
   }
 }
@@ -284,6 +291,21 @@ export interface LightingStats {
 export type LitImage = Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
 
 /**
+ * A lit image bigger than this is drawn as a grid of pieces. Corner tints cannot show a light
+ * that falls in the middle of one quad, and a boss is much bigger than the ball's lantern.
+ */
+const PATCH_PX = 40;
+/** Extra texture pixels a piece borrows from its neighbour, so the grid does not crack open. */
+const PATCH_BLEED = 0.5;
+
+/** A big lit image, standing in for the source so a light can fall inside it. */
+interface LitGrid {
+  cols: number;
+  rows: number;
+  cells: Phaser.GameObjects.Image[];
+}
+
+/**
  * Multiply light map for the backdrop plus per-vertex tints for bricks and the paddle.
  *
  * Each frame a small texture is filled with the ambient light at half brightness, the baked
@@ -333,6 +355,10 @@ export class LightingSystem {
   private paddle?: Phaser.GameObjects.Image;
   /** Images lit the way bricks are without being one: a boss's sprite. */
   private lit: LitImage[] = [];
+  /** The ones too big for a single quad, and the pieces drawn in their place. */
+  private grids = new Map<LitImage, LitGrid>();
+  /** Reused as the box `cornerTints` samples for one piece. */
+  private readonly patchBox = { x: 0, y: 0, displayWidth: 0, displayHeight: 0 };
   private relief?: ReliefLighting;
   private shadowFocus?: { x: number; y: number };
   private shadowSig = -1;
@@ -423,15 +449,22 @@ export class LightingSystem {
     this.paddle = paddle;
   }
 
-  /** Lights an image the way bricks are lit: corner tints from the lights around it. */
+  /**
+   * Lights an image the way bricks are lit: corner tints from the lights around it. An image
+   * bigger than a brick is drawn in pieces, so a light in the middle of it still shows, and the
+   * source stays hidden until `removeLit`.
+   */
   addLit(image: LitImage): void {
-    if (!this.lit.includes(image)) this.lit.push(image);
+    if (this.lit.includes(image)) return;
+    this.lit.push(image);
+    if (this.enabled) this.ensureGrid(image);
   }
 
-  /** Stops lighting an image. Its last tint stays on it. */
+  /** Stops lighting an image. Its last tint stays on it, and a gridded one is drawn whole again. */
   removeLit(image: LitImage): void {
     const i = this.lit.indexOf(image);
     if (i >= 0) this.lit.splice(i, 1);
+    this.dropGrid(image, true);
   }
 
   /** Where brick shadows lean away from, usually the main ball. */
@@ -694,15 +727,20 @@ export class LightingSystem {
     );
     this.drawMap();
 
-    if (this.frame % this.budget.tintEvery === 0) {
-      const fg = selectLights(
-        this.lights.filter((l) => l.affects !== 'backdrop'),
-        cap,
-        view,
+    const tintNow = this.frame % this.budget.tintEvery === 0;
+    // A boss's pieces are few, and the lantern has to follow the ball every frame, including
+    // the tiers that tint the whole brick field less often.
+    if (tintNow || this.grids.size > 0) {
+      this.prepareForeground(
+        selectLights(
+          this.lights.filter((l) => l.affects !== 'backdrop'),
+          cap,
+          view,
+        ),
       );
-      this.prepareForeground(fg);
-      this.tintForeground();
+      if (tintNow) this.tintForeground();
     }
+    this.syncLitGrids();
     this.updateHalos();
     this.updateRelief();
 
@@ -1043,7 +1081,8 @@ export class LightingSystem {
       b.applyLight(tl, tr, bl, br);
     }
     for (const o of this.lit) {
-      if (!o.visible) continue;
+      // A gridded image is hidden; its pieces are lit in `placeGrid`.
+      if (!o.visible || this.grids.has(o)) continue;
       const [tl, tr, bl, br] = this.cornerTints(o, this.fgRGB);
       o.setTint(tl, tr, bl, br);
     }
@@ -1086,12 +1125,121 @@ export class LightingSystem {
     return out;
   }
 
+  /**
+   * Splits `image` into a grid when it is bigger than one brick's worth of light. The pieces
+   * share its place, frame and crop, so together they draw the same picture.
+   */
+  private ensureGrid(image: LitImage): void {
+    const w = image.displayWidth;
+    const h = image.displayHeight;
+    if (!(w > PATCH_PX || h > PATCH_PX) || !image.scene) {
+      this.dropGrid(image, true);
+      return;
+    }
+    const cols = Math.ceil(w / PATCH_PX);
+    const rows = Math.ceil(h / PATCH_PX);
+    const had = this.grids.get(image);
+    if (had?.cols === cols && had.rows === rows) return;
+    if (had) this.dropGrid(image, false);
+    const tint = this.unlitTint();
+    const cells: Phaser.GameObjects.Image[] = [];
+    for (let i = 0; i < cols * rows; i++) {
+      cells.push(
+        this.scene.add
+          .image(image.x, image.y, image.texture.key, image.frame.name)
+          .setOrigin(image.originX, image.originY)
+          .setScrollFactor(image.scrollFactorX, image.scrollFactorY)
+          .setBlendMode(image.blendMode)
+          .setDepth(image.depth)
+          .setTint(tint),
+      );
+    }
+    image.setVisible(false);
+    this.grids.set(image, { cols, rows, cells });
+  }
+
+  /** Drops an image's pieces. `show` draws the source again, for when it leaves the grid. */
+  private dropGrid(image: LitImage, show: boolean): void {
+    const grid = this.grids.get(image);
+    if (!grid) return;
+    this.grids.delete(image);
+    for (const cell of grid.cells) cell.destroy();
+    if (show && image.scene) image.setVisible(true);
+  }
+
+  /** Moves, frames and lights every gridded image. A dead source takes its pieces with it. */
+  private syncLitGrids(): void {
+    for (let i = this.lit.length - 1; i >= 0; i--) {
+      const image = this.lit[i]!;
+      if (!image.active || !image.scene) {
+        this.dropGrid(image, false);
+        this.lit.splice(i, 1);
+        continue;
+      }
+      this.ensureGrid(image);
+      const grid = this.grids.get(image);
+      if (grid) this.placeGrid(image, grid);
+    }
+  }
+
+  /** Lays one image's pieces over it and tints each from the lights on that piece. */
+  private placeGrid(image: LitImage, grid: LitGrid): void {
+    const frame = image.frame;
+    const fw = frame.realWidth;
+    const fh = frame.realHeight;
+    if (fw <= 0 || fh <= 0) return;
+    image.setVisible(false);
+    const { cols, rows, cells } = grid;
+    const { scaleX, scaleY, flipX, flipY, rotation } = image;
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    const ox = fw * image.originX;
+    const oy = fh * image.originY;
+    const box = this.patchBox;
+    for (let r = 0; r < rows; r++) {
+      const y0 = Math.max(0, Math.round((r * fh) / rows) - (r > 0 ? PATCH_BLEED : 0));
+      const y1 = Math.min(fh, Math.round(((r + 1) * fh) / rows) + (r < rows - 1 ? PATCH_BLEED : 0));
+      for (let c = 0; c < cols; c++) {
+        const cell = cells[r * cols + c]!;
+        const x0 = Math.max(0, Math.round((c * fw) / cols) - (c > 0 ? PATCH_BLEED : 0));
+        const x1 = Math.min(fw, Math.round(((c + 1) * fw) / cols) + (c < cols - 1 ? PATCH_BLEED : 0));
+        cell.setPosition(image.x, image.y).setRotation(rotation).setFlip(flipX, flipY);
+        if (cell.frame !== frame) cell.setFrame(frame.name);
+        cell
+          .setScale(scaleX, scaleY)
+          .setAlpha(image.alpha)
+          .setDepth(image.depth)
+          .setCrop(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+        // The crop stays where it sat in the whole frame, which is where this piece is drawn.
+        let lx = (x0 + x1) / 2 - ox;
+        let ly = (y0 + y1) / 2 - oy;
+        if (flipX) lx = -lx;
+        if (flipY) ly = -ly;
+        const wx = lx * scaleX;
+        const wy = ly * scaleY;
+        box.x = image.x + wx * cos - wy * sin;
+        box.y = image.y + wx * sin + wy * cos;
+        box.displayWidth = (x1 - x0) * Math.abs(scaleX);
+        box.displayHeight = (y1 - y0) * Math.abs(scaleY);
+        const [tl, tr, bl, br] = this.cornerTints(box, this.fgRGB);
+        cell.setTint(tl, tr, bl, br);
+      }
+    }
+  }
+
+  /** Floor tint for a piece before the first lit frame, so it never flashes in at full paint. */
+  private unlitTint(): number {
+    const fl = this.look.brickFloor;
+    const tint = this.look.brickTint;
+    return rgbToColor(red(tint) * fl, green(tint) * fl, blue(tint) * fl);
+  }
+
   // ------------------------------------------------------------------ halos and motes
 
   private updateHalos(): void {
     for (const l of this.lights) {
       if (l.halo <= 0) continue;
-      const visible = l.level > 0.01 && (l.follow?.visible ?? true);
+      const visible = l.level > 0.01 && (l.covered || (l.follow?.visible ?? true));
       if (!l.haloImage) {
         if (!visible) continue;
         l.haloImage = this.scene.add
@@ -1133,6 +1281,7 @@ export class LightingSystem {
     this.scenery?.setLightProbe(undefined);
     for (const l of this.lights) l.haloImage?.destroy();
     this.lights = [];
+    for (const image of [...this.grids.keys()]) this.dropGrid(image, false);
     this.composite?.destroy();
     this.composite = undefined;
     const tex = this.scene.textures;

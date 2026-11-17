@@ -7,9 +7,10 @@ import type { ArenaBrick, BossDef, BossStage, Cutscene } from '../systems/BossDi
 const WALL_COL = 7;
 const WALL_ROW = 16;
 const WALL_BRICKS = 6;
-/** The Warden's own light: the violet of its body and the red of its eye. */
+/** The Warden's own light: the violet of its body, the red of a blow, and the amber of its eye. */
 const VIOLET = 0x9b6bff;
 const EYE_RED = 0xff3c2a;
+const EYE = 0xffc83c;
 /**
  * The blasts that break the Warden up, each further out than the last: ms into the death scene,
  * px from the body's centre, and size. With the final hit's blow at 0 and the last blast at 2300,
@@ -352,7 +353,8 @@ export const warden: BossDef = {
       rows: 3,
       texture: 'brick_red',
       weak: 3,
-      light: { color: EYE_RED, radius: 90, intensity: 0.6 },
+      // The eye. It smoulders, and the fight strobes it while the core is open to be hit.
+      light: { color: EYE, radius: 64, intensity: 0.9 },
     },
     { id: 'guard', col: 9, row: 7, cols: 2, rows: 1, texture: 'brick_steel', kind: 'steel' },
   ],

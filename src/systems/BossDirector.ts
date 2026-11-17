@@ -625,6 +625,8 @@ export class BossDirector implements BrickOwner {
       const speed = this.frozen ? 0 : inPlay ? BODY_MAX_SPEED : BODY_SCENE_SPEED;
       body.move(this.offset(), (speed * tick) / 1000);
       body.show(this.anim());
+      const gone = state.step === 'finale' || state.step === 'aftermath';
+      body.glow(gone ? 'out' : this.open ? 'open' : 'rest');
     }
     this.aim();
     this.showHud();

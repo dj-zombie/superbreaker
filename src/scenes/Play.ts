@@ -1304,7 +1304,8 @@ export class Play extends BaseScene {
     const smoulder = !this.lighting.look.lightsOut;
     for (const b of bricks) {
       const glow = b.spec.light;
-      const light = glow
+      // A boss part's light belongs to the body: the part is hidden under the picture.
+      const light = glow && !b.owner
         ? this.lighting.addLight({
             follow: b,
             color: glow.color,

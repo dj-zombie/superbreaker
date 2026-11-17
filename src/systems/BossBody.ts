@@ -5,6 +5,7 @@ import type { BrickSpec } from '../core/types';
 import type { Brick, BrickOwner } from '../entities/Brick';
 import { calm } from '../ui/theme';
 import type { ArenaBrick, BossDef, BossHost, PartDef, Pose } from './BossDirector';
+import type { Light } from './LightingSystem';
 
 /** These animations loop. The others play once and hold their last frame. */
 const LOOPING: readonly BossAnim[] = ['idle', 'tell', 'open'];
@@ -20,6 +21,15 @@ const FADE_MS = 300;
 const PROBE_INSET = 2;
 /** Dev tools: how solid the parts show over the sprite under `?debug`. */
 const DEBUG_PART_ALPHA = 0.35;
+/** A part's own light smoulders at this pace, in the flicker preset's speed. */
+const GLOW_REST_SPEED = 0.55;
+/** An opening strobes the light this many times a second, under the flash limit. */
+const GLOW_OPEN_HZ = 2.2;
+/** An opening flares a part's light by this much, and reaches this much farther. */
+const GLOW_OPEN_GAIN = 1.75;
+const GLOW_OPEN_REACH = 1.4;
+/** The hot point drawn on the picture over a part's light, in px of radius. */
+const GLOW_HALO = 16;
 
 /** Dev builds only: `?debug` shows the hit zones over the sprite. */
 const SHOW_PARTS =
@@ -84,6 +94,10 @@ export class BossBody {
   /** How far above its place the sprite hangs while it arrives, in px. */
   private lift = 0;
   private playing?: BossAnim;
+  /** A part's light, shining on the picture while the part itself is hidden. */
+  private readonly glows = new Map<Brick, Light>();
+  /** Which way the part lights are burning, so a strobe is not restarted every frame. */
+  private glowing: 'rest' | 'open' | 'out' = 'rest';
   /** The next brick id to hand out, counting up from BOSS_ID_BASE past the level's own. */
   private nextId: number;
 
@@ -121,6 +135,7 @@ export class BossBody {
     this.anchor = { x: (left + right) / 2, y: (top + bottom) / 2 };
     host.bricksAdded(bricks, false);
     this.addSprite(bricks);
+    this.addGlows();
   }
 
   /** Centre of the body, now. */
@@ -152,6 +167,8 @@ export class BossBody {
       if (!brick) continue;
       this.bricks.delete(id);
       this.defs.delete(brick);
+      this.glows.get(brick)?.kill();
+      this.glows.delete(brick);
       gone.push(brick);
     }
     this.host.bricks.retire(gone);
@@ -201,6 +218,34 @@ export class BossBody {
     this.sprite?.setAlpha(Math.min(1, k / ARRIVE_SOLID));
   }
 
+  /**
+   * How the part lights burn. `rest` is a smoulder, `open` a strobe while the boss can be hit,
+   * and `out` puts them out, as when the eye burns away.
+   */
+  glow(kind: 'rest' | 'open' | 'out'): void {
+    const changed = kind !== this.glowing;
+    this.glowing = kind;
+    for (const [brick, light] of this.glows) {
+      if (brick.life === 'dead') {
+        light.kill();
+        this.glows.delete(brick);
+        continue;
+      }
+      const spec = this.defs.get(brick)?.light;
+      if (!spec || kind === 'out') {
+        light.intensity = 0;
+        continue;
+      }
+      const open = kind === 'open';
+      light.flicker = open ? 'strobe' : 'candle';
+      light.speed = open ? GLOW_OPEN_HZ : GLOW_REST_SPEED;
+      light.intensity = spec.intensity * (open ? GLOW_OPEN_GAIN : 1);
+      light.radius = spec.radius * (open ? GLOW_OPEN_REACH : 1);
+      // Start the strobe lit, so the opening reads on the frame it begins.
+      if (open && changed) light.phase = -this.host.lighting.time;
+    }
+  }
+
   /** Plays an animation, unless it is the one already playing. */
   show(anim: BossAnim): void {
     if (this.playing === anim) return;
@@ -248,6 +293,8 @@ export class BossBody {
   }
 
   destroy(): void {
+    for (const light of this.glows.values()) light.kill();
+    this.glows.clear();
     this.dropSprite();
   }
 
@@ -284,6 +331,34 @@ export class BossBody {
       else brick.setVisible(false);
     }
     this.show('idle');
+  }
+
+  /**
+   * A light for every part that has one. It follows the part. Under a picture the part is hidden,
+   * so the light is told to keep shining, and a hot point is drawn on the eye.
+   */
+  private addGlows(): void {
+    const pictured = !!this.sprite;
+    for (const [brick, part] of this.defs) {
+      const glow = part.light;
+      if (!glow) continue;
+      this.glows.set(
+        brick,
+        this.host.lighting.addLight({
+          follow: brick,
+          color: glow.color,
+          radius: glow.radius,
+          intensity: glow.intensity,
+          flicker: 'candle',
+          speed: GLOW_REST_SPEED,
+          priority: 8,
+          covered: true,
+          halo: pictured ? GLOW_HALO : 0,
+          haloAlpha: 0.9,
+          haloDepth: SPRITE_DEPTH + 2,
+        }),
+      );
+    }
   }
 
   /** Takes the picture away, whichever way the fight ended. */
