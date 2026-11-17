@@ -57,6 +57,8 @@ export class InputSystem {
     private paddle: Paddle,
     private onLaunch: () => void,
     onPause: () => void,
+    /** False while a boss scene has the field, so a tap there skips instead of hitting a hidden button. */
+    private hudLive: () => boolean = () => true,
   ) {
     this.keys = new KeyBindings(scene)
       .on('launch', () => this.enabled && this.onLaunch())
@@ -97,7 +99,9 @@ export class InputSystem {
     this.lastTouchX = p.worldX;
     this.moved = false;
     this.onHud =
-      onHudControl(p.worldX, p.worldY) || [...this.blockers].some((test) => test(p.worldX, p.worldY));
+      this.hudLive() &&
+      (onHudControl(p.worldX, p.worldY) ||
+        [...this.blockers].some((test) => test(p.worldX, p.worldY)));
   }
 
   private handleMove(p: Phaser.Input.Pointer): void {

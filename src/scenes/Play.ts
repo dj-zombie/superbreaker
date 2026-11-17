@@ -563,6 +563,7 @@ export class Play extends BaseScene {
       this.paddle,
       () => this.onTap(),
       () => this.requestPause(),
+      () => !this.boss?.cinematic,
     );
 
     const keys = this.inputSys.keys;
@@ -952,7 +953,7 @@ export class Play extends BaseScene {
 
   private updateAttachedBalls(dt: number): void {
     const held = this.ballList.find((b) => b.attached);
-    this.arrow.setVisible(!!held);
+    this.arrow.setVisible(!!held && !this.boss?.cinematic);
     this.hud.ballHeld = !!held;
     if (!held) return;
     held.setPosition(this.paddle.x + held.attachedOffset!, this.paddle.y - 24);

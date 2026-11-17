@@ -104,12 +104,28 @@ export class BossCinemaView {
   private readonly bottom: Rect;
   private title?: TitleView;
   private award?: AwardView;
+  private readonly mine = new Set<Phaser.GameObjects.GameObject>();
 
   constructor(private scene: Phaser.Scene) {
     this.dark = scene.add.rectangle(0, 0, 1, 1, 0x000000).setOrigin(0, 0).setDepth(DARK_DEPTH);
     this.top = scene.add.rectangle(0, 0, 1, 1, 0x000000).setOrigin(0, 0).setDepth(BAR_DEPTH);
     this.bottom = scene.add.rectangle(0, 0, 1, 1, 0x000000).setOrigin(0, 0).setDepth(BAR_DEPTH);
     this.update(null);
+  }
+
+  /**
+   * The objects this view draws, so the HUD can hide everything else while a scene has the field.
+   * One set, cleared and filled again, so a frame allocates nothing.
+   */
+  owns(): ReadonlySet<Phaser.GameObjects.GameObject> {
+    const mine = this.mine;
+    mine.clear();
+    mine.add(this.dark);
+    mine.add(this.top);
+    mine.add(this.bottom);
+    if (this.title) for (const o of this.titleParts(this.title)) mine.add(o);
+    if (this.award) for (const o of this.awardParts(this.award)) mine.add(o);
+    return mine;
   }
 
   /** Draws what the fight shows now. Null, between fights, shows nothing. */

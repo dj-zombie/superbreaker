@@ -220,6 +220,8 @@ export interface BossHud {
   health: number;
   /** False until the reveal, and once the boss is dead. */
   shown: boolean;
+  /** True while the player has the paddle. False for a scene, when the HUD steps aside. */
+  control: boolean;
   cinema: BossCinema;
 }
 
@@ -352,6 +354,7 @@ export class BossDirector implements BrickOwner {
     phases: 0,
     health: 1,
     shown: true,
+    control: false,
     cinema: { bars: 0, dark: 0, title: null, award: null },
   };
   /** The title card and the award card. One object each, kept up to date while it shows. */
@@ -1066,6 +1069,7 @@ export class BossDirector implements BrickOwner {
     view.phases = this.def.phases.length;
     view.shown =
       step === 'reveal' || step === 'fight' || step === 'transition' || step === 'finale';
+    view.control = step === 'fight';
     // The bar fills from empty while the boss is named.
     view.health = step === 'reveal' ? state.stepMs / REVEAL_MS : state.pool / state.poolMax;
     this.host.setHud(view);

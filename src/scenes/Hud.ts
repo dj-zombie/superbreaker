@@ -165,6 +165,13 @@ export class Hud extends BaseScene {
   /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
   private plates?: WingPlates;
   private wide = false;
+  /**
+   * Score, lives, the touch deck and the buttons. A boss scene hides it, and it comes back when
+   * the player has the paddle. The letterbox and the cards stay outside it, on top.
+   */
+  private chrome!: Phaser.GameObjects.Container;
+  /** Whether the chrome is up. Null until the first frame decides. */
+  private chromeUp: boolean | null = null;
 
   constructor() {
     super(SCENES.hud);
@@ -184,57 +191,102 @@ export class Hud extends BaseScene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     });
+    this.chrome = this.add.container(0, 0);
     if (WIDE) {
       this.plates = new WingPlates(this, this.play, t);
+    } else {
+      this.plates = undefined;
+      this.shownScore = 0;
+      this.last = { lives: -1, score: -1, shownScore: -1 };
+      this.label = NO_LABEL;
+      this.clockShown = -1;
+      this.scorePunch = undefined;
+      this.effectViews.clear();
+      this.hearts = [];
+      this.stockKey = '';
+      this.deck = IS_TOUCH ? this.makeDeck() : undefined;
+
+      this.add
+        .image(0, 0, hudStripTexture(this, t))
+        .setOrigin(0, 0)
+        .setDisplaySize(WIDTH, HUD_HEIGHT);
+      this.add.rectangle(0, HUD_HEIGHT, WIDTH, 1, p.edge, 0.8).setOrigin(0, 0.5);
+
+      this.score = this.add.bitmapText(64, HUD_CENTER, HUD_FONT, '0', 24).setOrigin(0, 0.5);
+      this.level = this.add
+        .bitmapText(WIDTH / 2 + 20, HUD_CENTER, HUD_FONT, '', 16)
+        .setOrigin(0.5)
+        .setTint(Phaser.Display.Color.HexStringToColor(p.textDim).color);
+      this.clock = this.add
+        .bitmapText(WIDTH - 14, HUD_HEIGHT + 24, HUD_FONT, '', 22)
+        .setOrigin(1, 0.5)
+        .setVisible(false);
+
+      for (let i = 0; i < MAX_LIVES; i++) {
+        const h = this.add.image(WIDTH - 22 - i * 28, HUD_CENTER, 'heart');
+        h.setScale(22 / h.width);
+        this.hearts.push(h);
+      }
+
+      iconButton(this, 26, HUD_CENTER, 'pause', () => this.play.requestPause(), 38);
+      this.shieldIcon = this.add
+        .container(0, 0, [disc(this, 0, 0, 13, 0x78dcff, 0.4), ring(this, 0, 0, 13, 3, 0x78dcff)])
+        .setVisible(false);
+      this.feverView = this.makeFever();
+      this.slotViews = slotPositions().map((pos, i) => this.makeSlot(pos.x, pos.y, i));
+      this.skillButtons = skillPositions().map((pos, i) =>
+        this.makeSkill(pos.x, pos.y, SKILL_IDS[i]!),
+      );
+      const offKeys = onKeyLabels(() => {
+        this.slotViews.forEach((v, i) => v.key.setText(slotKeyLabel(i)));
+        this.skillButtons.forEach((v, i) => v.key.setText(skillKeyLabel(SKILL_IDS[i]!)));
+      });
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, offKeys);
+    }
+    this.chromeUp = null;
+    const boss = (this.play.hud as HudState | undefined)?.boss;
+    this.settleChrome(!boss || boss.control);
+  }
+
+  /**
+   * Pulls new HUD pieces into the chrome, then hides it while a boss scene has the field. It
+   * fades back in once the player has the paddle. The letterbox stays on the scene, above it.
+   */
+  private settleChrome(show: boolean): void {
+    this.tuckLoose();
+    if (show === this.chromeUp) return;
+    const was = this.chromeUp;
+    this.chromeUp = show;
+    this.tweens.killTweensOf(this.chrome);
+    if (!show) {
+      this.chrome.setAlpha(1).setVisible(false);
       return;
     }
-    this.plates = undefined;
-    this.shownScore = 0;
-    this.last = { lives: -1, score: -1, shownScore: -1 };
-    this.label = NO_LABEL;
-    this.clockShown = -1;
-    this.scorePunch = undefined;
-    this.effectViews.clear();
-    this.hearts = [];
-    this.stockKey = '';
-    this.deck = IS_TOUCH ? this.makeDeck() : undefined;
-
-    this.add
-      .image(0, 0, hudStripTexture(this, t))
-      .setOrigin(0, 0)
-      .setDisplaySize(WIDTH, HUD_HEIGHT);
-    this.add.rectangle(0, HUD_HEIGHT, WIDTH, 1, p.edge, 0.8).setOrigin(0, 0.5);
-
-    this.score = this.add.bitmapText(64, HUD_CENTER, HUD_FONT, '0', 24).setOrigin(0, 0.5);
-    this.level = this.add
-      .bitmapText(WIDTH / 2 + 20, HUD_CENTER, HUD_FONT, '', 16)
-      .setOrigin(0.5)
-      .setTint(Phaser.Display.Color.HexStringToColor(p.textDim).color);
-    this.clock = this.add
-      .bitmapText(WIDTH - 14, HUD_HEIGHT + 24, HUD_FONT, '', 22)
-      .setOrigin(1, 0.5)
-      .setVisible(false);
-
-    for (let i = 0; i < MAX_LIVES; i++) {
-      const h = this.add.image(WIDTH - 22 - i * 28, HUD_CENTER, 'heart');
-      h.setScale(22 / h.width);
-      this.hearts.push(h);
+    this.chrome.setVisible(true);
+    if (was === null || calm()) {
+      this.chrome.setAlpha(1);
+      return;
     }
+    this.chrome.setAlpha(0);
+    this.tweens.add({ targets: this.chrome, alpha: 1, duration: 280, ease: 'Cubic.Out' });
+  }
 
-    iconButton(this, 26, HUD_CENTER, 'pause', () => this.play.requestPause(), 38);
-    this.shieldIcon = this.add
-      .container(0, 0, [disc(this, 0, 0, 13, 0x78dcff, 0.4), ring(this, 0, 0, 13, 3, 0x78dcff)])
-      .setVisible(false);
-    this.feverView = this.makeFever();
-    this.slotViews = slotPositions().map((pos, i) => this.makeSlot(pos.x, pos.y, i));
-    this.skillButtons = skillPositions().map((pos, i) =>
-      this.makeSkill(pos.x, pos.y, SKILL_IDS[i]!),
-    );
-    const offKeys = onKeyLabels(() => {
-      this.slotViews.forEach((v, i) => v.key.setText(slotKeyLabel(i)));
-      this.skillButtons.forEach((v, i) => v.key.setText(skillKeyLabel(SKILL_IDS[i]!)));
-    });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, offKeys);
+  /** Anything added straight to the scene, apart from the cinema, belongs to the chrome. */
+  private tuckLoose(): void {
+    const mine = this.cinema?.owns();
+    const list = this.children.list;
+    let moved = false;
+    for (let i = 0; i < list.length; ) {
+      const child = list[i]!;
+      if (child === this.chrome || mine?.has(child)) {
+        i++;
+        continue;
+      }
+      this.chrome.add(child);
+      moved = true;
+    }
+    // The container draws in list order, so depth has to be applied by hand.
+    if (moved) this.chrome.sort('depth');
   }
 
   /** Keep the deck and its buttons under the paddle when the phone viewport changes. */
@@ -530,6 +582,7 @@ export class Hud extends BaseScene {
     if (this.plates) {
       this.plates.spotlight(s.coachSlot, s.coachSkill);
       this.plates.update(s, delta);
+      this.settleChrome(!s.boss || s.boss.control);
       return;
     }
     if (s.lives !== this.last.lives) this.updateLives(s.lives);
@@ -571,6 +624,7 @@ export class Hud extends BaseScene {
       if (v) this.drawSkill(v, skill);
     });
     this.drawCoachSpot(s.coachSlot, s.coachSkill);
+    this.settleChrome(!s.boss || s.boss.control);
   }
 
   /** Timed runs: m:ss, red and blinking for the last ten seconds. */
