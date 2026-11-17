@@ -5,6 +5,7 @@ import {
   BossState,
   EXPLOSION_HITS,
   hitsFor,
+  sway,
   type BossSpec,
 } from '../src/core/Boss';
 import { DIFFICULTY, FIREBALL_DAMAGE } from '../src/core/Difficulty';
@@ -151,5 +152,33 @@ describe('BossState', () => {
     expect(fight({ phase: 1 }).progress).toBeCloseTo(12 / 40);
     // A phase past the end is the last one.
     expect(fight({ phase: 9 }).phase).toBe(2);
+  });
+});
+
+describe('sway', () => {
+  const AMPLITUDE = 90;
+  const PERIOD_MS = 3600;
+  const motion = sway(AMPLITUDE, PERIOD_MS);
+
+  it('rests at time 0 and never leaves the horizontal', () => {
+    expect(motion(0)).toEqual({ x: 0, y: 0 });
+    for (let t = 0; t <= PERIOD_MS; t += 50) expect(motion(t).y, `${t} ms`).toBe(0);
+  });
+
+  it('never goes further than its amplitude, and reaches it at each quarter', () => {
+    for (let t = 0; t <= 3 * PERIOD_MS; t += 7) {
+      expect(Math.abs(motion(t).x), `${t} ms`).toBeLessThanOrEqual(AMPLITUDE);
+    }
+    expect(motion(PERIOD_MS / 4).x).toBeCloseTo(AMPLITUDE);
+    expect(motion((3 * PERIOD_MS) / 4).x).toBeCloseTo(-AMPLITUDE);
+  });
+
+  it('repeats after one period', () => {
+    for (const t of [0, 1, 250, 900, 1234.5, 3599]) {
+      expect(motion(t + PERIOD_MS).x, `${t} ms`).toBeCloseTo(motion(t).x);
+      expect(motion(t + 4 * PERIOD_MS).x, `${t} ms`).toBeCloseTo(motion(t).x);
+    }
+    // Half a period on it is the mirror image, so a period is not shorter than it says.
+    expect(motion(900 + PERIOD_MS / 2).x).toBeCloseTo(-motion(900).x);
   });
 });

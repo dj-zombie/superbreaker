@@ -7,7 +7,7 @@ The log for this work. Newest entries go at the bottom. Agents append; nobody re
 | Phase | State | Implemented by | Reviewed |
 | --- | --- | --- | --- |
 | 1. A boss you can kill | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
-| 2. Sprite body and HUD | not started | | |
+| 2. Sprite body and HUD | pass | Claude (Cursor agent), 2026-11-16 | Claude (Cursor agent), 2026-11-16 |
 | 3. Cinematic flow | not started | | |
 | 4. Attacks | not started | | |
 | 5. Reference boss and authoring guide | not started | | |
@@ -309,3 +309,448 @@ For the user
 - I did not see the brick pop-in frames, and I did not play Hard in the browser.
 - A black hole or a bomb on `core` takes 6 from the pool per counted hit (`ABILITY_HITS` times `weak: 3`). One black hole, with both parts in range, took 16 and ended the first phase. That is what the hit rules say; it is a lot next to a 12-hit phase.
 - The lab stays `lightsOut`, so the parts read as dark shapes until the ball's light reaches them.
+
+## Phase 2: DONE, 2026-11-16, Claude (Cursor agent)
+
+Every build item is in and all nine manual checks gave the expected result. Three things to know
+before reviewing:
+
+1. `pnpm test` is not green in this working tree: 458 pass and 1 fails. The failure is
+   `tests/skills.test.ts` > "readies the gun more often than bullet time", and it comes from
+   another session's uncommitted edit to `src/core/Skills.ts` (gun cooldown 6000 ms, bullet time
+   3000 ms). This phase did not touch that file or that test. On a copy of the tree outside the
+   repo with only `src/core/Skills.ts` put back to HEAD, all 459 pass.
+2. The tree was dirty when I started and a second agent edited it while I worked. Its changes
+   sit in the same diff as mine, and two of its files are also mine (`src/scenes/Hud.ts`,
+   `src/scenes/Play.ts`). See "Open" for which is which.
+3. I ran the manual checks at `http://localhost:5173`, not on a spare origin as Phase 1 did, so
+   the checks wrote to the dev save in Cursor's browser. See "Open".
+
+Built
+- `art-src/bosses/warden.jpg` (new): the generated sheet, 1152 x 864, 361,189 bytes.
+- `scripts/build-bosses.py` (new): flood-fills the white away, cuts the grid, slides every cell
+  onto the first, crops all of them with one box, scales by one factor, writes the sheet.
+- `public/assets/images/bosses/warden.png` (new): 960 x 720, nine 320 x 240 frames, 900,134
+  bytes. Running the script again gives the same file, byte for byte.
+- `src/core/Boss.ts`: `BODY_MAX_SPEED`, `BODY_SCENE_SPEED`, `SPRITE_DEPTH`, `HURT_MS`,
+  `HURT_GAP_MS`, `BOSS_ANIMS`, `BossAnim`, `SpriteDef`, `Motion`, `sway`.
+- `tests/boss.test.ts`: 3 `sway` tests (19 in the file).
+- `src/systems/LightingSystem.ts`: `LitImage`, `addLit`, `removeLit`, and the loop in
+  `tintForeground` that gives listed images corner tints as bricks get them.
+- `src/systems/BossBody.ts`: `preload`; the sprite and its five animations; hidden parts, or
+  visible ones when there is no sheet; the anchor; `move`, `pose`, `show`, `flinch`, `fade`,
+  `retire`, `spawn`, `center`, `holds`.
+- `src/systems/BossDirector.ts`: `Pose`, `ArenaBrick`, `BossStage`, `BossHud`,
+  `BossHost.setHud`, the P2 members of `PhaseDef` and `BossDef`; phase setup and poses; the
+  flinch timer; the HUD view; `FORCED_BOSS_PHASE`; `embedded` and `debugProbe`.
+- `src/bosses/warden.ts`: the sprite, the three parts moved over the picture, the `open` pose,
+  the two phases with their motion, and phase 2's `setup`.
+- `src/scenes/Play.ts`: `HudState.boss`; `BossBody.preload` in `preload()`; `startPhase` from
+  `FORCED_BOSS_PHASE`; the dev `]` key; the dev `debugProbe` call after `boss.update`; `setHud`
+  in `bossHost()`.
+- `src/scenes/Hud.ts`: the board bar and pips (`makeBossBar`, `layoutBoss`, `drawBoss`).
+- `src/ui/WingPlates.ts`: the `Boss` label, pips and `Meter` on the left plate, `drawBoss`, and
+  three helpers the board bar shares: `easeBossBar`, `bossPips`, `paintBossPips`.
+- `src/platform/debugOverlay.ts`: the boss line.
+- `tests/bosses.test.ts`: 6 tests added (14 in the file): three on poses, three on the sprite.
+
+The generation attempts, both 1152 x 864 from the phase's description:
+- Attempt 1, rejected. Content crossed the cell edge between rows 2 and 3 (431 pixels in a 7 px
+  band at y = 576), and the model had added thruster flames that fade to near-white.
+- Attempt 2, kept. The description with these additions: each cell is exactly a third of the
+  image and the creature sits in its middle; the creature fills about two thirds of its cell;
+  no flames, exhaust, smoke or glow outside the body; sparks and fragments stay close to the
+  body. White to the border, nothing across a cell edge, the outline dark (median luminance 58
+  three pixels in). The creatures are still not on the cell grid: each sits 12 to 14 px further
+  over per column, which the script's sliding step takes out (slides of up to 33 px across and
+  19 px down).
+- Both are kept outside the repo, in the Cursor project's `assets/` folder, as
+  `warden-attempt-1.jpg` and `warden-attempt-2.jpg`. Attempt 2 is `art-src/bosses/warden.jpg`.
+
+The Warden, in brick cells:
+
+| Part | col, row | Size | Texture | Notes |
+| --- | --- | --- | --- | --- |
+| `body` | 7, 3 | 6 x 2 | `brick_purple2` | Across the shoulders. |
+| `core` | 9, 4 | 2 x 3 | `brick_red` | `weak: 3`. Its top row is under `body`; two rows hang below. |
+| `guard` | 9, 7 | 2 x 1 | `brick_steel` | Steel. Directly under `core`, the same width. |
+
+The sprite is 300 x 225 on the field at `dx: 2`, `dy: 49.5` from the anchor. The `open` pose
+moves `guard` up 48 px, into `body` and over the top row of `core`, where no ball reaches it.
+Phases: `guard-up` ("Guard up", `sway(50, 5200)`) and `core-exposed` ("Core exposed", pose
+`open`, `sway(90, 3600)`), 12 hits each. Phase 2's `setup` spawns six `brick_purple2` bricks at
+row 16, columns 7 to 12.
+
+Verified
+- `pnpm typecheck`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm test`: 458 passed, 1 failed, in 22 files (was 450 passing when I started). The failure
+  is the one described at the top. `tests/boss.test.ts` and `tests/bosses.test.ts`: 33 passed.
+- The four new content tests each fail when they should. On a copy outside the repo: a pose
+  naming a part that is not there, a phase naming a pose that is not there, a pose lifting
+  `guard` into the top two rows, and frame 9 on a nine-frame sheet each failed exactly one test.
+- `vite build` on a copy outside the repo: built. In the bundle the overlay line, the `?debug`
+  zones and the `&phase` reader are gone. `debugHit` and `debugProbe` remain as methods nothing
+  calls.
+- How the manual checks were run: the dev server that was already running, the Cursor browser,
+  and scripts in the page reading the `Play` and `Hud` scenes every frame, plus screenshots.
+  Easy difficulty (pool 10). The paddle stood still. For the long runs I turned god mode on so
+  the balls stayed in play, and the script refilled the pool whenever it ran low so a phase
+  would last. None of that is in the repo.
+- Manual 1: without `&debug` the three parts had `visible` false and the screenshot showed the
+  creature with no bricks under it. `warden-idle` stepped through frames 1, 2, 1, 0 every 200
+  ms. The sprite moved between x 252 and 352 at up to 69 px/s.
+- Manual 2: each flinch showed the `hurt` frame for 180 to 195 ms and swelled the sprite from
+  0.9375 to 0.975. Under gun fire, 18 hits in 5 s gave six flinches 263 to 741 ms apart. Over
+  the two-minute runs the shortest gap between two flinches was 250 ms.
+- Manual 3: the screenshots with `&debug` show `body` across the shoulders, `core` on the eye
+  and `guard` under it, all at 35% alpha. The overlay read `boss warden  fight  phase 1/2  pool
+  10.0/10  embedded 0` and followed the pool and the phase. Phase 1: 127 s on the fight clock,
+  three to six balls in play, 226 hits, `embedded` 0. Phase 2: 134 s, three balls, 67 hits,
+  `embedded` 0. The counter does count: a point at a part's centre and one 3 px inside its edge
+  each added 1; a point 1 px inside and one outside added nothing.
+- Manual 4: the `]` key in phase 1 gave phase 2, the label `WARDEN · CORE EXPOSED`, `guard` up
+  from y 176 to 128, and six bricks at y 320 with ids 100003 to 100008. `&phase=2` started in
+  the same state with a full pool. The first wall brick a ball broke took the score from 300 to
+  420. One pickup was in the air within a tenth of a second of that break and two while the
+  rest of the wall went, but I did not tie a pickup to a particular wall brick. In 40 s of
+  phase 2 the pool took 23 hits of 1 and 6 hits of 3, and each hit of 3 had a ball just under
+  the core's bottom edge. Left to the balls, the boss died: the sprite faded and was gone, the
+  bar went, and Results came up.
+- Manual 5, desktop window (1561 x 1283): the bar's track ran x 303 to 563, y 66 to 74, with
+  two pips at 569 to 587. Five rings ended at x 251 and the shield icon at 296, so nothing
+  touched. Four hits eased the fill from 0.96 to 0.54 over about half a second. At the phase
+  change the fill eased back to 1, the first pip went dim and the second stayed lit. At the
+  kill the bar and pips hid.
+- Manual 5, narrow window (400 x 860, emulated): the same bar, rings and shield icon, none
+  touching. On the tall window the field sits lower than the HUD strip, so the bar is well
+  above the boss.
+- Manual 5, 16:9 window (1600 x 900, emulated): the wing plates were up and there was no board
+  bar. The left plate had `BOSS`, two pips at the right of the label row, and the meter under
+  Fever. It drained to 0.6, refilled at the phase change with the first pip dim, and after the
+  kill stayed on the plate, empty, with both pips dim.
+- Manual 6: `?lighting=low` and `?lighting=high` each ran both phases and the kill with the
+  sprite tinted by the lighting and no console error or warning (collected from page load on).
+  With WebGL blocked in the page the game came up on the canvas renderer: lighting off, the
+  sprite untinted and fully visible, both phases and the kill, no console error.
+- Manual 7: with the sheet renamed, Phaser logged `Failed to process file: spritesheet
+  boss_warden`, there was no sprite, and the three parts showed as purple, red and steel
+  bricks, swaying. A ball hit took the pool from 10 to 9, `]` gave phase 2 with the wall, `]`
+  again gave the kill and Results. The sheet is back: 900,134 bytes, the same hash as the
+  script's output.
+- Manual 8: with reduced motion on, nine flinches in 16 s showed the `hurt` frame and the scale
+  never left 0.9375. The sprite still moved between x 252 and 352. The board bar jumped to its
+  value on the next frame instead of easing.
+- Manual 9: `?level=1` had no boss, no bar, no `boss_warden` texture, 52 bricks with none owned,
+  the label `LEVEL 1 · 47 LEFT`, and no console error. `?arcade=waves` the same, with `WAVE 1 ·
+  50 LEFT`. `?level=1` at 1600 x 900 had no `Boss` row on the wing plate.
+
+Not verified
+- Any sound, and how the fight feels to a person playing. I saw numbers and screenshots.
+- A real phone and a real TV. The narrow and 16:9 windows were emulated sizes in a desktop
+  browser, with a mouse.
+- Normal and Hard in the browser. Every run was on Easy.
+- Play with a moving paddle. The paddle stood still and god mode was on for the long runs.
+- The sprite under ordinary lighting. The lab is `lightsOut`, so the lit sprite is nearly black
+  (corner tints about `0x161514`) until a ball's light or a flash reaches it. The canvas
+  screenshot is the only one that shows it fully.
+- `tell`, `open` and `death`. The animations are created and nothing plays them in this phase.
+- `pnpm build` in the repo, the desktop build and a gamepad.
+
+Deviations from the documents
+- The whole body is held to the speed limit, not only the parts. `sway(90, 3600)` peaks at 157
+  px/s, above `BODY_MAX_SPEED`. Read literally, the sprite would follow the curve and the parts
+  would trail it by up to 20 px. I move one offset toward `motion(clock)` at the limit and hang
+  both the sprite and the parts from it. Phase 2 still reaches 90 px each way and runs up to 20
+  px behind its curve in mid-sweep.
+- The board bar is on the right half, not across the field: x 304 to 562, with the pips at its
+  right end, 26 px under the HUD strip. A full-width bar there would cross the effect rings.
+- Any hit that takes from the pool starts a flinch, a laser bolt's fraction of a hit included.
+  I read "counted hit" as a hit that was not `immune` or `armor`.
+- `core` overlaps `body` by one row, and `guard` in the `open` pose overlaps both. Parts are
+  not solid to each other, and the lower row of `body` covers them from above.
+- The phase ids are `guard-up` and `core-exposed`, after the titles the phase file gives.
+- `embedded` is fed by `debugProbe(points)`, called from `Play.update` in dev builds.
+  `BossHost` has no `balls()` until P4.
+- `FORCED_BOSS_PHASE` is exported from `BossDirector.ts` and read in `Play.ts`.
+- `BossDirector.def` is public and read-only, so the overlay can print the id and phase count.
+- `BossBody`'s constructor takes the `BossDef`. Parts start in their pose and at their motion's
+  starting offset, with no travel, since nothing is in play at construction.
+- `easeBossBar`, `bossPips` and `paintBossPips` are exported from `WingPlates.ts` so the board
+  bar and the plate share them. `widgets.ts` is not on the phase's list.
+- On the wing plate the bar stays, empty, after the kill. The plate is laid out once, and
+  hiding the row would leave a gap.
+- `build-bosses.py` slides each cell onto the first before the common crop (see the attempts
+  above), and keeps 2 px clear inside each frame so filtering never reads the next frame.
+- Two sprite tests beyond the ones listed: the sizes are above zero, and every frame number
+  exists on the sheet file.
+- The tree was not clean at the start. HEAD was `8710eb3`, with another session's uncommitted
+  work in `src/config.ts`, `src/core/Layout.ts`, `src/scenes/Hud.ts`, `src/ui/ControlsCard.ts`
+  and `tests/layout.test.ts`.
+
+Open
+- The failing test. `src/core/Skills.ts` now has the gun at 6000 ms and bullet time at 3000 ms,
+  and `tests/skills.test.ts` expects the gun to be the shorter. Not this phase's to fix.
+- Whose changes are whose. Not mine: `src/config.ts`, `src/core/Layout.ts`,
+  `src/core/Skills.ts`, `src/systems/AudioSystem.ts`, `src/systems/MusicEngine.ts`,
+  `src/ui/ControlsCard.ts`, `tests/layout.test.ts`; in `src/scenes/Play.ts` the "Always-on
+  skills" comment, the two `new SkillCharge(..., 1)` lines and the two `audio.setDream` lines;
+  in `src/scenes/Hud.ts` everything except the boss bar. Before I edited shared files I saved
+  the other session's diff as it then stood, outside the repo, as
+  `touch-deck-before-phase2.patch` in this agent's Cursor store.
+- The dev save at `localhost:5173` in Cursor's browser. I turned god mode on for the long runs
+  and the game saved it; it is back to off, and reduced motion is off. Killing the boss there
+  wrote `level31` (3 stars, best score 38,285) and the save now reads `unlocked: 31`. I did not
+  record what `unlocked`, `coins` or `level31` were before, so I left them.
+- The sheet is in the production service worker's precache: 900 KB more on every install.
+  `vite.config.ts` is not on this phase's list. A `globIgnores` entry for `**/images/bosses/**`
+  would leave it to load with its level.
+- The sprite takes its light at four corners only, as a brick does. Over 300 x 225 px that is a
+  coarse gradient.
+- In phase 1 the core's two lower rows are open at the sides, so a ball coming in level can hit
+  the `weak: 3` core while the guard is down.
+- `Brick.flash` still swells a hidden part's physics box for about 100 ms (Phase 1's first open
+  item), and with `&debug` it shows as a white flash on the zone.
+- The fight clock runs while the ball waits on the paddle, so the boss sways during the launch
+  countdown.
+- On the canvas renderer the pips drew white, lit and unlit told apart only by alpha. The skill
+  buttons were white there too.
+- With `&debug` on a narrow window the debug overlay covers the right end of the bar.
+- The root README's "Generated art" section does not mention `build-bosses.py`.
+
+For the user to confirm
+- Whether the Warden's sheet is good enough to test against.
+- The bar's look and position on phone and TV.
+
+Later
+- The `globIgnores` entry above.
+- Light for a large sprite sampled at more than its corners.
+- A reduced-motion gate on `Brick.flash`.
+- A note in the README that manual checks belong on a spare origin, as Phase 1 ran them.
+
+## Phase 2 review: PASS, 2026-11-16, Claude (Cursor agent)
+
+Every Build item is in, every automated check that belongs to this phase passes, and every
+manual check I could run matched the handoff. The one wrinkle was the tree: it held another
+session's work beside this phase's, which is why `pnpm test` was red out of the box. I lifted
+the other session's edits out before committing, kept Phase 2's single clean commit, and left
+the other session's work in the working tree for whoever owns it to pick up. Three things to
+know:
+
+1. The out-of-scope changes in `src/config.ts`, `src/core/Layout.ts`, `src/core/Skills.ts`,
+   `src/systems/AudioSystem.ts`, `src/systems/MusicEngine.ts`, `src/ui/ControlsCard.ts`,
+   `tests/layout.test.ts` and parts of `src/scenes/Hud.ts` and `src/scenes/Play.ts` are the
+   other session's, as the handoff declares. They are back in the working tree, unstaged, after
+   I reverted them for the commit and re-applied them from a backup. They are not in Phase 2's
+   commit.
+2. Before I split the tree, `pnpm test` failed on `tests/skills.test.ts` (another session's
+   `src/core/Skills.ts` edit, gun 6000 ms vs bullet time 3000 ms) and flaked on
+   `tests/procgen.test.ts > leaves a wide door in the bottom of every frame`. I reproduced the
+   procgen flake on a clean clone of HEAD (`8710eb3`) in a tmp directory; it is a pre-existing
+   5000 ms timeout, not Phase 2's. On the committed tree all 454 tests pass.
+3. All manual checks were run in the Cursor browser with god mode on for the long sessions, as
+   the handoff did. I did not play with a moving paddle and I heard no sound. The sheet is still
+   open for the user's eye.
+
+Ran
+- `pnpm typecheck`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm test`: 457 passed, 2 failed, in 22 files. Run a second time with the same results.
+  `tests/boss.test.ts` and `tests/bosses.test.ts`: 33 passed. Both failures are unrelated to
+  Phase 2 (see above). The four new content tests plus the three `sway` tests are all there.
+- `python3 scripts/build-bosses.py`: byte-identical output (sha
+  `9f2afa54781891dea854d6da707e0cd5133c5b1c`, 900,134 bytes) to the file already in the tree.
+- How the manual checks were run: a dev server already up at `http://127.0.0.1:5173`, the
+  Cursor browser, scripts in the page reading `window.boss`, `window.game.scene.getScene('Play')`
+  and the `Hud` scene. Easy difficulty (pool 10). The paddle stood still and god mode was on
+  for the embedded run. I unset god mode and reduced motion again before stopping.
+- Manual 1, `?map=bosslab.tmj`: the three parts had `visible: false`; the sprite was on screen
+  and `warden-idle` stepped through frames 0, 1, 2, 1. `drift.x` swept from +35 to +50 to -50
+  and back, up to 69 px/s on the field; no brick showed under the picture.
+- Manual 2: a single `debugHit(1)` played `warden-hurt` for ~180 ms of fight-clock time and
+  punched the scale from 0.9375 to 0.975 and back; hurt swap frame was 6. Rapid hits over a
+  longer run (40 `debugHit(1)` calls in 2 s of real time) counted 4 flinches on the throttled
+  tab, never two inside `HURT_GAP_MS`.
+- Manual 3, `&debug`: the three parts showed over the sprite at alpha 0.35, depth 2 (above the
+  sprite's depth 1). The overlay read `boss warden  fight  phase 2/2  pool 9.0/10  embedded 0`
+  and followed the pool and phase. With god mode on and three balls in play I watched for 10 s
+  on phase 1; `embedded` stayed 0 (34 samples, 300 ms apart). I did not run the full two
+  minutes per phase the phase file asks for.
+- Manual 4, `?map=bosslab.tmj&phase=2&debug`: started in phase 1 (0-based) with pool 10/10,
+  label `WARDEN · CORE EXPOSED`; `guard` was at y 128 (homeY 176, so dy -48), sandwiched
+  between `body` (y 104-136) and the top row of `core` (y 120-168), where no ball reaches
+  it. Six `brick_purple2` bricks appeared at x 225-375 (cols 7-12), y 320, ids 100003 to
+  100008; they were ownerless and visible. Draining both phases through hits and letting the
+  defeat land: step `finale`, pool 0, active false, `hud.boss` null, score 2,500 (= 2000
+  defeat + 500 phase), the sprite faded away and the clear banner came up with one star. The
+  `]` key also empties the current pool.
+- Manual 5, three viewports via Chrome device emulation (not real phones):
+  - Narrow (420 x 900): board bar at x 303 to 563, y 70, with two pips at x 573 and 583,
+    both red at alpha 1. No wing plates. Sprite centred over the field.
+  - Desktop/portrait (1024-ish wide, no emulation): same board bar, same pips.
+  - 16:9 (1600 x 900): `WIDE` true, STAGE_W 1422, wings 411. No board bar. The left plate
+    showed `BOSS`, two pips at the right end of the label row, and a red meter under `Fever`.
+    All three plate elements live in `WingPlates.boss`.
+- Manual 6, `?lighting=low` and `?lighting=high`: the sprite was tinted in both; after ~2 s
+  the four corner tints read `0x161514`, `0x161514`, `0x181614`, `0x181614` (the level is
+  `lightsOut`, so the warden sits dark until a ball's light reaches it). No console error.
+- Manual 7: I renamed `public/assets/images/bosses/warden.png` to `warden.png.bak`. Phaser
+  failed to load the sheet; `boss_warden` texture did not exist; no sprite was built; the
+  three parts were visible at alpha 1 as plain purple, red and steel bricks, all swaying;
+  the label and the bar still worked. I restored the file and the sha matches.
+- Manual 8: with reduced motion on, the scale stayed at 0.9375 across a flinch (no punch),
+  but the `warden-hurt` frame still swapped in. `drift.x` still swept from +35 to +50 to +15
+  across three seconds, so sway still plays. `calm()` was true even though `save.state.
+  settings.reducedMotion` read false after the reload, so the setting does persist through
+  the running scene even if my dynamic import was reading a fresh module instance.
+- Manual 9: `?level=1` and `?arcade=waves` both had `window.boss` and `p.boss` undefined,
+  `hud.boss` null, no `boss_warden` texture loaded (the Play.preload guard works), 52 bricks
+  for level 1 and 52 for wave 1, labels `LEVEL 1 · 47 LEFT` and `WAVE 1 · 50 LEFT`. At 1600 x
+  900 the wing plate on `?level=1` had no `BOSS` row.
+
+Not checked
+- Any sound.
+- Real phones and a real TV. The narrow and 16:9 windows were Chrome emulation sizes.
+- Normal and Hard in the browser. Easy was on screen.
+- Play with a moving paddle. The paddle stood still.
+- `embedded` over the full two minutes per phase. I ran ten seconds in phase 1 only; the
+  handoff ran 127 s and 134 s.
+- `tell`, `open` and `death` animations. The animations are built; nothing plays them in P2.
+- `pnpm build` in this working tree, the desktop build, a gamepad. The handoff reports a
+  successful `vite build` on a separate copy of the tree.
+- The dev save at `localhost:5173` in the Cursor browser. I turned god mode on for the
+  embedded run and off again, and did the same for reduced motion. The save still carries
+  this session's clear and unlocks from the kill; I did not record the prior values.
+
+Build items
+- Sprite sheet, `scripts/build-bosses.py`, `art-src/bosses/warden.jpg`,
+  `public/assets/images/bosses/warden.png`: done. The script is self-contained, flood-fills
+  the border, slides each cell onto the first, crops all with one box, scales by one factor,
+  centres and saves as RGBA. The Pillow table at the top lists the Warden's grid (3 x 3) and
+  frame (320 x 240); the output is 960 x 720. A second run is byte-identical.
+- `src/core/Boss.ts`: done. `BOSS_ANIMS`, `BossAnim`, `SpriteDef`, `Motion`, `sway`, and the
+  constants `BODY_MAX_SPEED` (120), `BODY_SCENE_SPEED` (600), `SPRITE_DEPTH` (1), `HURT_MS`
+  (180), `HURT_GAP_MS` (250). `sway` is `amplitude * sin(2*pi * clock / period)`, `y: 0`.
+- `src/systems/BossBody.ts`: done. `preload` queues the sheet only if its texture does not
+  exist yet. The constructor takes `BossDef`, computes the anchor from the rest bounding box
+  of every part, builds the animations once with `scene.anims.generateFrameNumbers`, creates
+  one `Sprite` at `SPRITE_DEPTH` sized `width x height`, and hides the parts (or shows them
+  at 0.35 alpha with depth 2 under `?debug`). `move(offset, step)` approaches the drift at
+  `step`, then approaches each part's target at `step` after the drift update (so part
+  motion and sway are both capped at the per-frame `BODY_MAX_SPEED` / `BODY_SCENE_SPEED`
+  budget). Poses move parts only: the sprite hangs from `anchor + drift + (sprite.dx, dy)`.
+  `flinch` is calm-gated, cancels itself with `punch?.stop()`, and does not call
+  `juice.flash`. `fade` tweens alpha to 0 over 300 ms and `onComplete` destroys the sprite;
+  the only animation callback in the directory and it only teardown-sets the picture, not
+  fight state. `spawn` appends ownerless bricks with ids counting up from the last part's
+  id, then calls `host.bricksAdded(bricks, false)`. `holds(x, y)` is `PROBE_INSET` (2 px)
+  inside the brick's spec rectangle. `LightingSystem.addLit(sprite)` is called at build and
+  `removeLit(sprite)` at destroy and in `dropSprite`. `setLighting` is never called on the
+  sprite. Nothing in this file reaches for `quality` or the tier budget.
+- `src/systems/BossDirector.ts`: done. `Pose`, `ArenaBrick`, `BossStage`, `BossHud` and the
+  P2 members of `PhaseDef`, `BossDef` and `BossHost` are all in. A `BossStage` is a frozen
+  snapshot of the live systems plus the body's `center`, `part`, `pose`, `retire` and
+  `spawn`; `calm` is a getter so it reads live. On construction the director runs every
+  earlier phase's `setup` in order with `opts.startPhase`, then `enterPhase` for the current
+  one, then moves the body to its starting offset with `Infinity` step so it is already in
+  place before the first frame. `update` advances the fight clock from `dt / timeScale`
+  skipped in hit-stop, flushes pending hits (triggering one `flinch` per update at most and
+  only outside `HURT_GAP_MS`), then calls `body.move(offset, speed * tick / 1000)` and
+  `body.show(hurt or idle)`. On finale: retire every part, fade, `shatterBelow(-Infinity)`,
+  defeat bonus, `setHud(null)`, `defeated()`. `showHud` keeps one `BossHud` object alive and
+  writes into it every frame. `FORCED_BOSS_PHASE` is a module const that reads `&phase=N`
+  (1-based) in DEV. `debugProbe` increments `embedded` once per frame if any point is inside
+  a live part; `debugHit` adds to `pending`. `def` is `readonly` and public so the overlay
+  can read it.
+- `src/bosses/warden.ts`: done. The sprite key is `boss_warden`, frame size 320 x 240, field
+  size 300 x 225, offsets `dx: 2`, `dy: 49.5`. Animations: `idle [0,1,2,1]`@5, `tell [3,4]`@8,
+  `open [5]`@1, `hurt [6]`@1, `death [7,8]`@3. Parts: `body` 6 x 2 at col 7 row 3, `core` 2
+  x 3 at col 9 row 4 with `weak: 3`, `guard` 2 x 1 steel at col 9 row 7. `open` pose lifts
+  `guard` by `-3 * BH`. Phases: `guard-up` with `sway(50, 5200)`, `core-exposed` with pose
+  `open`, `sway(90, 3600)` and a `setup` that spawns six `brick_purple2` bricks at col 7-12,
+  row 16. Imports only types from `src/systems/BossDirector`, plus `sway` and grid constants
+  from `src/core`.
+- `src/scenes/Play.ts`: done. `HudState.boss`, `BossBody.preload(this, BOSSES[boss])` in
+  `preload()` when the next level has a boss, `startPhase: FORCED_BOSS_PHASE` on the
+  director, `]` key bound in DEV to `boss.debugHit(boss.state.pool)`, `boss.debugProbe` fed
+  the centres of the free balls in DEV from `update`, `setHud` in `bossHost()`.
+- `src/scenes/Hud.ts`: done. `HudState.boss` is drawn in `drawBoss` from `makeBossBar`,
+  a thin red track with a fill that eases toward the value plus one disc pip per phase at the
+  right end. The bar sits at `y = HUD_HEIGHT + BOSS_BAR_DY` with `BOSS_BAR_LEFT = 304`,
+  past the five effect rings (whose right edge is at x 293) and the shield icon. It is
+  hidden when `boss` is null or not `shown`.
+- `src/ui/WingPlates.ts`: done. On the wide stage, when `play.hud.boss` is set at build
+  time, the left plate gets a `Boss` label, phase pips, and a `Meter` below `Fever`. Three
+  helpers (`easeBossBar`, `bossPips`, `paintBossPips`) are exported and used by both
+  renderers, so the eased fill and the pip tint are the same code. The bar stays empty on
+  the plate after the kill because the plate is laid out once; that is in the handoff's
+  deviations.
+- `src/systems/LightingSystem.ts`: done. `LitImage`, `addLit`, `removeLit`, and a loop in
+  `tintForeground` that tints each listed image with the same `cornerTints` path the bricks
+  use. Images with `visible === false` are skipped.
+- `src/platform/debugOverlay.ts`: done. A `bossLine` from `BossDirector.current` prints
+  `boss <id>  <step>  phase <n/m>  pool <x.x/y>  embedded <N>`.
+- `tests/boss.test.ts`, `tests/bosses.test.ts`: done. `sway(0) === {x: 0, y: 0}`, stays
+  horizontal, never leaves its amplitude, reaches it at each quarter and repeats after one
+  period. For every boss: poses only name existing parts; every `phase.pose` exists; every
+  part in every pose stays inside the field and out of rows 0 and 1 (checked at
+  `>= 2 * BH`); a sprite has all five animations with whole non-negative frame numbers and
+  `fps > 0`. Two extras: every size is positive and every frame number is on the sheet (the
+  PNG width and height are read from the IHDR). I made three one-line breakages in a copy
+  of `src/bosses/warden.ts` and each failed exactly one test: a pose naming a missing part;
+  a phase naming a missing pose; frame 9 on a 9-frame sheet.
+
+Scope and shortcuts
+- Not clean. The other session's work (declared in the handoff) is in the same working tree:
+  `src/config.ts`, `src/core/Layout.ts`, `src/core/Skills.ts`, `src/systems/AudioSystem.ts`,
+  `src/systems/MusicEngine.ts`, `src/ui/ControlsCard.ts`, `tests/layout.test.ts`, plus bits
+  of `src/scenes/Hud.ts` (named-import reorder, `layoutDeck`, `drawSkill` arrow redirection,
+  tween-config reformatting, hand/ring `setPosition` chain reformats) and bits of
+  `src/scenes/Play.ts` (the `Always-on skills` comment, the two `new SkillCharge(..., 1)`
+  calls and the two `audio.setDream` calls in `activateSlowmo` / `deactivateSlowmo`). None
+  of these belong to Phase 2.
+- Inside the phase's files: no `any`, `as unknown as`, `@ts-ignore`, `@ts-expect-error`,
+  `eslint-disable`, `Math.random`, console logging, `setTimeout`/`setInterval`,
+  `delayedCall`, `addEvent`, `Date.now`, `performance.now`, `juice.flash`, `setLighting`
+  on the sprite, or `try`/`catch` that swallows an error. One `onUpdate`-style callback,
+  the `onComplete` in `BossBody.fade`, only destroys the picture; the fight is already over
+  by then and no fight state changes inside it. One `?? ` default (the `anchor` offset for
+  a part not named in the pose) is the documented default. `?.` uses are reads from
+  optional types (`def.poses?.[name]`, `def.phases[...]!.motion?.(clock)`). Nothing tagged
+  P3 or P4 was built: no cues, `audio.bossMusic`, `AttackDef`, `HazardSystem`, `tell`/`open`
+  switching from gameplay, `lock`, or steps beyond `fight` and `finale`. No new dependency,
+  no new input bindings other than the DEV-only `]` and `&phase=`, no shipped-level edits.
+- `src/bosses/warden.ts` imports `BossDef` and `ArenaBrick` as types only, and `sway` plus
+  `BH`, `BRICK_HEALTH`, `BW` from `src/core`. The node test suite can import `BOSSES`
+  without a Phaser scene.
+- Deviations the handoff declares, and that the run matched: the body's step applies to the
+  drift as a whole so a part's motion in a pose and the sway share one speed budget; the
+  board bar lives on the right half instead of across the field; any pool-draining hit
+  (including a laser's fractional hit) starts a flinch; `core`'s top row sits under `body`
+  and `guard` in the open pose sits inside both; the phase ids are `guard-up` and
+  `core-exposed`; `embedded` is fed from `Play.update`'s DEV guard because `BossHost.balls`
+  arrives in P4; `FORCED_BOSS_PHASE` is exported from `BossDirector.ts` and read in
+  `Play.ts`; `BossDirector.def` is public and read-only; `BossBody` takes the whole
+  `BossDef`; the parts start at their pose and motion offset at construction because
+  nothing is in play; the wing-plate bar stays empty after the kill; `build-bosses.py`
+  slides each cell before the common crop and keeps 2 px clear inside each frame.
+
+For the user
+- Decide what to do with the other session's work still in the tree. It covers skill cooldowns
+  (`SKILLS.gun` 6000 ms and `SKILLS.slowmo` 3000 ms), a `setDream` audio step inside bullet
+  time, the touch deck layout (`DECK_MIN_TOUCH` 150 to 200, a skill row under the corner slots,
+  the slider and arrow positions, the Controls card copy), plus a rewrite of `MusicEngine` and
+  `AudioSystem` for a second track and a `tests/layout.test.ts` block that goes with the deck.
+  Pick it up as its own phase or discard; it is not Phase 2 either way. The implementer saved
+  the other session's starting diff as `touch-deck-before-phase2.patch` in its Cursor store if
+  you need to recover it.
+- The sheet. The cells all hold the warden; the eye is in the head, not in a chest cavity
+  as the description asked. Open and attack frames do show the chest-core; the hurt frame
+  shuts the eye; the death frames crack and break. Up to you whether that reads.
+- The board bar on a real phone and the wing-plate meter on a real TV. I only used Chrome
+  emulation.
+- The level is `lightsOut`, so the warden is a dark silhouette at rest until the ball's
+  light reaches it. Switch the lab to a lit level if you want the full picture visible
+  while reviewing.
+- Hard's pool and Normal's pool in the browser. Easy was the only difficulty on screen.
+- All sound.

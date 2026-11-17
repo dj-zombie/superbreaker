@@ -1,11 +1,23 @@
 import Phaser from 'phaser';
 import { RENDER_ZOOM, SCENES } from '../config';
+import { BossDirector } from '../systems/BossDirector';
 import { LightingSystem } from '../systems/LightingSystem';
+
+/** Dev builds only: the running boss fight in one line, or nothing without one. */
+function bossLine(): string {
+  const boss = import.meta.env.DEV ? BossDirector.current : undefined;
+  if (!boss) return '';
+  const { state, def } = boss;
+  return (
+    `\nboss ${def.id}  ${state.step}  phase ${state.phase + 1}/${def.phases.length}  ` +
+    `pool ${state.pool.toFixed(1)}/${state.poolMax}  embedded ${boss.embedded}`
+  );
+}
 
 /**
  * `?debug` in the URL shows frame rate, CPU time per frame, physics bodies, live particles, render
  * zoom and the lighting tier, light count and light map cost, refreshed twice a second. Meant for
- * checking a real phone against `pnpm preview --host`.
+ * checking a real phone against `pnpm preview --host`. A dev build adds the boss fight's state.
  */
 export function mountDebugOverlay(game: Phaser.Game): void {
   if (!new URLSearchParams(location.search).has('debug')) return;
@@ -61,7 +73,8 @@ export function mountDebugOverlay(game: Phaser.Game): void {
       `${game.loop.actualFps.toFixed(0)} fps  cpu ${avg.toFixed(1)}ms (max ${worst.toFixed(0)})\n` +
       `bodies ${bodies}  particles ${particles}\n` +
       `zoom ${RENDER_ZOOM}  canvas ${game.canvas.width}x${game.canvas.height}` +
-      light;
+      light +
+      bossLine();
     frames = 0;
     cpu = 0;
     worst = 0;

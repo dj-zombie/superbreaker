@@ -20,6 +20,7 @@ import {
 } from '../config';
 import { HUD_FONT } from '../art/fonts';
 import type { SlotState } from '../systems/AbilitySystem';
+import type { BossHud } from '../systems/BossDirector';
 import { MAX_LIVES } from '../core/Difficulty';
 import { SKILLS, SKILL_IDS, type SkillId, type SkillView } from '../core/Skills';
 import type { PowerupId } from '../core/types';
@@ -31,7 +32,7 @@ import { icon } from '../ui/icons';
 import { disc, ring } from '../ui/shapes';
 import { calm, theme, type UiTheme } from '../ui/theme';
 import { RingTimer } from '../ui/widgets';
-import { WingPlates } from '../ui/WingPlates';
+import { WingPlates, bossPips, easeBossBar, paintBossPips } from '../ui/WingPlates';
 import { BaseScene } from './BaseScene';
 import type { HudState, Play } from './Play';
 
@@ -75,10 +76,30 @@ interface FeverView {
   rainbow: Phaser.GameObjects.TileSprite;
 }
 
+/** A boss's health bar, with a pip for each of its phases at the right end. */
+interface BossBarView {
+  track: Phaser.GameObjects.Rectangle;
+  fill: Phaser.GameObjects.Rectangle;
+  pips: Phaser.GameObjects.Image[];
+  /** The fill's width now, 0..1. It eases toward the boss's health. */
+  shown: number;
+  /** The phase the pips are lit for. */
+  phase: number;
+  visible: boolean;
+}
+
 const NO_LABEL = { title: '', detail: null, remaining: -1 } as const;
 const EFFECT_GAP = 50;
 const EFFECT_SIZE = 42;
 const FEVER_H = 5;
+/** The boss bar starts right of five effect rings and the shield icon, which end at x = 293. */
+const BOSS_BAR_LEFT = 304;
+const BOSS_BAR_RIGHT = WIDTH - 14;
+const BOSS_BAR_H = 6;
+/** Its centre below the HUD strip, in px: under the Fever bar, in the rows no boss level fills. */
+const BOSS_BAR_DY = 26;
+/** Clear px between the bar and its pips. */
+const BOSS_PIP_SPACE = 8;
 
 /** Thumb zone under the paddle: panel, a slider track that mirrors the paddle, and a hint. */
 interface DeckView {
@@ -130,6 +151,8 @@ export class Hud extends BaseScene {
   private deck?: DeckView;
   private coachHand?: CoachHandView;
   private coachSpot?: CoachSpotView;
+  /** Built the first time a boss shows its bar. */
+  private bossBar?: BossBarView;
   /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
   private plates?: WingPlates;
   private wide = false;
@@ -146,6 +169,7 @@ export class Hud extends BaseScene {
     this.wide = WIDE;
     this.coachHand = undefined;
     this.coachSpot = undefined;
+    this.bossBar = undefined;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
@@ -210,6 +234,7 @@ export class Hud extends BaseScene {
     this.stockKey = '';
     this.layoutDeck();
     this.layoutFever(this.feverView);
+    this.layoutBoss();
   }
 
   private makeDeck(): DeckView {
@@ -469,6 +494,7 @@ export class Hud extends BaseScene {
     this.drawClock(s.clockMs);
     this.drawEffects(s);
     this.drawFever(s, delta);
+    this.drawBoss(s.boss, delta);
     this.drawStock(s);
     this.drawDeck(s);
     s.slots.forEach((slot, i) => {
@@ -517,6 +543,48 @@ export class Hud extends BaseScene {
       fill.fillColor = full ? 0xffffff : this.t.palette.accent;
       spark.setTint(this.t.palette.accentHi);
     }
+  }
+
+  private makeBossBar(phases: number): BossBarView {
+    const y = HUD_HEIGHT + BOSS_BAR_DY;
+    const [pips, pipsLeft] = bossPips(this, BOSS_BAR_RIGHT, y, phases);
+    const w = pipsLeft - BOSS_PIP_SPACE - BOSS_BAR_LEFT;
+    // The track is a pixel larger all round, so the fill keeps a dark edge over bright scenery.
+    const track = this.add
+      .rectangle(BOSS_BAR_LEFT - 1, y, w + 2, BOSS_BAR_H + 2, 0x000000, 0.6)
+      .setOrigin(0, 0.5);
+    const fill = this.add
+      .rectangle(BOSS_BAR_LEFT, y, w, BOSS_BAR_H, this.t.palette.danger)
+      .setOrigin(0, 0.5);
+    return { track, fill, pips, shown: 0, phase: -1, visible: false };
+  }
+
+  private layoutBoss(): void {
+    const v = this.bossBar;
+    if (!v) return;
+    const y = HUD_HEIGHT + BOSS_BAR_DY;
+    for (const o of [v.track, v.fill, ...v.pips]) o.setY(y);
+  }
+
+  /** A boss's health and phases, right of the effect rings in the empty rows over the bricks. */
+  private drawBoss(boss: BossHud | null, delta: number): void {
+    let v = this.bossBar;
+    const show = !!boss && boss.shown;
+    if (v && v.visible !== show) {
+      for (const o of [v.track, v.fill, ...v.pips]) o.setVisible(show);
+    }
+    if (!boss || !show) {
+      if (v) v.visible = false;
+      return;
+    }
+    v ??= this.bossBar = this.makeBossBar(boss.phases);
+    // A bar coming up starts at its value. From then on it eases, so a refill reads as one.
+    v.shown = v.visible ? easeBossBar(v.shown, boss.health, delta) : boss.health;
+    v.visible = true;
+    v.fill.scaleX = v.shown;
+    if (boss.phase === v.phase) return;
+    v.phase = boss.phase;
+    paintBossPips(v.pips, boss.phase, this.t);
   }
 
   private drawStock(s: HudState): void {

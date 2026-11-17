@@ -279,6 +279,9 @@ export interface LightingStats {
   ms: number;
 }
 
+/** Something `addLit` can light: it is tinted at its four corners, around a centre origin. */
+export type LitImage = Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
+
 /**
  * Multiply light map for the backdrop plus per-vertex tints for bricks and the paddle.
  *
@@ -319,6 +322,8 @@ export class LightingSystem {
   private frame = 0;
   private bricks: readonly Brick[] = [];
   private paddle?: Phaser.GameObjects.Image;
+  /** Images lit the way bricks are without being one: a boss's sprite. */
+  private lit: LitImage[] = [];
   private relief?: ReliefLighting;
   private shadowFocus?: { x: number; y: number };
   private shadowSig = -1;
@@ -393,6 +398,17 @@ export class LightingSystem {
   attach(bricks: readonly Brick[], paddle: Phaser.GameObjects.Image): void {
     this.bricks = bricks;
     this.paddle = paddle;
+  }
+
+  /** Lights an image the way bricks are lit: corner tints from the lights around it. */
+  addLit(image: LitImage): void {
+    if (!this.lit.includes(image)) this.lit.push(image);
+  }
+
+  /** Stops lighting an image. Its last tint stays on it. */
+  removeLit(image: LitImage): void {
+    const i = this.lit.indexOf(image);
+    if (i >= 0) this.lit.splice(i, 1);
   }
 
   /** Where brick shadows lean away from, usually the main ball. */
@@ -1002,6 +1018,11 @@ export class LightingSystem {
       if (!b.visible || b.life === 'dead' || b.flashing) continue;
       const [tl, tr, bl, br] = this.cornerTints(b, this.fgRGB);
       b.applyLight(tl, tr, bl, br);
+    }
+    for (const o of this.lit) {
+      if (!o.visible) continue;
+      const [tl, tr, bl, br] = this.cornerTints(o, this.fgRGB);
+      o.setTint(tl, tr, bl, br);
     }
     const p = this.paddle;
     if (p) {

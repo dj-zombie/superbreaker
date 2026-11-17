@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BOSSES } from '../src/bosses';
-import { BOSS_IDS } from '../src/core/Boss';
+import { BOSS_ANIMS, BOSS_IDS } from '../src/core/Boss';
 import {
   parseLevel,
   validateLevel,
@@ -47,6 +47,72 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
 
   it('has a part that can be hurt', () => {
     expect(def.parts.some((p) => p.kind !== 'steel' && p.weak !== 0)).toBe(true);
+  });
+
+  it('names only its own parts in its poses', () => {
+    const ids = new Set(def.parts.map((p) => p.id));
+    for (const [name, pose] of Object.entries(def.poses ?? {})) {
+      for (const id of Object.keys(pose)) expect(ids.has(id), `${name}: ${id}`).toBe(true);
+    }
+  });
+
+  it('gives a phase only a pose that exists', () => {
+    for (const phase of def.phases) {
+      if (phase.pose === undefined) continue;
+      expect(def.poses?.[phase.pose], `${phase.id}: ${phase.pose}`).toBeDefined();
+    }
+  });
+
+  it('keeps every part of every pose inside the arena and out of the top two rows', () => {
+    for (const [name, pose] of Object.entries(def.poses ?? {})) {
+      for (const part of def.parts) {
+        const at = `${name}: ${part.id}`;
+        const left = part.col * BW + (pose[part.id]?.dx ?? 0);
+        const top = part.row * BH + (pose[part.id]?.dy ?? 0);
+        expect(left, at).toBeGreaterThanOrEqual(0);
+        expect(left + part.cols * BW, at).toBeLessThanOrEqual(COLS * BW);
+        expect(top, at).toBeGreaterThanOrEqual(2 * BH);
+        expect(top + part.rows * BH, at).toBeLessThanOrEqual(LEVEL_MAX_Y);
+      }
+    }
+  });
+
+  describe.runIf(def.sprite !== undefined)('sprite', () => {
+    const sprite = def.sprite!;
+
+    it('has frames and a speed for all five animations', () => {
+      expect(Object.keys(sprite.anims).sort()).toEqual([...BOSS_ANIMS].sort());
+      for (const name of BOSS_ANIMS) {
+        const anim = sprite.anims[name];
+        expect(anim.frames.length, name).toBeGreaterThan(0);
+        expect(anim.fps, name).toBeGreaterThan(0);
+        for (const frame of anim.frames) {
+          expect(Number.isInteger(frame), `${name}: ${frame}`).toBe(true);
+          expect(frame, name).toBeGreaterThanOrEqual(0);
+        }
+      }
+    });
+
+    it('has a size on the field and in the sheet', () => {
+      for (const px of [sprite.frameWidth, sprite.frameHeight, sprite.width, sprite.height]) {
+        expect(px).toBeGreaterThan(0);
+      }
+    });
+
+    it('plays only frames that are on its sheet', () => {
+      // A PNG's width and height are the two big-endian words that follow its IHDR tag.
+      const png = readFileSync(join(ASSETS, sprite.path));
+      expect(png.toString('latin1', 12, 16)).toBe('IHDR');
+      const across = png.readUInt32BE(16) / sprite.frameWidth;
+      const down = png.readUInt32BE(20) / sprite.frameHeight;
+      expect(Number.isInteger(across)).toBe(true);
+      expect(Number.isInteger(down)).toBe(true);
+      for (const name of BOSS_ANIMS) {
+        for (const frame of sprite.anims[name].frames) {
+          expect(frame, name).toBeLessThan(across * down);
+        }
+      }
+    });
   });
 });
 

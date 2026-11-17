@@ -17,6 +17,7 @@ import { inputSource, onInputSource, type InputSource } from '../platform/gamepa
 import { PAUSE_LABEL, onKeyLabels, skillKeyLabel, slotKeyLabel } from '../platform/keyboard';
 import type { HudState, Play } from '../scenes/Play';
 import type { SlotState } from '../systems/AbilitySystem';
+import type { BossHud } from '../systems/BossDirector';
 import { iconButton } from './Button';
 import { framePanel } from './frames';
 import { punch } from './fx/motion';
@@ -91,6 +92,49 @@ interface EffectLine {
   blink: boolean;
 }
 
+/** A boss's bar closes on its value over about this long, in ms, as the score counts up. */
+const BOSS_EASE_MS = 90;
+/** Radius of a boss's phase pip, and the space between two, in px. */
+const PIP_RADIUS = 3;
+const PIP_GAP = 4;
+
+/** One frame of a boss's bar easing from `shown` toward `health`. Reduced motion jumps. */
+export function easeBossBar(shown: number, health: number, delta: number): number {
+  if (calm()) return health;
+  const next = shown + (health - shown) * Math.min(1, delta / BOSS_EASE_MS);
+  return Math.abs(health - next) < 0.002 ? health : next;
+}
+
+/**
+ * One pip per phase of a boss, in a row that ends at `right`. Call `paintBossPips` to light them.
+ * The second value is the row's left edge.
+ */
+export function bossPips(
+  scene: Phaser.Scene,
+  right: number,
+  y: number,
+  phases: number,
+): [Phaser.GameObjects.Image[], number] {
+  const pitch = PIP_RADIUS * 2 + PIP_GAP;
+  const left = right - phases * pitch + PIP_GAP;
+  const pips = Array.from({ length: phases }, (_, i) =>
+    disc(scene, left + PIP_RADIUS + i * pitch, y, PIP_RADIUS, 0xffffff),
+  );
+  return [pips, left];
+}
+
+/** Lights the pips of the phase being fought and of those still to come. */
+export function paintBossPips(
+  pips: readonly Phaser.GameObjects.Image[],
+  phase: number,
+  t: UiTheme,
+): void {
+  pips.forEach((pip, i) => {
+    const lit = i >= phase;
+    pip.setTint(lit ? t.palette.danger : t.palette.edge).setAlpha(lit ? 1 : 0.45);
+  });
+}
+
 /** Scales a label down to fit the plate instead of letting it run over the frame. */
 function fit<T extends Phaser.GameObjects.Text | Phaser.GameObjects.BitmapText>(
   obj: T,
@@ -118,6 +162,8 @@ export class WingPlates {
   private clock?: Phaser.GameObjects.BitmapText;
   private hearts: Phaser.GameObjects.Image[] = [];
   private fever!: Meter;
+  /** A boss's bar and pips. Only built when the level starts with a boss. */
+  private boss?: { meter: Meter; pips: Phaser.GameObjects.Image[]; shown: number; phase: number };
   private shownScore = 0;
   private last = { lives: -1, shown: -1, label: '', clock: -1 };
 
@@ -169,6 +215,7 @@ export class WingPlates {
     this.drawLabel(s);
     if (s.lives !== this.last.lives) this.drawLives(s.lives);
     this.drawFever(s);
+    this.drawBoss(s.boss, delta);
     this.drawClock(s.clockMs);
     s.slots.forEach((slot, i) => {
       const row = this.slots[i];
@@ -288,6 +335,26 @@ export class WingPlates {
       t.palette.accent,
     ).setDepth(2);
     y += 20;
+    // The HUD is built as the level starts, and a boss puts its bar up before that.
+    const boss = (this.play.hud as HudState | undefined)?.boss;
+    if (boss) {
+      y += 12;
+      label(scene, x, y, 'Boss', 13, { t, originX: 0 }).setDepth(2);
+      const [pips] = bossPips(scene, this.lx + this.w - INSET, y, boss.phases);
+      for (const pip of pips) pip.setDepth(2);
+      y += 22;
+      const meter = new Meter(
+        scene,
+        this.lx + this.w / 2,
+        y,
+        this.inner,
+        10,
+        boss.health,
+        t.palette.danger,
+      ).setDepth(2);
+      this.boss = { meter, pips, shown: boss.health, phase: -1 };
+      y += 20;
+    }
     if (timed) {
       y += 12;
       label(scene, x, y, 'Time', 13, { t, originX: 0 }).setDepth(2);
@@ -342,6 +409,21 @@ export class WingPlates {
       const full = s.fever > 0.8 && Math.floor(this.scene.time.now / 120) % 2 === 0;
       this.fever.setColor(full ? 0xffffff : this.t.palette.accent);
     }
+  }
+
+  /** The bar drains with the boss's pool, and stays on the plate, empty, once the boss is dead. */
+  private drawBoss(boss: BossHud | null, delta: number): void {
+    const v = this.boss;
+    if (!v) return;
+    const shown = boss?.shown ?? true;
+    v.meter.setVisible(shown);
+    for (const pip of v.pips) pip.setVisible(shown);
+    v.shown = easeBossBar(v.shown, boss?.health ?? 0, delta);
+    v.meter.set(v.shown, false);
+    const phase = boss?.phase ?? v.pips.length;
+    if (phase === v.phase) return;
+    v.phase = phase;
+    paintBossPips(v.pips, phase, this.t);
   }
 
   private drawClock(ms: number | null): void {

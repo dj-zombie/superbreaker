@@ -73,7 +73,13 @@ import { onAppBackground } from '../platform/lifecycle';
 import { save } from '../services';
 import { AbilitySystem, SLOT_COUNT, type SlotState } from '../systems/AbilitySystem';
 import { audio } from '../systems/AudioSystem';
-import { BossDirector, type BossHost } from '../systems/BossDirector';
+import { BossBody } from '../systems/BossBody';
+import {
+  BossDirector,
+  FORCED_BOSS_PHASE,
+  type BossHost,
+  type BossHud,
+} from '../systems/BossDirector';
 import { BrickSystem, type DestroyCause } from '../systems/BrickSystem';
 import { Backdrop } from '../systems/Backdrop';
 import { BallFx } from '../systems/BallFx';
@@ -158,6 +164,8 @@ export interface HudState {
   coachSlot: number | null;
   /** The skill the tutorial is waiting on the player to use. */
   coachSkill: SkillId | null;
+  /** A boss's health bar while its fight runs. */
+  boss: BossHud | null;
 }
 
 /** Shield bar center, just under the paddle and above the deck panel. */
@@ -314,6 +322,9 @@ export class Play extends BaseScene {
 
   preload(): void {
     ParallaxBackdrop.preload(this, this.world);
+    // A boss's sheet loads with its level, so the levels without one never fetch it.
+    const boss = this.runConfig ? undefined : this.levels[this.levelIndex - 1]?.boss;
+    if (boss) BossBody.preload(this, BOSSES[boss]);
   }
 
   create(): void {
@@ -349,6 +360,7 @@ export class Play extends BaseScene {
       coachHand: null,
       coachSlot: null,
       coachSkill: null,
+      boss: null,
     };
 
     this.scenery = new ParallaxBackdrop(this, world);
@@ -495,7 +507,9 @@ export class Play extends BaseScene {
 
     this.setupColliders();
     this.boss = this.level.boss
-      ? new BossDirector(BOSSES[this.level.boss], this.bossHost())
+      ? new BossDirector(BOSSES[this.level.boss], this.bossHost(), {
+          startPhase: FORCED_BOSS_PHASE,
+        })
       : undefined;
     exposeBoss(this.boss);
     this.runDirector?.attach(this.runHost());
@@ -513,6 +527,12 @@ export class Play extends BaseScene {
     // Dev only: with `?laser=<mode>`, L hands out a laser for play-testing that mode.
     const kb = this.input.keyboard;
     if (FORCED_LASER_MODE) kb?.addKey(Phaser.Input.Keyboard.KeyCodes.L).on('down', () => this.devLaser());
+    // Dev only: ] empties the boss's current pool, to reach the next phase or the kill.
+    if (import.meta.env.DEV) {
+      kb?.addKey(Phaser.Input.Keyboard.KeyCodes.CLOSED_BRACKET).on('down', () => {
+        this.boss?.debugHit(this.boss.state.pool);
+      });
+    }
     const stockButtons: number[] = [PadButton.lb, PadButton.rb, PadButton.lt, PadButton.rt];
     this.unsubscribePad = onPadButton((button, down) => {
       if (!down) return;
@@ -598,6 +618,11 @@ export class Play extends BaseScene {
     this.runDirector?.update(dt);
     // The last life going ends the level first: a boss can't also die on that frame.
     if (!this.finished) this.boss?.update(dt);
+    // Dev only: the boss counts the frames a ball spends inside one of its parts.
+    if (import.meta.env.DEV && this.boss) {
+      const free = this.ballList.filter((b) => !b.attached);
+      this.boss.debugProbe(free.map((b) => b.body.center));
+    }
     this.hud.clockMs = this.runDirector?.state.timeLeftMs ?? null;
     if (this.finished) return;
     this.hud.effects = this.powerups.active;
@@ -1915,6 +1940,9 @@ export class Play extends BaseScene {
         this.hud.detail = detail;
       },
       defeated: () => this.win(),
+      setHud: (view) => {
+        this.hud.boss = view;
+      },
     };
   }
 

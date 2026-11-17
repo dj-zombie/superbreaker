@@ -48,6 +48,45 @@ export const BOSS_ID_BASE = 100_000;
 export const BOSS_PHASE_BONUS = 500;
 /** Score for the kill. */
 export const BOSS_DEFEAT_BONUS = 2000;
+/** Fastest a part may move while the world is live, in px/s. A ball never travels slower. */
+export const BODY_MAX_SPEED = 120;
+/** Fastest a part may move while the ball is held or the world is frozen, in px/s. */
+export const BODY_SCENE_SPEED = 600;
+/** The sprite's depth: above the bricks, below the ball. */
+export const SPRITE_DEPTH = 1;
+/** Length of the flinch after a counted hit, in ms. */
+export const HURT_MS = 180;
+/** The least time between two flinches, in ms, so a stream of laser hits does not strobe. */
+export const HURT_GAP_MS = 250;
+
+export const BOSS_ANIMS = ['idle', 'tell', 'open', 'hurt', 'death'] as const;
+export type BossAnim = (typeof BOSS_ANIMS)[number];
+
+/** A boss's picture: one sheet of equal frames, and the frames each animation plays. */
+export interface SpriteDef {
+  /** Texture key. */
+  key: string;
+  /** Under public/assets. */
+  path: string;
+  /** Size of one frame in the sheet, in px. */
+  frameWidth: number;
+  frameHeight: number;
+  /** Size on the field, in px. */
+  width: number;
+  height: number;
+  /** The sprite's centre from the centre of the parts at rest, in px. */
+  dx?: number;
+  dy?: number;
+  anims: Record<BossAnim, { frames: number[]; fps: number }>;
+}
+
+/** Body motion: an offset from rest for the whole body at a fight-clock time. */
+export type Motion = (clockMs: number) => { x: number; y: number };
+
+/** Side to side: `amplitude` px either way, one full swing every `periodMs`. */
+export function sway(amplitude: number, periodMs: number): Motion {
+  return (clockMs) => ({ x: amplitude * Math.sin((2 * Math.PI * clockMs) / periodMs), y: 0 });
+}
 
 export type BossEvent = { type: 'step'; step: BossStep } | { type: 'phase'; phase: number };
 
