@@ -55,19 +55,20 @@ the way the tutorial freezes play.
 
 | Step | Owner | World | What happens | Ends |
 | --- | --- | --- | --- | --- |
-| `hush` | framework | held | Music fades out. The arena dims. No intro card, no hint, no boss, no boss bar. | after `HUSH_MS` |
-| `entrance` | boss | held | The boss arrives: the sprite drops and fades in, and the boss's `entrance` cutscene adds light, impacts and sounds. Still no music. | after the cutscene's length |
-| `reveal` | framework | held | The boss track swells in at `rise`. The title band shows the name. The boss bar fills from empty. The dim lifts. | after `REVEAL_MS` |
+| `hush` | framework | held | Music fades out. The screen fades to black and the letterbox bars close. No intro card, no hint, no boss, no boss bar. | after `HUSH_MS` |
+| `entrance` | boss | held | The boss arrives in the dark: the sprite drops and fades in, and the boss's `entrance` cutscene adds sounds, camera shots, glimpses of lightning, light and impacts, and lifts the dark. Still no music. | after the cutscene's length |
+| `reveal` | framework | held | The boss track starts at `rise`. The title card shows the epithet over the name while the camera pushes in on the boss under a key light. The boss bar fills from empty. Any dark left lifts. The bars open and the camera pulls back as it ends. | after `REVEAL_MS` |
 | `fight` | both | live | The hint appears and the serve clock runs. Phases, attacks, openings. The track follows the phase's intensity. | a pool empties |
-| `transition` | boss | frozen | Hazards clear. The next phase's `enter` cutscene plays, then its `setup` runs and its pose applies. | after the cutscene's length |
-| `finale` | boss | frozen | Hazards clear, the music cuts dead, the stinger plays, the `death` animation and cutscene play. Then every part is retired and the arena is cleared. | after the cutscene's length |
-| `aftermath` | framework | frozen | The track fades back in at `rest`. The defeat bonus pops. | after `AFTERMATH_MS` |
+| `transition` | boss | frozen | A hit-stop on the kill shot. Hazards clear. The bars close and the camera pushes in. The next phase's `enter` cutscene plays, then its `setup` runs and its pose applies. | after the cutscene's length |
+| `finale` | boss | frozen | A hit-stop, hazards clear, the music cuts dead, the bars close and the camera pushes in. The `death` animation and cutscene play. | after the cutscene's length |
+| `aftermath` | framework | frozen | Every part is retired and the arena is cleared. The ending theme plays and the award card shows the trophy, the score bonus and the coins. The level song comes back at `rest` after `STINGER_MS`. | a tap after `AWARD_GUARD_MS`, or after `AFTERMATH_MS` |
 | `done` | | | `host.defeated()` | |
 
 A step whose length is zero is passed through without stopping. A tap during `hush`, `entrance`
 or `reveal` (after `SKIP_GUARD_MS`) jumps to `fight`: boss at rest, track playing, bar full,
-title band removed, dim lifted. A tap during `transition` jumps to its end. `finale` and
-`aftermath` cannot be skipped. In any step other than `fight`, taps never launch the ball, and
+title card removed, dark lifted, bars open, camera at rest. A tap during `transition` jumps to
+its end. `finale` cannot be skipped. A tap during `aftermath` goes on to `done` once
+`AWARD_GUARD_MS` has passed. In any step other than `fight`, taps never launch the ball, and
 abilities, skills and stocked powerups do nothing.
 
 After `done`, `Play.win()` runs as it does today, except that it does not stop the music, play
@@ -208,10 +209,14 @@ Open the symbol before relying on any of these.
 | `src/systems/BossDirector.ts` | 1 to 4 | `BossDef` and friends, `BossHost`, `BossStage`, the director. |
 | `src/systems/BossBody.ts` | 1, 2 | The parts and the sprite: spawn, lookup, retire, poses, motion, animation. |
 | `src/systems/HazardSystem.ts` | 4 | Pooled shots, beams, skulls and warnings. |
+| `src/ui/BossCinemaView.ts` | 5 | The HUD scene's drawing of `BossCinema`: the curtain, the letterbox bars, the title card and the award card. |
+| `src/art/bossMusic.ts` | 5 | `BOSS_TRACK`, the boss track's cue sheet, and its cache key. |
 | `src/bosses/index.ts` | 1 | `BOSSES: Record<BossId, BossDef>`. |
 | `src/bosses/warden.ts` | 1 to 5 | The reference boss. |
 | `public/assets/levels/bosslab.tmj` | 1 | Dev arena. Not in `index.json`. |
 | `scripts/build-bosses.py`, `art-src/bosses/`, `public/assets/images/bosses/` | 2 | Boss sprite sheets and the script that cuts them. |
+| `scripts/build-boss-audio.py`, `public/assets/audio/boss/` | 5 | The placeholder boss sound effects and the script that synthesizes them. |
+| `scripts/build-boss-music.py`, `public/assets/audio/music/boss-placeholder.mp3` | 5 | The placeholder boss track and the script that cuts it from a recording. |
 | `tests/boss.test.ts`, `tests/cues.test.ts`, `tests/bosses.test.ts` | 1 to 4 | State, cues, content checks. |
 
 Boss files (`src/bosses/*`) import types and `src/core` only. Everything live reaches them
@@ -285,8 +290,9 @@ export class BossState {
   /** Only in 'fight'. Never carries past a phase boundary. Emptying the last pool is 'finale'. */
   damage(hits: number): BossEvent[];
   readonly stepMs: number;              // P3: time spent in the current step
+  readonly stepLength: number;          // P5: how long the current step lasts; Infinity for fight and done
   tick(dt: number, ballInPlay: boolean): BossEvent[];   // P3
-  skip(): BossEvent[];                  // P3
+  skip(): BossEvent[];                  // P3; P5: in aftermath it goes to done after AWARD_GUARD_MS
   readonly window: AttackWindow;        // P4
   readonly attack: string | null;       // P4
   onLifeLost(): BossEvent[];            // P4
@@ -407,13 +413,14 @@ export interface PhaseDef {
 export interface BossDef {
   id: BossId;
   name: string;
-  epithet?: string;                        // P3: title band kicker; default is the world's name
+  epithet?: string;                        // P3: title card kicker; default is the world's name
   parts: PartDef[];
   sprite?: SpriteDef;                      // P2
   poses?: Record<string, Pose>;            // P2
   phases: PhaseDef[];
   entrance?: Cutscene;                     // P3
   death?: Cutscene;                        // P3
+  trophy?: string;                         // P5: the keepsake named on the award card
 }
 
 /** What cutscenes and phase hooks get: the live systems, plus what the fight owns. */
@@ -436,6 +443,17 @@ export interface BossStage {
   light(o: LightOptions): Light;           // killed when its cutscene ends, or with the fight
   tween(config: Phaser.Types.Tweens.TweenBuilderConfig): Phaser.Tweens.Tween;   // looks only
   impact(x: number, y: number, scale?: number, color?: number): void;
+  shot(shot: Shot | null): void;           // P5 from here: points the camera until the scene ends
+  glimpse(color?: number): void;           // lightning through the intro's dark, via flashAmbient
+  unveil(): void;                          // lifts the intro's dark now
+}
+
+/** Where a scene points the camera: a zoom over the resting view and a field point to centre on. */
+export interface Shot {
+  zoom: number;
+  x: number;
+  y: number;
+  cut?: boolean;                           // jump there; left out, the camera glides
 }
 
 /** What the director needs from Play. Built from closures, like RunHost. */
@@ -445,7 +463,6 @@ export interface BossHost {
   readonly juice: JuiceSystem;
   readonly lighting: LightingSystem;
   readonly scenery: ParallaxBackdrop;
-  readonly backdrop: Backdrop;
   readonly powerups: PowerupSystem;
   readonly paddle: Paddle;
   ballInPlay(): boolean;
@@ -454,10 +471,11 @@ export interface BossHost {
   bricksAdded(bricks: readonly Brick[], board: boolean): void;
   creditHit(brick: Brick, cause: DestroyCause): void;
   addScore(n: number): void;
+  addCoins(n: number): void;               // P5
   setLabel(title: string, detail: string | null): void;
   defeated(): void;
   setHud(view: BossHud | null): void;      // P2
-  titleCard(kicker: string, name: string, holdMs: number): () => void;   // P3: returns a remover
+  frame(zoom: number, x: number, y: number): void;   // P5: points Play's camera; (1, centre) is rest
   showHint(): void;                        // P3
   impact(x: number, y: number, scale: number, color: number): void;      // P3
   balls(): readonly Ball[];                // P4
@@ -490,7 +508,16 @@ export interface BossHud {                 // P2, on HudState.boss
   phase: number;                           // 0-based
   phases: number;
   health: number;                          // 0..1 of the current phase's pool
-  shown: boolean;                          // false until the reveal
+  shown: boolean;                          // reveal, fight, transition and finale only
+  cinema: BossCinema;                      // P5
+}
+
+/** What the HUD scene draws over the fight, worked out on the fight clock every frame. */
+export interface BossCinema {              // P5
+  bars: number;                            // letterbox, 0 open to 1 closed
+  dark: number;                            // the black over the field, 0..1
+  title: BossTitle | null;                 // { kicker, name, ms, holdMs }
+  award: BossAward | null;                 // { name, trophy, score, coins, ms, ready, left }
 }
 ```
 
@@ -503,7 +530,8 @@ Hazards have no physics bodies. They are pooled images moved by the fight clock,
 hit the paddle is arithmetic on the paddle line at the moment it lands. The director calls
 `arm(plan, windupMs)` when a wind-up starts (warnings appear), `go()` when the live window opens,
 `update(dt)` every frame and `clear()` whenever the fight leaves the attack. The full sketch is
-in [phase-4-attacks.md](phase-4-attacks.md).
+in [phase-4-attacks.md](phase-4-attacks.md). A skull in flight that comes within
+`SKULL_POP_RADIUS` of a free ball breaks, at no cost (P5).
 
 ### How a hit is counted
 
@@ -535,14 +563,19 @@ picture and the `open` pose have to agree, and `?debug` shows the parts over the
 
 ### The boss track
 
-`audio.bossMusic(mood)` (P3) starts the boss track at `mood`, fading in over `BOSS_SWELL_S` when
+`audio.bossMusic(mood)` (P3) starts the boss track at `mood`, coming in over `BOSS_SWELL_S` when
 nothing is playing, or moves it to `mood` on the next beat. `audio.bossStinger()` plays the ending
-phrase. `Play` calls `audio.bossMusic(boss.music)` every frame while a boss is active, so a music
+theme. `Play` calls `audio.bossMusic(boss.music)` every frame while a boss is active, so a music
 setting toggled mid-fight recovers by itself. The director stops the music itself at the hush
 (`fade`) and at the final hit (`cut`).
 
-Until the boss song exists, `bossMusic` plays `BOSS_MOOD_FALLBACK[mood]` on the level song's
-engine and the stinger is `fanfare_stab`. What the real track needs is listed under "Left out".
+The boss track is `BOSS_TRACK` in `src/art/bossMusic.ts`, played by a second `MusicEngine` on the
+level song's bus and analyser (P5). `Play.preload` loads it for boss levels only. Its playlists
+are keyed by `BOSS_MOOD_FALLBACK[mood]`; `rest` always plays on the level song's engine, and so
+does every mood when the boss track is not loaded. The file is a placeholder cut from a recording
+by `scripts/build-boss-music.py`: one song played through, so every mood has the same playlist
+and a change of phase does not change what is heard. The stinger is `boss_victory`, a
+synthesized placeholder, played as a sound effect.
 
 ## Constants
 
@@ -559,15 +592,21 @@ Starting values. They are tuning, not truth; change them with a reason in STATUS
 | `BODY_SCENE_SPEED` | 600 px/s | Fastest a part may move while the ball is held or the world is frozen. |
 | `SPRITE_DEPTH` | 1 | Above bricks, below the ball. |
 | `HURT_MS`, `HURT_GAP_MS` | 180, 250 | Length of the flinch, and the least time between two. |
-| `HUSH_MS` | 900 | Silence before the entrance. |
-| `HUSH_DARK` | 0.45 | `Backdrop.setDark` amount from the hush until the reveal. Skipped under reduced motion. |
+| `HUSH_MS` | 1600 | Fade to black and silence before the entrance. |
+| `HUSH_DARK` | 1 | How black the HUD's curtain goes from the hush until the entrance unveils the boss. Skipped under reduced motion. |
 | `ENTRANCE_DROP` | 40 px | How far above rest the sprite starts its entrance. |
-| `REVEAL_MS` | 2400 | Title band and swell. |
-| `AFTERMATH_MS` | 1800 | Calm after the death before the level ends. |
+| `REVEAL_MS` | 3600 | The title card. |
+| `AFTERMATH_MS` | 12000 | The award card goes on by itself after this. |
+| `AWARD_GUARD_MS` | 1800 | Taps are ignored this long into the award. |
+| `AWARD_TROPHY_MS` | 900 | When the trophy lands on the award card. |
+| `STINGER_MS` | 6500 | The ending theme plays alone this long before the level song returns. |
+| `BARS_MS` | 450 | The letterbox bars close and open over this. |
+| `BOSS_DEFEAT_COINS` | 25 | Coins for the kill. |
+| `SKULL_POP_RADIUS` | 26 px | A free ball this close to a flying skull breaks it. |
 | `SKIP_GUARD_MS` | 400 | Taps are ignored this long into the intro. |
-| `BOSS_SWELL_S` | 1.6 | Seconds the boss track takes to fade in from silence. |
+| `BOSS_SWELL_S` | 0.05 | Seconds the boss track takes to come in. Short: the placeholder song opens on its loudest notes. |
 | `BOSS_MOOD_FALLBACK` | `{ rise: 'build', low: 'groove', mid: 'drive', high: 'fever', rest: 'menu' }` | Level-song moods standing in for the boss track. |
-| `BOSS_STINGER` | `'fanfare_stab'` | Placeholder ending phrase. |
+| `BOSS_STINGER` | `'boss_victory'` | Placeholder ending theme. |
 | `BOSS_PHASE_BONUS` | 500 | Score for emptying a pool. |
 | `BOSS_DEFEAT_BONUS` | 2000 | Score for the kill. |
 | `MIN_WINDUP_MS` | 500 | Floor on wind-up after difficulty scaling. |
@@ -603,16 +642,46 @@ These hold for every boss and are checked by tests or by the reviewer.
   draw below the ball (depth 5) so the ball is never hidden. A skull never looks like a pickup.
 - No text is needed to read an attack.
 
+## As built
+
+Where the code deliberately departs from the design above. Phase 5's departures were asked for by
+the user after playing Phase 4 (see STATUS.md); each is one line.
+
+- **Fade to black, not a dim.** The hush goes fully black on a curtain in the HUD scene instead of
+  `Backdrop.setDark(0.45)`: the user wanted the boss unseen until lightning shows it.
+- **Letterbox bars, a camera and a title card.** All three were left out or smaller in the design;
+  the user asked for a film-style intro. They are drawn from `BossHud.cinema`, which the director
+  works out on the fight clock, so a skip or a pause can never leave one behind.
+- **The reveal is a title card, not `Play`'s title band.** `BossHost.titleCard` and
+  `BossHost.backdrop` are gone; `BossHost.frame` and `addCoins` are new.
+- **A hit-stop on every phase's kill shot.** The user's flow marks the kill shot before the
+  scene starts.
+- **The stinger plays in the aftermath, not the finale.** The death scene plays over silence and
+  its own sounds; the ending theme starts when the boss is gone.
+- **The aftermath is an award, and a tap ends it.** It was 1.8 s that could not be skipped; it is
+  now a card with the trophy, the bonus and coins that waits for a tap or `AFTERMATH_MS`.
+- **A ball breaks a skull.** "Shots the ball can pop" is listed as left out below. Skulls alone
+  got it, because a skull landing where the ball was coming down was a loss nobody could avoid.
+- **Paddle hits announce themselves.** A jam or a shrink now comes with a jolt, a light, a word
+  and a sound: the user could not tell they had been hit.
+- **The world's lightning and failing lights wait while a scene runs.** They shared the flash
+  limit with the boss, flashing unseen under the black intro and taking a glimpse's place.
+- **The boss track is a second engine.** Decision 8's fallback (the level song's sections) is
+  kept only for when the boss track has not loaded. `MusicEngine` was not made generic over its
+  mood type: the boss track's playlists are keyed by the level moods in `BOSS_MOOD_FALLBACK`.
+- **The placeholder track ignores intensity.** It is one song played through, so `low`, `mid` and
+  `high` sound the same. A track with a section per mood needs only a new cue sheet.
+- **The Warden grew a third phase** in Phase 5 (it had two), so that a phase scene is seen twice
+  and the skull waits for the last phase.
+
 ## Left out of this build
 
 Listed so nobody builds them by accident. Each is a possible follow-up.
 
 - **The real boss track.** It needs the song, its tempo and bar map, and which bars are `rise`,
-  `low`, `mid`, `high`, `rest` and the stinger. The work is then: a second cue sheet beside
-  `src/art/music.json` and a second cut in `scripts/build-music.py`; `MusicEngine` made generic
-  over its mood type; a second engine in `AudioSystem` feeding the same music bus and analyser;
-  and `playMusic`, the private `haltMusic`, `duckMusic`, `musicDip`, `dip`, `musicLevel` and
-  `refresh` taught about it. `bossMusic` and `bossStinger` keep their signatures.
+  `low`, `mid`, `high`, `rest` and the stinger. The second engine that plays it is built (see "As
+  built"); what is left is the file, its cue sheet in `src/art/bossMusic.ts` and its cut in
+  `scripts/build-boss-music.py`, and optionally `MusicEngine` made generic over its mood type.
 - **Arcade boss waves.** The design is agreed (every fifth tier, Waves only). It is one more work
   order after Phase 5.
 - **Bosses in the shipped campaign.** The map property works from Phase 1. Levels 10, 20 and 30
@@ -620,7 +689,7 @@ Listed so nobody builds them by accident. Each is a possible follow-up.
   go with that.
 - Parts with their own health that break off; shots the paddle can bat back; shots the ball can
   pop; arena changes inside attack plans; shuffled decks.
-- Beat-synced cues, letterbox bars, fading the HUD during cutscenes, a shadow under the sprite,
+- Beat-synced cues, fading the HUD during cutscenes, a shadow under the sprite,
   per-pixel relief lighting on the sprite.
 - Phase checkpoints on retry, boss save data, a player-controlled choice of target, the Shield
   powerup blocking skulls.

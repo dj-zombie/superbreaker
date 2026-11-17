@@ -63,6 +63,8 @@ export const BOSS_ID_BASE = 100_000;
 export const BOSS_PHASE_BONUS = 500;
 /** Score for the kill. */
 export const BOSS_DEFEAT_BONUS = 2000;
+/** Coins for the kill. */
+export const BOSS_DEFEAT_COINS = 25;
 /** Fastest a part may move while the world is live, in px/s. A ball never travels slower. */
 export const BODY_MAX_SPEED = 120;
 /** Fastest a part may move while the ball is held or the world is frozen, in px/s. */
@@ -73,22 +75,30 @@ export const SPRITE_DEPTH = 1;
 export const HURT_MS = 180;
 /** The least time between two flinches, in ms, so a stream of laser hits does not strobe. */
 export const HURT_GAP_MS = 250;
-/** Silence before the entrance, in ms. */
-export const HUSH_MS = 900;
-/** `Backdrop.setDark` amount from the hush until the reveal. Skipped under reduced motion. */
-export const HUSH_DARK = 0.45;
+/** Black and silence before the entrance, in ms: long enough for the screen to go fully dark. */
+export const HUSH_MS = 1600;
+/** How black the screen goes from the hush until the boss is unveiled, 0..1. Skipped under reduced motion. */
+export const HUSH_DARK = 1;
 /** How far above rest the sprite starts its entrance, in px. */
 export const ENTRANCE_DROP = 40;
-/** Length of the title band and the swell, in ms. */
-export const REVEAL_MS = 2400;
-/** Calm after the death before the level ends, in ms. */
-export const AFTERMATH_MS = 1800;
+/** Length of the title card and the swell, in ms. */
+export const REVEAL_MS = 3600;
+/** The award stays up this long after the death before the level ends by itself, in ms. */
+export const AFTERMATH_MS = 12_000;
+/** Taps are ignored this long into the aftermath, in ms, so the award is seen before it is left. */
+export const AWARD_GUARD_MS = 1800;
+/** The keepsake lands this long into the aftermath, in ms. The award's chime plays with it. */
+export const AWARD_TROPHY_MS = 900;
+/** The calm track waits this long into the aftermath, in ms, while the ending phrase plays. */
+export const STINGER_MS = 6500;
 /** Taps are ignored this long into the intro or a phase scene, in ms: a stray tap skips nothing. */
 export const SKIP_GUARD_MS = 400;
-/** Seconds the boss track takes to fade in from silence. */
-export const BOSS_SWELL_S = 1.6;
-/** Sound key of the ending phrase: a placeholder until the boss song brings its own. */
-export const BOSS_STINGER = 'fanfare_stab';
+/** The letterbox bars take this long to come in or to go out, in ms. */
+export const BARS_MS = 450;
+/** Seconds the boss track takes to come in. Short: the song opens on its loudest notes. */
+export const BOSS_SWELL_S = 0.05;
+/** Sound key of the ending phrase, played once the boss is dead: a placeholder theme. */
+export const BOSS_STINGER = 'boss_victory';
 /** The calm between attacks at a full and at an empty pool for a phase that names none, in ms. */
 export const DEFAULT_GAP_MS: readonly [number, number] = [2600, 1600];
 /** Shortest wind-up after difficulty scaling, in ms: a warning nobody can read is no warning. */
@@ -113,6 +123,8 @@ export const SHOT_RADIUS = 10;
 export const SKULL_RADIUS = 16;
 /** A shot or skull holds its landing spot this long either side of landing, in ms. */
 export const LAND_MS = 150;
+/** A ball this close to a flying skull's centre breaks it, in px: the skull's half-width and the ball's. */
+export const SKULL_POP_RADIUS = 26;
 /** The least a shrink may leave of the paddle's width: the floor Paddle.resize keeps. */
 const MIN_SHRINK = 0.6;
 
@@ -143,6 +155,40 @@ export type Motion = (clockMs: number) => { x: number; y: number };
 /** Side to side: `amplitude` px either way, one full swing every `periodMs`. */
 export function sway(amplitude: number, periodMs: number): Motion {
   return (clockMs) => ({ x: amplitude * Math.sin((2 * Math.PI * clockMs) / periodMs), y: 0 });
+}
+
+/**
+ * How far in something staged is, 0..1, at `ms` into a stretch `lengthMs` long: it comes in over
+ * the first `inMs` and goes out over the last `outMs`. Either may be 0, for a full start or end.
+ */
+export function envelope(ms: number, lengthMs: number, inMs: number, outMs: number): number {
+  const rise = inMs > 0 ? ms / inMs : 1;
+  const fall = outMs > 0 ? (lengthMs - ms) / outMs : 1;
+  // Written this way round so a NaN comes out as 0.
+  const k = Math.min(1, rise, fall);
+  return k > 0 ? k : 0;
+}
+
+/**
+ * How far in the letterbox bars are, 0..1, `stepMs` into a step `lengthMs` long. They close for
+ * every scene and are never on the field while the ball is live.
+ */
+export function letterbox(step: BossStep, stepMs: number, lengthMs: number): number {
+  switch (step) {
+    case 'hush':
+    case 'finale':
+      return envelope(stepMs, lengthMs, BARS_MS, 0);
+    case 'entrance':
+    case 'aftermath':
+      return 1;
+    case 'reveal':
+      return envelope(stepMs, lengthMs, 0, BARS_MS);
+    case 'transition':
+      return envelope(stepMs, lengthMs, BARS_MS, BARS_MS);
+    case 'fight':
+    case 'done':
+      return 0;
+  }
 }
 
 /** The boss track's moods. Boss code names these; the framework decides when each plays. */
@@ -281,6 +327,11 @@ export class BossState {
     return this.inStep;
   }
 
+  /** How long the current step lasts, in ms. Infinity for the fight and the end, which time never ends. */
+  get stepLength(): number {
+    return this.timed()?.ms ?? Infinity;
+  }
+
   /** Where the attack cycle is. Always 'gap' outside the fight. */
   get window(): AttackWindow {
     return this.win;
@@ -372,8 +423,12 @@ export class BossState {
     return events;
   }
 
-  /** A tap: jumps to the fight from the intro or a phase scene, once the guard has passed. */
+  /**
+   * A tap: jumps to the fight from the intro or a phase scene, and goes on from the award, once
+   * the step's guard has passed. The death scene is never cut short.
+   */
   skip(): BossEvent[] {
+    if (this.at === 'aftermath') return this.inStep < AWARD_GUARD_MS ? [] : [this.enter('done')];
     const intro = this.at === 'hush' || this.at === 'entrance' || this.at === 'reveal';
     if (!intro && this.at !== 'transition') return [];
     // The intro's guard counts from its very start, a phase scene's from the scene's.

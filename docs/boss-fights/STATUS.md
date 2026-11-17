@@ -10,7 +10,7 @@ The log for this work. Newest entries go at the bottom. Agents append; nobody re
 | 2. Sprite body and HUD | pass | Claude (Cursor agent), 2026-11-16 | Claude (Cursor agent), 2026-11-16 |
 | 3. Cinematic flow | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
 | 4. Attacks | pass | Claude (Cursor agent), 2026-11-16 | Grok (Cursor agent), 2026-11-16 |
-| 5. Reference boss and authoring guide | not started | | |
+| 5. Reference boss and authoring guide | in review | Claude (Cursor agent), 2026-11-17; fixes 2026-11-17 | Grok (Cursor agent), 2026-11-17; Claude (Cursor agent), 2026-11-17 (second FIX: one more fails means RESTART) |
 
 States: `not started`, `in progress`, `stopped` (needs a new agent), `blocked` (needs the user),
 `in review`, `fix` (review asked for changes), `pass`. Update this table whenever you add an
@@ -24,12 +24,28 @@ entry.
 - Arcade boss waves: every fifth tier, Waves only. Agreed, not in these five phases.
 - One boss track for all bosses, cut into sections by intensity like the level music. The song
   does not exist yet; the level song stands in.
+- Phase 5, after playing Phase 4: the fight was confusing and not cinematic enough. The flow is
+  now: fade to black with the music off; the boss heard before it is seen, with lightning for a
+  glimpse; a reveal with close-ups and a threat; a title card with the name and letterbox bars;
+  boss music into play; a scene on each phase's kill shot; a death scene, then a triumphant
+  theme; an award (a spinning trophy for special ones) that waits for a tap or a cooldown.
+- Phase 5: sounds and music are placeholders in new files, which the user will replace.
+- Phase 5: the placeholder boss track is the recording at https://youtu.be/WfzurQ0XKNc
+  ("Middle Boss Battle", The Legend of Zelda: Ocarina of Time), downloaded with yt-dlp.
 
 ## Waiting on the user
 
 - The boss song, with its tempo, a bar map, and which bars are `rise`, `low`, `mid`, `high`,
   `rest` and the stinger.
 - Whether agents may commit after a PASS, or the user commits.
+- Phase 5: whether the player should get a shield, so that boss bullets do damage that can be
+  seen. It was asked as a question and is not built. Today a hit jams or shrinks the paddle and
+  says so; only the skull costs a life.
+- Phase 5: replacements for the 14 placeholder audio files listed in the Phase 5 entry. The
+  boss track is somebody else's recording and must not ship.
+- Phase 5: whether the Warden's core should stay open for all of phases 2 and 3. While it is
+  open, a ball rising into it ends some Normal fights in about 90 s; closing it between
+  openings would make the fight steadier and the opening worth waiting for.
 
 ## Entry templates
 
@@ -1436,3 +1452,556 @@ For the user
 - A skull hit ends the attack, so the opening does not follow. God mode spends no life and still ends the attack.
 - I did not repeat the phone-sized `?lighting=low` frame-rate pair. The implementer's numbers are in their handoff: both sides at 60 fps, main thread about 1 ms without hazards and about 1.1 ms with them.
 - Hazard counts I saw on a full pool: volley 3, sweep 2, reaper 3. A drained pool raises the volley to 5; the content tests cover that, and this run never drained the pool.
+
+## Phase 5: DONE, 2026-11-17, Claude (Cursor agent)
+
+Read this first: the scope is wider than phase-5-reference-boss.md. That file says "do not add
+framework features, hazards, steps or HUD elements". The user's message that started this phase
+asked for a film-style fight in eight steps and for new placeholder audio, and a second message
+asked for a named recording as the boss music. I took the user's messages as the spec for those
+items and the README's rules for how to build them. Everything under "Deviations" follows from
+that. The shield the user wondered about is not built; it is under "Waiting on the user".
+
+Built
+- `src/core/Boss.ts`: `envelope`, `letterbox`, `BossState.stepLength`; `skip()` ends the award
+  after `AWARD_GUARD_MS`; new and changed constants (table below).
+- `src/systems/BossDirector.ts`: `BossHud.cinema` (`bars`, `dark`, `title`, `award`), worked out
+  on the fight clock each frame; `BossStage.shot`, `.glimpse`, `.unveil`; `BossHost.frame` and
+  `.addCoins` (`titleCard` and `backdrop` removed); framework camera shots for the reveal, phase
+  scenes and death; a key light on the boss during the reveal; hit-stop on each kill shot; the
+  award (score, coins, trophy) and the ending theme in the aftermath.
+- `src/ui/BossCinemaView.ts` (new), `src/scenes/Hud.ts`: the curtain, the letterbox bars, the
+  title card (epithet over the name) and the award card, drawn in the HUD scene.
+- `src/systems/HazardSystem.ts`: a free ball breaks a flying skull; a paddle hit gets a jolt, a
+  local light, a word ("JAMMED", "SHRUNK") and a sound; shots and beams have launch sounds.
+- `src/systems/BossBody.ts`: `focus`; the sprite is solid sooner as it arrives.
+- `src/systems/AudioSystem.ts`, `src/art/bossMusic.ts` (new), `src/scenes/Play.ts`: a second
+  `MusicEngine` plays `BOSS_TRACK`; `Play.preload` loads it for boss levels; `Play.frameShot`.
+- `src/bosses/warden.ts`: three phases (was two), new entrance, two phase scenes and death,
+  the core's light, a trophy. Attack plans are unchanged.
+- `src/art/procedural.ts`: the `boss_trophy` texture. `src/config.ts`: 13 keys in `AUDIO_ASSETS`.
+- `scripts/build-boss-audio.py` (new): synthesizes the 13 effects. `scripts/build-boss-music.py`
+  (new): downloads the recording (`--fetch`, yt-dlp) and cuts the track. `.gitignore`: the
+  downloaded source, `art-src/music/boss-source.wav`.
+- `docs/boss-fights/authoring.md` (new, 288 lines). `design.md`: facts corrected, "As built"
+  added. Root `README.md`: dev parameters, project layout, "Boss sprites".
+- Tests: `tests/boss.test.ts` (award skip and timeout, `stepLength`, `envelope`, `letterbox`),
+  `tests/bosses.test.ts` (every sound key used by boss code is in `AUDIO_ASSETS` and its file
+  exists; the Warden's three phases), `tests/music.test.ts` (the boss track's cue sheet).
+
+How the user's eight steps map
+1. Fade to black, music off: `hush`, 1600 ms.
+2. Approach and lightning: the Warden's `entrance`: three footfalls with shakes, a growl, then
+   two cuts (the eye, the whole body) each lit by `glimpse()`.
+3. Reveal: `unveil()`, a glide shot, the `tell` animation and a roar; then the framework's
+   push-in under a key light.
+4. Title card and letterbox: `reveal`, 3600 ms. "KEEPER OF THE GATE" over "WARDEN".
+5. Boss music and into play: the track starts with the card; bars open and the camera pulls
+   back as play begins.
+6. Phase scenes: hit-stop on the kill shot, bars, push-in, the phase's `enter` scene.
+7. Death and triumph: `finale` (music cut, death scene), then `boss_victory` in the aftermath.
+8. Award: card with the trophy (spins; still under reduced motion), +2,000 and +25 coins.
+   A tap goes on after 1.8 s; with no tap it goes on after 12 s. The level song returns at
+   `rest` 6.5 s in.
+
+Coverage table (all in `src/bosses/warden.ts`, all seen in the lab unless noted)
+
+| Feature | Where |
+| --- | --- |
+| Normal, steel, weak and lit parts | `body`; `guard` (steel); `core` (`weak: 3`, `light`) |
+| Five animations | `sprite.anims`: idle, tell, open, hurt, death |
+| Pose | `open` lifts the guard; phases 2 and 3 hold it, every opening uses it |
+| Motion | `sway(50, 5200)`, `sway(90, 3600)`, `sway(120, 2800)` |
+| `setup` that spawns | `core-exposed`: `s.spawn(wall())`, `s.paddle.resetSize()` |
+| `setup` that retires | `last-stand`: `s.retire('guard')` |
+| Phases with different intensity | low, mid, high. The placeholder track sounds the same under all three |
+| Epithet, trophy | "Keeper of the gate", "Warden's Eye" |
+| Cutscenes: light, impact, sound, anim | all four scenes; also `shot`, `glimpse`, `unveil` in the entrance |
+| Deck longer than one | phase 2 `[sweep, volley]`, phase 3 `[reaper, sweep, volley]` |
+| Shot, beam, skull | `volley`, `sweep`, `reaper` |
+| Jam and shrink | volley shots jam; sweep beams and reaper shots shrink |
+| Opening with pose and lock | `OPENING = { pose: 'open', lock: 'core' }` on all three |
+| `tell.sfx` | `laser_spinup`, `ab_meteor_whoosh`, `boss_growl` |
+| Plans using `rng`, the paddle, `phaseProgress` | `volley` reads all three |
+
+Measurements
+- Taken in the in-editor browser on `http://127.0.0.1:5173/?map=bosslab.tmj` with the game loop
+  asleep and stepped 1/60 s at a time. The paddle was a bot: it follows the ball and steps off a
+  marked hazard when the ball is at least 0.55 s away. Times are from level start to the award;
+  the intro is 9.4 s of that. A person will be slower than the bot.
+- Pools 20/44/56 (the final numbers), god mode off:
+
+| Difficulty | Run 1 | Run 2 |
+| --- | --- | --- |
+| Easy | 148.9 s, 0 lives lost | 126.0 s, 0 |
+| Normal | 191.0 s, 0 | 121.7 s, 0 |
+| Hard | 94.9 s, 0 | 166.9 s, 1 |
+
+- More Normal times on the same pools (god mode on, so lives mean nothing): 169.8, 82.6, 91.8 s.
+  The Normal mean over five runs is about 131 s, range 83 to 191 s. The spread is the core: a
+  ball going straight up under the open eye lands several triple hits in a row.
+- Earlier pools, same bot: 10/12/12 about 56 s; 22/26/40 124 s; 16/36/44 102 s and 94 s.
+- Most hazards alive at once: 5. No `[boss]` plan warning in any run.
+- The opening: the core takes 3 hits a ball against 1 on the body, by `weak: 3`. I did not time
+  core-only against body-only runs.
+- Not measured: hits from one use of each ability, and from ten seconds of each laser mode. The
+  constants are unchanged (`ABILITY_HITS` 2, `EXPLOSION_HITS` 3).
+
+Numbers changed, and why
+| Name | Was | Is | Why |
+| --- | --- | --- | --- |
+| `HUSH_MS` | 900 | 1600 | Room for a fade to black. |
+| `HUSH_DARK` | 0.45 | 1 | The boss is not seen until lightning shows it. |
+| `REVEAL_MS` | 2400 | 3600 | The title card fades in, holds long enough to read, fades out. |
+| `AFTERMATH_MS` | 1800 | 12000 | It is now the award, and the cooldown before it goes on by itself. |
+| `BOSS_SWELL_S` | 1.6 | 0.05 | The song opens on its loudest notes; a slow fade swallowed them. |
+| `BOSS_STINGER` | `fanfare_stab` | `boss_victory` | The ending theme the user asked for. |
+| `AWARD_GUARD_MS`, `AWARD_TROPHY_MS`, `STINGER_MS`, `BARS_MS` | new | 1800, 900, 6500, 450 | The award and the bars. |
+| `BOSS_DEFEAT_COINS`, `SKULL_POP_RADIUS` | new | 25, 26 px | The award's coins; the ball breaking a skull. |
+| Warden phases | 2 | 3 | A phase scene is seen twice; the skull waits for the last phase. |
+| Warden pools | 12, 12 | 20, 44, 56 | 12/12 was under a minute. These reach the 2 to 3 minute target. |
+| Warden scenes | entrance 1800, exposed 1200, death 2200 ms | 4200, 1800, cornered 2000, 3000 ms | The approach, the glimpses and the roar need the time. |
+
+Placeholder audio to replace (all new files, under `public/assets/`)
+
+| File | Key | Heard when |
+| --- | --- | --- |
+| `audio/music/boss-placeholder.mp3` | `boss_music` | The fight, from the title card to the final hit. 115.7 s: the piece once with its opening (`open`), then once more to loop on (`loop`), 30 bars each at 125 BPM. Cut from the YouTube recording. **Not ours: do not ship it.** A replacement needs `src/art/bossMusic.ts` to match it. |
+| `audio/boss/stomp.mp3` | `boss_stomp` | Footfalls in the dark. |
+| `audio/boss/growl.mp3` | `boss_growl` | In the dark; the last phase's scene; the reaper's wind-up. |
+| `audio/boss/roar.mp3` | `boss_roar` | The reveal and both phase scenes. |
+| `audio/boss/title.mp3` | `boss_title` | The title card. |
+| `audio/boss/phase-break.mp3` | `boss_phase` | The kill shot of phases 1 and 2. |
+| `audio/boss/death.mp3` | `boss_death` | The death scene. |
+| `audio/boss/explode.mp3` | `boss_explode` | The last blast of the death scene. |
+| `audio/boss/victory.mp3` | `boss_victory` | The triumphant theme after the death, 8 s. |
+| `audio/boss/award.mp3` | `boss_award` | The trophy landing on the award card. |
+| `audio/boss/paddle-hit.mp3` | `boss_paddle_hit` | A shot or beam hitting the paddle. |
+| `audio/boss/skull-pop.mp3` | `boss_skull_pop` | A ball breaking a skull. |
+| `audio/boss/shot.mp3` | `boss_shot` | A shot leaving the boss. |
+| `audio/boss/beam.mp3` | `boss_beam` | A beam firing. |
+
+Keep each replacement's file name and the game needs no change. The 13 effects are synthesized
+(`scripts/build-boss-audio.py`, written by a subagent); each is peak-normalised near -3 dBFS.
+The Warden still uses existing keys too: `thunder`, `brick_steel`, `brick_tnt`, `laser_spinup`,
+`ab_meteor_whoosh`, and the Phase 4 hazard sounds.
+
+Verified
+- `pnpm typecheck`: passes. `pnpm lint`: passes. `pnpm build`: succeeds (precache 275 entries,
+  20,279 KiB).
+- `pnpm test`: 551 passed, 1 failed, in 23 files (was 534 passed and the same 1 failed). The
+  failure is the old one, `tests/skills.test.ts` > "readies the gun more often than bullet time".
+- Intro, stepped: black by the end of the hush (`dark` 1) with the bars closing; glimpses at
+  1500 and 2600 ms of the entrance with the two camera cuts (`dark` dips to 0.12); title card
+  with the push-in (zoom 1.3) and bars; at the first frame of the fight the camera is at rest,
+  bars 0, `dark` 0 and the boss bar is up. Screenshots looked right on a desktop window, a
+  390 x 844 phone window and a 16:9 window with wing plates.
+- Skips: a tap 1.7 s into the entrance (mid close-up, screen black) gives a fight with `dark` 0,
+  bars 0, camera at rest, no key light, sprite solid. A tap in each phase scene lands in the
+  next phase with its `setup` applied (20 bricks on the board after the first, the guard gone
+  after the second), bars 0 and the camera at rest. A tap in the finale does nothing.
+- Phase scenes and death: bars and push-in (1.25; 1.45 for the death); the award shows the
+  name, the trophy, +2,000 and +25 coins; a tap once the card asks for one goes to Results
+  with the camera back at rest and `hud.boss` null. The guard before that is unit-tested.
+- Reduced motion: bars and title card, no dark, no glimpses, no camera move.
+- Hits: "SHRUNK" over the paddle on a beam hit; a skull on a paddle held still takes a life and
+  clears the hazards; one of 8 skulls was broken by the ball in 40 s of reaper-only on Hard.
+- Music, in real time with sound running: the boss engine decodes 115.700 s and finds the sync
+  click (lead 0); one `open` voice starts with the title card and runs on unchanged through
+  `build`, `groove`, `drive` and `fever`; `follow` gives `loop` after `open` and `loop` after
+  `loop`; nothing plays from the final hit. The level song coming back at `menu` after the
+  theme was seen before the track was swapped, not after.
+  With ffmpeg: the first note sits at 0.258 s, and the 20 ms after the loop's end match the
+  loop's start to -132 dB, so the wrap reads the same audio. In the source the second pass is
+  the first again sample for sample from 20 s on, with a lag of exactly 57.6 s.
+- Manual 3 (the guide): following only `authoring.md`, I added the id `dummy`, a `BossDef` with
+  one part and one phase, registered it, copied the lab map with `boss` set to `dummy`, and ran
+  the three checks. In the browser it showed its title card ("HELL FOUNDRY" over "DUMMY"),
+  fought, died, showed the award and went to Results. Both were then removed; `git status`
+  shows no trace.
+- Regression (bot, 30 simulated s each, Normal): `?level=1`, level 10 (cleared at 27 s and went
+  on), 24, 30, `?arcade=waves`, `?arcade=descent`. No exceptions, `window.boss` undefined,
+  `hud.boss` null, camera zoom unchanged.
+
+Not verified
+- Nobody has heard anything. Every sound and the music were checked as numbers only.
+- The tutorial on a fresh save: it started on a cleared save and ran 75 simulated seconds with
+  no error, but it waits for inputs my bot does not give, so it was not played through.
+- Ability and laser hit counts (above). Core-only against body-only timing.
+- "Every attack can be avoided on reaction by a first-timer": only the bot's runs speak to it.
+- The award going on by itself after 12 s: unit-tested (`ends the award by itself when nobody
+  taps`), not watched in the browser.
+- What plays under Results when the award is tapped away before 6.5 s. By the code the level
+  song is still stopped then.
+- The full fight was not replayed end to end after the music swap; the music check, the tests
+  and the build were. The song is one piece, so the phases' intensities are not audible.
+- A controller, a TV, a real phone.
+- One `pnpm test` run timed out in `tests/procgen.test.ts` while the machine's load average was
+  67. The next run at normal load passed; I did not look further.
+
+Deviations from the documents
+- Framework features in a phase that forbids them: the cinema layer, camera shots, the award,
+  coins, the skull breaking, hit feedback, a second music engine, 13 sound keys, a procedural
+  texture. Asked for by the user; see the top of this entry.
+- `scripts/build-boss-audio.py` and `scripts/build-boss-music.py` are new scripts, and
+  `.gitignore` gained one line. The phase names no scripts.
+- design.md's "Left out" list still names letterbox bars and the real boss track. I left the
+  list alone and recorded the departures under "As built".
+- `src/core/Boss.ts` and `src/scenes/Play.ts` were not Prettier-clean before this phase, so I
+  formatted only my own lines there.
+
+Open
+- The boss track is a commercial recording. It is in the PWA precache (2.3 MB) and in `dist`.
+  It is a placeholder by the user's instruction and has to go before release.
+- The ending theme is played as a sound effect, so it follows the effects setting and volume,
+  not the music's.
+- `Play.titleBand()` still returns a take-down function that nothing uses now.
+- On the 16:9 stage the wing plates stay visible outside the letterbox during scenes.
+- The save on the spare origin `127.0.0.1:5173` was changed during testing and put back
+  (reduced motion on, Easy, god mode on). Its coins grew by 25 for every test award and stand
+  at 601. `localhost:5173`, the user's origin, was never touched.
+
+Later
+- A boss track with a section per mood, so the phases climb. Only the cue sheet changes.
+- A shield, if the user wants bullets to do visible damage (design.md lists a Shield powerup
+  blocking skulls as left out).
+- Fading the wing plates during scenes. A per-boss award trophy texture.
+
+Closing summary for the user
+- What exists: a boss framework (parts as bricks under an animated sprite, phases with a hit
+  pool, planned attacks with warnings and openings, cutscenes, a film-style flow from fade to
+  black to an award), one reference boss (the Warden, three phases, about two minutes), a dev
+  lab (`?map=bosslab.tmj`), a guide (`authoring.md`), and tests that check every registered
+  boss.
+- What is placeholder: all 14 audio files above; the Warden's sprite sheet (every cell is one
+  generated creature, and its eye sits in the head rather than a chest cavity); the trophy
+  (drawn in code); the Warden itself, which is a test boss.
+- What was left out: bosses in shipped levels and `index.json`; Arcade boss waves; the shield;
+  beat-synced cues; phase checkpoints; boss save data. design.md lists the rest.
+- Waiting on your ear: every sound and the music; the loop point of the boss track; the level
+  of the track against the effects; the step from the award into the next level's music (the
+  lab is the last level, so it cannot be heard there).
+- Waiting on your eye: the pacing of the intro (about 9.4 s), the phase scenes and the award;
+  the title card against the Gohma reference; whether each attack reads as fair, the skull
+  above all; the jam (600 ms), the shrink (0.8 a hit) and the lock-on strength; whether a boss
+  level should keep the stars' sounds and the win celebration; the fight on a phone, a desktop
+  and a TV with a controller.
+- Still yours to decide: the shield; whether agents may commit after a PASS.
+
+## Phase 5 review: FIX, 2026-11-17, Grok (Cursor agent)
+
+The Warden, the guide, and the film flow are in place and the approach is sound. Two build items are not done, and one document still describes work that is already in the tree. This is the first review of this phase.
+
+Ran
+- `pnpm typecheck`: pass. `pnpm lint`: pass. `pnpm build`: pass (precache 275 entries, 20,279 KiB).
+- `pnpm test`: 551 passed, 1 failed. The failure is `tests/skills.test.ts` > "readies the gun more often than bullet time" (`SKILLS.gun.cooldownMs` is 6000, bullet time is 3000). That file and `src/core/Skills.ts` are unchanged from HEAD, where the same numbers already fail the test. Not a Phase 5 defect.
+- Manual, in the browser at `http://127.0.0.1:5173/?map=bosslab.tmj&debug`, Normal, reduced motion off: the reveal shows "Keeper of the gate" over "Warden", the bars are closed and the camera is pushed in (zoom above the play view), then the fight starts with the bars open, the camera at the play zoom, music mood `low`, pool 20/20, and the label `WARDEN · GUARD UP`. During play the sprite used `warden-idle`, `warden-tell` and `warden-open` with the windows gap, live and recover. A volley wind-up drew three hazards. The health bar and the debug overlay were up. On Easy beforehand the pool was 16, which is `20 * 0.8`.
+- Not checked: the hush, the entrance, the glimpses and the unveil (the intro had finished before the first sample landed). Hurt and death animations, a phase scene, the award, a beam, a skull, a jam and a shrink were not watched. Sound was not heard. The three window shapes, `?level=1`, `?level=10`, `?level=24`, `?level=30`, both Arcade modes and a fresh tutorial were not played. The authoring check that adds a second boss and deletes it was not repeated, because this review cannot edit code. The spare origin's save was put back to Easy, reduced motion on, god mode on; its coin count read 626 afterwards (the handoff said 601). `localhost` was not opened.
+
+Build items
+- Coverage: done. The table matches `src/bosses/warden.ts`: normal body, steel guard, core `weak: 3` with a light, all five anims, a pose, sway, a setup that spawns and one that retires, three intensities, an epithet, entrance and two phase scenes and a death using light, impact, sound and `anim`, decks longer than one attack, shot, beam, skull, jam, shrink, an opening with pose and lock, tell sounds, and plans that read `rng`, the paddle and `phaseProgress`. Idle, tell, open, the volley and the title card were seen in the lab. The other rows were not seen this review; the handoff says they were.
+- Tuning: not done. The handoff's own Normal times include 82.6 s and 91.8 s, under the two-minute floor, and the five-run spread is 83 s to 191 s. Hits from one use of each ability, ten seconds of each laser mode, and a core-only run against a body-only run were not measured. Nobody has played the attacks as a first reaction.
+- `authoring.md`: done. 288 lines, the eight sections in order, examples from the Warden. The signatures I checked against `src/core/Boss.ts` and `src/systems/BossDirector.ts` match the source, including `BossDef`, `PartDef`, `PhaseDef`, `Cue`, `Cutscene`, `Shot`, `AttackDef`, `HazardSpec` and `PaddleEffect`. The steps match `BOSS_IDS`, `scripts/build-bosses.py`, `src/bosses/index.ts` and `?map=`.
+- Documents: done differently. Constants and the API in `design.md` match the code, "As built" is there, and the root `README.md` has the dev parameters, the new files and the boss-sprite paragraph. "Left out" still says letterbox bars, shots the ball can pop, and a second music engine are not built.
+- Regression: not done. The handoff records about 30 simulated seconds per route and an unfinished tutorial. The phase asks for a full level or wave on each route.
+
+Findings
+1. `src/bosses/warden.ts`: a Normal run is not held to two or three minutes. The handoff records god-mode Normal times of 82.6 s and 91.8 s on pools 20/44/56, and it does not record ability hits, laser hits, or a core-only time against a body-only time. Done means STATUS shows Normal runs from the first launch to the last hit that stay inside two to three minutes, plus those three measurements.
+2. `docs/boss-fights/STATUS.md`: the regression is not the one the phase asks for. Thirty simulated seconds is not a full level, and the tutorial was not played through. Done means `?level=1`, `?level=10`, `?level=24`, `?level=30`, `?arcade=waves`, `?arcade=descent` and a fresh tutorial are each played for one full level or wave, the lab is played on a phone-shaped window, a desktop window and a 16:9 window with wing plates, and the result of each is written here.
+3. `docs/boss-fights/design.md`: "Left out of this build" still lists letterbox bars, shots the ball can pop, and the work of a second `MusicEngine` as future work. `src/ui/BossCinemaView.ts` draws the bars, `src/systems/HazardSystem.ts` breaks a skull the ball touches, and `src/systems/AudioSystem.ts` already runs that second engine. Done means "Left out" no longer describes those as absent. The reasons stay under "As built".
+
+Scope and shortcuts
+- Wider than the phase file, and declared. The phase says to add no framework features. The cinema, the camera, the award, the second music engine, the thirteen sounds, the skull breaking and the paddle-hit feedback are in the tree because the user asked for them after Phase 4, and they are listed under "As built" and in the handoff. They are not a reason to throw the phase out.
+- No boss in `index.json`. Boss files import types and `src/core` only.
+- No `any`, `@ts-ignore`, `@ts-expect-error`, `eslint-disable`, `Math.random`, skipped tests, or `juice.flash` in the boss code. The `[boss]` plan warning is a `console.warn` behind `import.meta.env.DEV`. Hazard counts are not scaled by the lighting tier. The new tests assert behaviour (fair plans, cue sheets, award skip, sound keys that exist on disk) and would fail if those broke.
+
+For the user
+- The new recording at https://youtu.be/a9vw6LtQY9w was not downloaded. It is another Ocarina of Time boss theme. The track already in the tree has the same problem and must not ship. This review does not add a music picker, because a review does not edit code.
+- Still needs your ear: every placeholder sound and the boss track. Still needs your eye: whether a first-timer can dodge each attack, the intro, and the fight on a phone, a desktop and a TV with a controller.
+- No commit. A FIX is not a sign-off.
+
+## Phase 5 review: FIX, 2026-11-17, Claude (Cursor agent)
+
+A second review of the same tree. There is no implementer entry after Grok's FIX, and the
+working tree is still the handoff's (17 modified files, 7 new). I did not write this phase.
+
+Why FIX and not RESTART. review.md says "After two FIX verdicts on the same phase without a
+PASS, the verdict is RESTART." I read that as counting verdicts already given: one had been
+given, so this is the second FIX. No fix round has happened yet, so nothing has been tried and
+failed. The approach is sound and the problems are specific. This list replaces Grok's, so the
+implementer has one list. **If the next review of Phase 5 is not a PASS, it must be RESTART.**
+If the person running the phases reads the rule as "the second FIX becomes RESTART", then this
+verdict is RESTART. In that case keep everything in the tree: the framework work, the Warden,
+`authoring.md`, the audio and the scripts. Discard nothing. Redo the items below.
+
+Ran
+- `pnpm typecheck`: pass. `pnpm lint`: pass. `pnpm build`: pass (precache 275 entries,
+  20,278.57 KiB).
+- `pnpm test`: 551 passed, 1 failed, in 23 files. The failure is `tests/skills.test.ts` >
+  "readies the gun more often than bullet time" (6000 is not under 3000). `git diff HEAD` shows
+  that test and `src/core/Skills.ts` unchanged, so it is not a Phase 5 defect.
+- The browser setup. I used the in-editor browser on a dev server I started at
+  `http://127.0.0.1:5199`, and stopped it afterwards. That origin's save was not fresh: Easy,
+  instructions seen, levels already played. I set Normal for the fight, and set instructions
+  unseen for the tutorial check. Both are put back (Easy, instructions seen). My runs added coins
+  (184 now) and level results there. `localhost:5173` and `127.0.0.1:5173` were not opened.
+  Most checks were stepped: the loop was asleep and stepped 1/60 s at a time, with state read
+  from `window.boss`, `window.game` and the audio singleton.
+- Manual 1 (coverage, in `?map=bosslab.tmj`, Normal):
+  - The intro. The hush goes to black with the bars closing. The entrance glimpses work (but see
+    finding 3). The reveal shows the title card "KEEPER OF THE GATE" over "WARDEN", the camera
+    pushes in 1.3 times and the music rises. Play starts with the bars at 0, the dark at 0, the
+    camera at rest, mood `low`, the label `WARDEN · GUARD UP` and the boss bar with three pips.
+  - A tap 2.8 s into the entrance gives a clean fight. There is no key light and the sprite is
+    solid. The boss engine plays its `groove` playlist and the level song is stopped.
+  - Phase 1 to 2: the bars close, the camera pushes in 1.25 times and pulls back before play.
+    The wall spawns 6 bricks, the score gains 500, the mood is `mid` and the label is
+    "CORE EXPOSED".
+  - Phase 2 to 3, skipped by a tap: the guard is retired, the camera is at rest, the ball stays
+    held, the label is "LAST STAND" and the mood is `high`.
+  - The final hit. The music cuts, the bars close and the camera pushes in 1.45 times. Then the
+    parts are retired, 0 bricks remain, and the score gains 2,000 and the coins 25. The award
+    card shows the name, "Defeated", the spinning "WARDEN'S EYE" trophy, +2,000, +25 coins, and
+    "Tap to continue" with its wait strip. A tap ends it: `hud.boss` is null, the zoom is 2,
+    and Results show "ALL CLEAR" with 3 stars.
+  - The attacks, each forced with `&attack=` and the paddle held still:
+    - The reaper's skull took a life, the ball stayed in play and the attack ended.
+    - A sweep beam shrank the paddle to 0.8 and showed "SHRUNK". Lock-on came up in recover.
+    - Three volley shots jammed the paddle (alpha 0.45, "JAMMED" three times). Lock-on came up
+      in recover.
+  - The idle, tell, hurt and open animations were seen. The most hazards alive at once was 3.
+- Manual 4 (signatures and constants):
+  - The constants in `design.md` match `src/core/Boss.ts`.
+  - The API blocks match the source: `BossStage`, `Shot`, `BossHost`, `BossHud`, `BossCinema`,
+    `BossTitle`, `BossAward`, `skip` and `stepLength`. So do the signatures in `authoring.md`.
+  - `envelope` and `letterbox` are exported from `src/core/Boss.ts` but not named in
+    design.md. They are small helpers, so I did not make this a finding.
+- Manual 5 (regression): the boss lab in three window shapes, the tutorial start, and a bot on
+  every route. The bot is a paddle that follows the lowest falling ball and relaunches a held
+  ball, with exceptions caught; I read the result after each run.
+  - The lab windows. On a desktop window (1561 x 1283) everything looked right. On a 16:9
+    window with wing plates (1600 x 900), the full dark covers the plates and the title card is
+    fine. On a 390 x 844 phone-shaped window the title card fits.
+  - The tutorial start. With instructions unseen, the boss lab shows no coach and leaves the
+    flag alone. `?level=1` starts the coach at "move" with no boss and the zoom at 2.
+  - `?level=1`: cleared at 105 s, no lives lost.
+  - `?level=10`: cleared at 15 s.
+  - `?level=24`: 240 s, 152 bricks down to 3, not finished.
+  - `?level=30`: cleared at 66 s.
+  - `?arcade=waves&seed=1K9ZQ2`: 120 s, the first wave cleared, still running.
+  - `?arcade=descent&seed=1K9ZQ2`: 120 s, 40 bricks down to 1, still running.
+  - On every route: no exceptions, `window.boss` undefined, `hud.boss` null, the zoom at 2, and
+    after the Descent run, the level song playing on the one music engine.
+- Not checked:
+  - Manual 2 (tuning). I did not take my own times.
+  - Manual 3 (adding a second boss from the guide). That needs code edits, which this review may
+    not make.
+  - Any sound by ear.
+  - Reduced motion, a controller, a TV and a real phone.
+  - A ball breaking a skull (the handoff saw one).
+  - The award going on by itself after 12 s (unit-tested only).
+  - The tutorial played through to its end.
+  - Level 24 and Descent were not played to the end of a level or wave.
+
+Build items
+- Coverage table: done. Every row matches `src/bosses/warden.ts`, and the rows I could reach
+  were seen in the lab (above).
+- Tuning: not done. The handoff's Normal times run from 82.6 s to 191 s; 82.6 and 91.8 miss the
+  two-to-three-minute target. It does not record the hits from one use of each ability, the
+  hits from ten seconds of each laser mode, or a core-only time against a body-only time, so the
+  aim "the opening is worth using" has no measurement.
+- `authoring.md`: done, with one wrong rule (finding 4). It has 288 lines, the eight sections
+  in order, and Warden examples.
+- Documents: done differently. `design.md` "Left out" is stale (finding 5), and its flow
+  promises music under Results that does not always play (finding 2). The root `README.md` and
+  the closing summary are done.
+- Regression: done differently. The handoff ran 30 simulated seconds per route. This review
+  cleared levels 1, 10 and 30 and the first wave of Waves. Level 24, a full Descent level and a
+  tutorial played through are still missing (finding 6).
+
+Findings
+1. `src/bosses/warden.ts`: a Normal run is not held to two to three minutes. Two of the five
+   recorded Normal runs end under 92 s, on pools 20/44/56. The phase's other measurements are
+   missing: ability hits, laser hits, and core-only against body-only. Done means: STATUS
+   records several Normal runs, timed from the first launch to the last hit, that land inside
+   two to three minutes, together with those three measurements.
+2. `src/scenes/Play.ts`, `src/systems/BossDirector.ts`: Results can play in silence. The award
+   card takes a tap from `AWARD_GUARD_MS` (1.8 s), but `BossDirector.music` stays null until
+   `STINGER_MS` (6.5 s). Then the boss is no longer active, so `updateBossMusic` returns false.
+   `steerMusic` does nothing while the music is stopped. And `Play.win()` skips `stopMusic`
+   and the fanfare for a boss level. I tapped the card at about 2 s. Eight seconds into Results,
+   `musicKey` and `wantedMusic` were undefined and neither engine was playing. design.md's flow
+   says "The clear banner and results play over `rest`." Done means: Results play over the
+   music design.md describes whenever the award ends: a tap as soon as one is allowed, a later
+   tap, or the 12 s timeout. A test or a recorded browser check shows it.
+3. `src/systems/BossDirector.ts` (`glimpse`) with `src/systems/LightingMoods.ts`: in a
+   lights-out world, the world's own flashes can take a glimpse's place. The lab's world keeps
+   running its sputter and lightning under the black hush and entrance, where nobody can see
+   them, and each takes a slot under the limit of two whole-screen flashes a second. In one of
+   four stepped intros, the world booked flashes at about 1273 and 1490 ms of the entrance. The
+   first glimpse at 1500 ms was refused, and the eye close-up showed three times zoomed black.
+   The second glimpse worked in all four runs. By the code, the world's flicker and thunder
+   sounds can also play during the intro, which the user wanted silent; I have not heard them.
+   Done means: over repeated intros in the lab, the boss file's glimpses are not lost to world
+   flashes the player cannot see. The flash limit still holds. STATUS says whether world sounds
+   play under the hush and entrance.
+4. `docs/boss-fights/authoring.md` (line 202): the guide misstates the flash rule. "Keep two
+   glimpses or impacts at least 400 ms apart, or the limiter drops the second." In fact
+   `LightingSystem.claimFlash` allows two whole-screen flashes in any one-second window, shared
+   with the world. It drops the third, however far apart the flashes are. The Warden shows it:
+   the death scene's blast at 900 ms loses its flash, after the kill shot's impact at 0 and the
+   blast at 500. The comment above `BREAKUP` in `src/bosses/warden.ts` says "two flashes at most
+   burn". Done means: the guide states the rule as the code enforces it, and the Warden's death
+   cues and that comment agree with it.
+5. `docs/boss-fights/design.md`: "Left out of this build" describes built work as missing.
+   Line 692 lists the letterbox bars, which `src/ui/BossCinemaView.ts` draws. The bullet for
+   the real boss track (lines 679 to 684) lists work that `src/systems/AudioSystem.ts` now
+   does: a second engine on the same music bus, and `playMusic`, `duckMusic` and the rest taught
+   about it. What is still missing is the song itself and a `MusicEngine` that is generic over
+   its mood type. "Shots the ball can pop" (lines 690 to 691) is correct as written: only
+   skulls break, and "As built" says so. Grok's finding 3 was wrong on that item. Done means:
+   "Left out" names only what is absent; "As built" keeps the reasons.
+6. `docs/boss-fights/STATUS.md`: the regression is not complete. Done means: STATUS records a
+   fresh save played through the tutorial to its end, level 24 cleared, and one full Descent
+   level. The other routes and the three window shapes are recorded above.
+7. `src/scenes/Play.ts`, `src/systems/BossDirector.ts`: leftovers from the title band.
+   `Play.titleBand()` still returns a function that removes the band, which nothing calls, and
+   its comment says the function is "for a scene that is skipped". The comment on `epithet` in
+   `BossDef` (line 123) still says "title band". Done means: no unused return, and the comments
+   describe the title card.
+
+Scope and shortcuts
+- Wider than the phase file, and declared. The cinema layer, the camera shots, the award, the
+  coins, skull breaking, paddle-hit feedback, the second music engine, the 13 sound keys and the
+  trophy texture were asked for by the user after Phase 4. They are listed in the handoff and
+  under "As built".
+- The new code has no `any`, `@ts-ignore`, `eslint-disable`, `juice.flash`, unguarded logging,
+  skipped tests or quality-scaled hazard counts. Timers, `Math.random` and `try` appear only in
+  code that predates the phase. No boss is in a shipped level or `index.json`.
+- The tests check behaviour. Two existing tests were changed, both for real changes: the
+  aftermath is now skippable, and the third phase changed the decks.
+
+For the user
+- Your ear: every placeholder sound and the boss track. Also, whether the world's flicker and
+  thunder break the silent intro in a lights-out world (finding 3).
+- Your eye:
+  - The volley shows "JAMMED" once per shot, three times in about 150 ms.
+  - On a 16:9 screen the wing plates show beside the bars during glimpses, the reveal and the
+    scenes, as the implementer noted.
+  - At 16:9 the eye close-up (`EYE_ZOOM` 3) frames the whole body rather than the eye.
+  - With the dev `]` kill while the ball is held, "TAP TO LAUNCH" and the countdown show under
+    the award. Normal play may never reach this.
+- The boss track is a commercial recording and must not ship. The question about
+  https://youtu.be/a9vw6LtQY9w in Grok's review still stands.
+- No commit. A FIX is not a sign-off.
+
+## Phase 5: DONE, 2026-11-17, Claude (Cursor agent)
+
+The fix round for Claude's FIX review, which replaced Grok's list. The user asked for every
+finding to be fixed and the work committed, so this round commits the whole phase.
+
+Built
+- `src/scenes/Play.ts`: the `defeated` host starts the director's current music before `win()`,
+  so an award tapped before the calm came in no longer leaves Results silent (finding 2).
+  `titleBand()` returns nothing and its comment describes the title card (finding 7).
+  `syncLights()` tells the lighting whether a boss scene holds the room.
+- `src/systems/LightingSystem.ts`: a `held` flag, set by the scene every frame.
+- `src/systems/LightingMoods.ts`: while `held`, `Lightning` and `FailingLights` drop their
+  pending flashes and push their next one past the scene, so they neither claim the flash limit
+  nor play their sounds under the hush, the entrance or a scene (finding 3).
+- `src/bosses/warden.ts`: the death scene has three blasts, at 500, 1100 and 1650 ms, and the
+  comment says why: with the framework's blow at 0 and the last blast at 2300, no three flashes
+  fall inside one second (finding 4). Pools are 20/48/62, up from 20/44/56 (finding 1).
+- `src/systems/BossDirector.ts`: the `epithet` comment says title card (finding 7).
+- `tests/bosses.test.ts`: every registered boss's entrance, phase scenes and death are run
+  against a stub stage that counts `impact` and `glimpse` calls. The test fails if more flashes
+  than `MAX_FLASH_HZ` allows fall inside one second. It counts the framework's blow at 0 ms of
+  the death scene. With the old 900 ms blast put back it fails ("death: the flash at 900 ms").
+- `docs/boss-fights/authoring.md`: the flash rule as the code enforces it: two whole-screen
+  flashes in any one second, the third dropped while its ring, sparks and sound still play. The
+  Warden's death flash times are given as the example. 294 lines.
+- `docs/boss-fights/design.md`: "Left out" no longer lists the letterbox bars or the second
+  music engine. What is left of the boss track is the song, its cue sheet and its cut, and
+  optionally a `MusicEngine` generic over its mood. "Shots the ball can pop" stays, as the review
+  said. "As built" gains the world's lights waiting while a scene runs.
+
+Verified
+- `pnpm typecheck`: pass. `pnpm lint`: pass. `pnpm build`: pass.
+- `pnpm test`: 552 passed, 1 failed (was 551 and 1). The failure is the same
+  `tests/skills.test.ts` test, unchanged from HEAD.
+- The browser runs used the in-editor browser on dev servers at `http://127.0.0.1:5199` (the
+  review's origin) and `http://127.0.0.1:5187` (a fresh save), both stopped afterwards. Most runs
+  were stepped: the loop asleep and stepped 1/60 s at a time. A bot moved the paddle under the
+  lowest falling ball and relaunched a held one, with god mode off.
+- Finding 2: I tapped the award as soon as `skip()` allowed it, at about 2 s. Eight seconds into
+  Results, `musicKey` was `music` and the level engine was playing the calm mood. The boss
+  engine was stopped. By ear, the calm music now comes in over the victory theme on an early tap.
+- Finding 3: in six stepped intros the only whole-screen flashes claimed during the hush and the
+  entrance were the two glimpses (about 1502 and 2602 ms) and the unveil's impact (3202 ms), all
+  granted. In a 50 s run, the boss's glimpses, unveil impact and phase-change impact were all
+  granted. During play, the world's lightning struck 9 times and the failing lights blinked 10
+  times. Neither flashed during a scene. While held, both moods return before they reach their
+  sound calls, so the world's flicker and thunder do not play under the hush and entrance. That
+  is by the code; I did not hear it.
+- Finding 4: in one stepped death all five flashes were granted: 0, 500, 1117, 1650 and 2300 ms.
+  The 1100 ms blast lands at 1117 ms because the kill's hit-stop delays the scene's cues. In another
+  run the blow at 0 was refused, because normal play had spent both flashes in the second
+  before the final hit.
+- Finding 1, Normal, bot runs timed from the first launch to the final hit:
+  - The old pools, 20/44/56: 152.9, 133.8, 178.3, 107.2, 165.1 and 111.1 s.
+  - The new pools, 20/48/62: 177.9 s (1 life lost), 138.4 (2), 154.3 (1), 88.0 (0) and
+    154.9 (0). Four of five land in two to three minutes.
+  - Hard, 1.25 times the pools, so 78 in the last phase: 146.9 s, 1 life lost. Easy, 0.8 times
+    the pools, so 50 in the last phase: 152.5 s, no life lost.
+  - Phase 1 is steady at 31 to 47 s. Phases 2 and 3 vary widely. The fast runs come from a
+    laser pickup on the core (8 laser hits), a ball trapped above the body (32 body hits in
+    phase 3), and a ball looping straight up into the core. Phases 2 and 3 hold the core open the
+    whole time, and most damage comes from core hits from below.
+  - The most hazards alive at once was 5. No exceptions.
+- Ability hits, one use each, the paddle under the body:
+  - Phase 1: bomb 8, meteor 8, sweep 8 (each 2 on the body and 6 on the core). Black hole 0,
+    lightning 0, frenzy 0.
+  - Phase 3, with the body swaying ±120 px: sweep 8; meteor, bomb, lightning, black hole and
+    frenzy 0. An earlier phase-3 meteor dealt 2 on the body.
+  - Lightning and the black hole go for the lab's other bricks, not the boss.
+- Laser hits, ten seconds of each mode in phase 3 with `?laser=`: gun 1.5, helix 1.6,
+  scatter 0.8, swarm 0, ricochet 0.
+- Core only against body only, phase 1, with the other part made immune at runtime (`weak` set
+  to 0): core only 58.7 and 50.5 s, body only 50.4 and 64.3 s. A core hit is worth three body
+  hits, but this bot does not aim, so it reaches the core no more often than the body. The
+  numbers do not show that the opening is worth using. A player who aims may find otherwise.
+- Finding 6, on the fresh save at `127.0.0.1:5187`: the tutorial ran move, launch, guard, catch,
+  ability, gun and slow-mo, and the coach finished at 19.9 s. Level 1 cleared at 56 s with 3
+  lives and `seenInstructions` true. `?level=24` cleared at 214.6 s. `?arcade=descent` went from
+  tier 1 to tier 2 at 104.8 s, and `?arcade=waves` from tier 1 to 2 at 24.7 s. On every route:
+  no exceptions, `window.boss` undefined, `hud.boss` null, and the zoom at `RENDER_ZOOM`.
+
+Not verified
+- Any sound by ear, including the world's silence under the intro.
+- Reduced motion, a controller, a TV and a real phone.
+- A ball breaking a skull.
+- The award moving on by itself after 12 s, in the browser. It is unit-tested.
+- A human playthrough of the fight.
+
+Deviations from the documents
+- `src/systems/LightingSystem.ts` and `src/systems/LightingMoods.ts` are outside the phase's
+  file list. The fix for finding 3 belongs where the world's flashes are made.
+- The Warden's death scene has three blasts rather than four, to stay under the flash limit.
+
+Open
+- The fight's fast tail. One Normal run in five ended at 88 s. Bigger pools would push the slow
+  runs past three minutes. The cause is the core held open for all of phases 2 and 3, so a
+  rising ball scores three times a body hit. Whether to close it between openings is a design
+  call (see "Waiting on the user").
+- The opening's worth is not shown by a bot that does not aim (above).
+- In the lab most abilities and two laser modes deal few or no boss hits, because they go for
+  the other bricks or miss the swaying body.
+- An early tap on the award brings the calm music in over the victory theme.
+- Side effects on the save at `127.0.0.1:5199`: difficulty set back to Easy. Coins and the
+  ability stock changed during the runs. The helper keys I left in its localStorage are removed.
+  `127.0.0.1:5187` now holds a save from the regression. `localhost:5173` was not opened.
+
+Later
+- A test harness that runs a boss's cues against a stub stage could check more than flashes,
+  such as that every `anim` and sound a scene names exists.
+

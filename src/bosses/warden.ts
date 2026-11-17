@@ -12,14 +12,29 @@ const VIOLET = 0x9b6bff;
 const EYE_RED = 0xff3c2a;
 /**
  * The blasts that break the Warden up, each further out than the last: ms into the death scene,
- * px from the body's centre, and size. They are far enough apart that two flashes at most burn.
+ * px from the body's centre, and size. With the final hit's blow at 0 and the last blast at 2300,
+ * no three of them fall inside one second, so the flash limit refuses none.
  */
 const BREAKUP = [
-  { at: 300, dx: -40, dy: -15, scale: 0.7 },
-  { at: 650, dx: 60, dy: 15, scale: 0.8 },
-  { at: 1000, dx: -85, dy: 40, scale: 0.9 },
-  { at: 1350, dx: 105, dy: -25, scale: 1 },
+  { at: 500, dx: -40, dy: -15, scale: 0.7 },
+  { at: 1100, dx: 70, dy: 20, scale: 0.85 },
+  { at: 1650, dx: -100, dy: 35, scale: 1 },
 ] as const;
+/**
+ * Its footfalls in the dark, each nearer than the last: ms into the entrance, how loud, and how
+ * hard the floor shakes.
+ */
+const FOOTFALLS = [
+  { at: 0, volume: 0.3, shake: 0.003 },
+  { at: 750, volume: 0.45, shake: 0.005 },
+  { at: 2000, volume: 0.6, shake: 0.008 },
+] as const;
+/** A footfall shakes the floor for this long, in ms. */
+const FOOTFALL_MS = 160;
+/** How close the camera stands on the eye in the dark, then on the whole of it, then as it roars. */
+const EYE_ZOOM = 3;
+const BODY_ZOOM = 1.5;
+const ROAR_ZOOM = 1.35;
 
 function wall(): ArenaBrick[] {
   return Array.from({ length: WALL_BRICKS }, (_, i): ArenaBrick => {
@@ -44,51 +59,114 @@ function eye(s: BossStage): { x: number; y: number } {
   return s.part('core') ?? s.center;
 }
 
-/** It comes out of the dark: a rumble under a swelling glow, then a roar as it lands. */
+/**
+ * It comes in the dark: footfalls, each nearer, and a growl. Lightning shows the eye, close, and
+ * then the whole of it. Then the dark lifts and it roars.
+ */
 const entrance: Cutscene = {
-  lengthMs: 1800,
+  lengthMs: 4200,
   cues: [
+    ...FOOTFALLS.map(({ at, volume, shake }) => ({
+      at,
+      run: (s: BossStage) => {
+        s.audio.sfx('boss_stomp', volume);
+        s.juice.shake(FOOTFALL_MS, shake);
+      },
+    })),
     {
-      at: 0,
+      at: 1200,
       run: (s) => {
-        const { x, y } = s.center;
-        s.audio.sfx('thunder', 0.4, -200);
-        const glow = s.light({ x, y, radius: 70, color: VIOLET, intensity: 0.2, priority: 7 });
-        s.tween({ targets: glow, radius: 240, intensity: 1.1, duration: 1100, ease: 'Sine.In' });
+        s.audio.sfx('boss_growl', 0.5);
       },
     },
     {
-      at: 1150,
+      at: 1500,
+      run: (s) => {
+        s.shot({ zoom: EYE_ZOOM, ...eye(s), cut: true });
+        s.glimpse();
+        s.audio.sfx('thunder', 0.5, -200);
+      },
+    },
+    {
+      at: 2600,
+      run: (s) => {
+        s.shot({ zoom: BODY_ZOOM, ...s.center, cut: true });
+        s.glimpse();
+        s.audio.sfx('thunder', 0.55);
+      },
+    },
+    {
+      at: 3200,
       run: (s) => {
         const { x, y } = s.center;
+        s.unveil();
+        s.shot({ zoom: ROAR_ZOOM, x, y });
         s.anim('tell');
+        s.audio.sfx('boss_roar', 0.6);
         s.impact(x, y, 1.2, VIOLET);
-        s.audio.sfx('ab_meteor_impact', 0.55);
+        const glow = s.light({ x, y, radius: 90, color: VIOLET, intensity: 0.3, priority: 7 });
+        s.tween({ targets: glow, radius: 240, intensity: 1.1, duration: 700, ease: 'Sine.Out' });
       },
     },
   ],
 };
 
-/** The guard lets go: a roar, the eye flares, and its light bursts out. */
+/** The guard gives: it reels as its plating cracks, then the eye flares and it roars. */
 const exposed: Cutscene = {
-  lengthMs: 1200,
+  lengthMs: 1800,
   cues: [
     {
       at: 0,
       run: (s) => {
         const { x, y } = eye(s);
-        s.anim('tell');
+        s.anim('hurt');
+        s.audio.sfx('boss_phase', 0.55);
         s.audio.sfx('brick_steel', 0.5, -300);
         const flare = s.light({ x, y, radius: 80, color: EYE_RED, intensity: 0.3, priority: 7 });
-        s.tween({ targets: flare, radius: 220, intensity: 1.3, duration: 600, ease: 'Cubic.In' });
+        s.tween({ targets: flare, radius: 220, intensity: 1.3, duration: 700, ease: 'Cubic.In' });
       },
     },
     {
-      at: 650,
+      at: 750,
       run: (s) => {
         const { x, y } = eye(s);
+        s.anim('tell');
         s.impact(x, y, 1.3, EYE_RED);
-        s.audio.sfx('surge', 0.5);
+        s.audio.sfx('boss_roar', 0.5);
+      },
+    },
+  ],
+};
+
+/** The guard breaks off for good: it reels, growls low, then the bare eye blazes and it roars. */
+const cornered: Cutscene = {
+  lengthMs: 2000,
+  cues: [
+    {
+      at: 0,
+      run: (s) => {
+        const { x, y } = s.part('guard') ?? eye(s);
+        s.anim('hurt');
+        s.impact(x, y, 0.9, VIOLET);
+        s.audio.sfx('boss_phase', 0.6);
+      },
+    },
+    {
+      at: 500,
+      run: (s) => {
+        s.audio.sfx('boss_growl', 0.5);
+      },
+    },
+    {
+      at: 1000,
+      run: (s) => {
+        const { x, y } = eye(s);
+        s.anim('tell');
+        s.shot({ zoom: BODY_ZOOM, x, y });
+        s.impact(x, y, 1.5, EYE_RED);
+        s.audio.sfx('boss_roar', 0.6, 200);
+        const blaze = s.light({ x, y, radius: 120, color: EYE_RED, intensity: 1.4, priority: 7 });
+        s.tween({ targets: blaze, radius: 260, intensity: 0.4, duration: 800, ease: 'Sine.Out' });
       },
     },
   ],
@@ -96,14 +174,15 @@ const exposed: Cutscene = {
 
 /** It breaks up from the eye outward while the eye burns out, then goes all at once. */
 const death: Cutscene = {
-  lengthMs: 2200,
+  lengthMs: 3000,
   cues: [
     {
       at: 0,
       run: (s) => {
         const { x, y } = eye(s);
+        s.audio.sfx('boss_death', 0.6);
         const ember = s.light({ x, y, radius: 160, color: EYE_RED, intensity: 1.4, priority: 7 });
-        s.tween({ targets: ember, radius: 60, intensity: 0, duration: 1900, ease: 'Sine.In' });
+        s.tween({ targets: ember, radius: 60, intensity: 0, duration: 2300, ease: 'Sine.In' });
       },
     },
     ...BREAKUP.map(({ at, dx, dy, scale }, i) => ({
@@ -116,11 +195,11 @@ const death: Cutscene = {
       },
     })),
     {
-      at: 1800,
+      at: 2300,
       run: (s) => {
         const { x, y } = s.center;
         s.impact(x, y, 1.6);
-        s.audio.sfx('brick_collapse', 0.6);
+        s.audio.sfx('boss_explode', 0.6);
       },
     },
   ],
@@ -220,7 +299,7 @@ const reaper: AttackDef = {
   windupMs: 1100,
   liveMs: 1900,
   recoverMs: OPEN_MS,
-  tell: { sfx: 'ui_deny' },
+  tell: { sfx: 'boss_growl' },
   opening: OPENING,
   plan: ({ rng, paddle }) => {
     const x = inField(paddle.x, SKULL_RADIUS);
@@ -254,7 +333,8 @@ const reaper: AttackDef = {
  * The reference boss: dev-only content that exercises the framework. Its body is the band across
  * the shoulders. The core is the eye, which takes triple damage and hangs below the body, and a
  * steel guard under the core shields it from below, so the ball has to come at it from the side.
- * In the second phase the guard pulls up behind the core and the core can be hit from below.
+ * In the second phase the guard pulls up behind the core and the core can be hit from below, and
+ * in the third the guard is gone and the Warden throws everything it has.
  * Its three attacks use every hazard between them, and after each one the guard lifts for a while.
  */
 export const warden: BossDef = {
@@ -264,7 +344,16 @@ export const warden: BossDef = {
   parts: [
     { id: 'body', col: 7, row: 3, cols: 6, rows: 2, texture: 'brick_purple2' },
     // The core's top row lies under the body, so only the two rows below it can be hit.
-    { id: 'core', col: 9, row: 4, cols: 2, rows: 3, texture: 'brick_red', weak: 3 },
+    {
+      id: 'core',
+      col: 9,
+      row: 4,
+      cols: 2,
+      rows: 3,
+      texture: 'brick_red',
+      weak: 3,
+      light: { color: EYE_RED, radius: 90, intensity: 0.6 },
+    },
     { id: 'guard', col: 9, row: 7, cols: 2, rows: 1, texture: 'brick_steel', kind: 'steel' },
   ],
   sprite: {
@@ -290,22 +379,49 @@ export const warden: BossDef = {
     open: { guard: { dy: -3 * BH } },
   },
   phases: [
-    { id: 'guard-up', title: 'Guard up', hits: 12, motion: sway(50, 5200), deck: [volley] },
+    {
+      id: 'guard-up',
+      title: 'Guard up',
+      hits: 20,
+      motion: sway(50, 5200),
+      intensity: 'low',
+      deck: [volley],
+    },
     {
       id: 'core-exposed',
       title: 'Core exposed',
-      hits: 12,
+      hits: 48,
       pose: 'open',
       motion: sway(90, 3600),
+      intensity: 'mid',
       setup: (s) => {
         s.spawn(wall());
+        // Each phase starts fair: whatever the last one took off the paddle comes back.
+        s.paddle.resetSize();
       },
       enter: exposed,
-      deck: [sweep, reaper, volley],
-      // It presses harder once the guard is gone.
-      gapMs: [2000, 1200],
+      deck: [sweep, volley],
+      // It presses harder once the guard is up.
+      gapMs: [2000, 1300],
+    },
+    {
+      id: 'last-stand',
+      title: 'Last stand',
+      hits: 62,
+      pose: 'open',
+      motion: sway(120, 2800),
+      intensity: 'high',
+      setup: (s) => {
+        s.retire('guard');
+        s.paddle.resetSize();
+      },
+      enter: cornered,
+      deck: [reaper, sweep, volley],
+      // With nothing left to guard, it throws everything.
+      gapMs: [1600, 1000],
     },
   ],
   entrance,
   death,
+  trophy: "Warden's Eye",
 };

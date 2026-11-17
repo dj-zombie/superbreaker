@@ -444,6 +444,20 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'breach', path: 'audio/breach.mp3' },
   { key: 'thunder', path: 'audio/storm/thunder.mp3' },
   { key: 'flicker', path: 'audio/storm/flicker.mp3' },
+  // Boss fights. Every one is a placeholder written by scripts/build-boss-audio.py.
+  { key: 'boss_stomp', path: 'audio/boss/stomp.mp3' },
+  { key: 'boss_growl', path: 'audio/boss/growl.mp3' },
+  { key: 'boss_roar', path: 'audio/boss/roar.mp3' },
+  { key: 'boss_title', path: 'audio/boss/title.mp3' },
+  { key: 'boss_phase', path: 'audio/boss/phase-break.mp3' },
+  { key: 'boss_death', path: 'audio/boss/death.mp3' },
+  { key: 'boss_explode', path: 'audio/boss/explode.mp3' },
+  { key: 'boss_victory', path: 'audio/boss/victory.mp3' },
+  { key: 'boss_award', path: 'audio/boss/award.mp3' },
+  { key: 'boss_paddle_hit', path: 'audio/boss/paddle-hit.mp3' },
+  { key: 'boss_skull_pop', path: 'audio/boss/skull-pop.mp3' },
+  { key: 'boss_shot', path: 'audio/boss/shot.mp3' },
+  { key: 'boss_beam', path: 'audio/boss/beam.mp3' },
 ];
 
 export const SCENES = {

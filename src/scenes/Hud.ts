@@ -21,6 +21,7 @@ import {
 import { HUD_FONT } from '../art/fonts';
 import type { SlotState } from '../systems/AbilitySystem';
 import type { BossHud } from '../systems/BossDirector';
+import { BossCinemaView } from '../ui/BossCinemaView';
 import { MAX_LIVES } from '../core/Difficulty';
 import { SKILLS, SKILL_IDS, type SkillId, type SkillView } from '../core/Skills';
 import type { PowerupId } from '../core/types';
@@ -159,6 +160,8 @@ export class Hud extends BaseScene {
   private coachSpot?: CoachSpotView;
   /** Built the first time a boss shows its bar. */
   private bossBar?: BossBarView;
+  /** Built the first time a boss fight has the level: the black, the bars and the cards. */
+  private cinema?: BossCinemaView;
   /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
   private plates?: WingPlates;
   private wide = false;
@@ -176,6 +179,7 @@ export class Hud extends BaseScene {
     this.coachHand = undefined;
     this.coachSpot = undefined;
     this.bossBar = undefined;
+    this.cinema = undefined;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
@@ -521,6 +525,8 @@ export class Hud extends BaseScene {
     const s = this.play.hud as HudState | undefined;
     if (!s) return;
     this.drawCoachHand(s.coachHand);
+    if (s.boss && !this.cinema) this.cinema = new BossCinemaView(this);
+    this.cinema?.update(s.boss?.cinema ?? null);
     if (this.plates) {
       this.plates.spotlight(s.coachSlot, s.coachSkill);
       this.plates.update(s, delta);

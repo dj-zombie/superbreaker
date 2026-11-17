@@ -25,7 +25,7 @@ pnpm dev          # http://localhost:5173
 | `pnpm desktop:dev`  | Electron window on the Vite dev server, with hot reload      |
 | `pnpm desktop:dist` | Build the desktop app and package installers into `release/` |
 
-In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. The Phaser game is also available as `window.game` in the browser console:
+In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. The Phaser game is also available as `window.game` in the browser console:
 
 ```js
 game.scene.getScene('Title').scene.start('Play', { index: 24 });
@@ -52,25 +52,32 @@ src/
     Lighting.ts      Light falloff, flicker presets, sampling and the per-frame light budget
     Rng.ts           Seeded random numbers for generated levels
     Run.ts           Arcade run rules: loops, goals, tiers, clock
+    Boss.ts          Boss fight rules: steps, phases, attack plans and their fairness checks
+    Cues.ts          The cue scheduler behind boss cutscenes
     procgen/         Arcade level generator: tier curve, patterns, mechanics, rule checks
     SaveStore.ts     Versioned save data with legacy Cordova migration
   entities/          Ball, Paddle, Brick game objects
-  systems/           Bricks, powerups, input, audio, juice (shake/hit-stop/particles), lighting, Arcade runs
+  systems/           Bricks, powerups, input, audio, juice (shake/hit-stop/particles), lighting, Arcade runs, boss fights
+  bosses/            One file per boss, and the list a level's `boss` property picks from
   scenes/            Boot, Preload, Title, Worlds, WorldPath, Briefing, ArcadeSelect, Play, Hud, Pause, Results, Upgrades, Settings, Transition
   ui/                Per-world themes, baked frames, buttons, cards, controls and widgets
   ui/fx/             Scene transitions, motion helpers, UI particles, the logo reveal and behind-overlay filters
   art/procedural.ts  Canvas-drawn fallbacks for any texture that fails to load
   art/backdrops.ts   Parallax worlds: layer order, scroll speeds, tints, light and particles
   art/lighting.ts    How each world is lit: ambient, shadows, ball light, key light, mood
+  art/bossMusic.ts   The boss track's sections and playlists
   platform/          Storage, haptics, app lifecycle, gamepad, the pad cursor and the desktop bridge
 desktop/             Electron shell: the window, the app:// file server and the preload bridge
 public/assets/       Images, audio, fonts, tileset and levels
-docs/                Design notes for larger features (Arcade, TV play)
+docs/                Design notes for larger features (Arcade, TV play, boss fights)
 art-src/             Source sheets for the generated art, and the painted backdrop layers
 scripts/process-art.py  Cuts the art sheets into game sprites and app icons
 scripts/build-foreground.py  Cuts the per-world brick, paddle and ball renders into atlases and normal maps
 scripts/build-backdrops.py  Keys, loops and splits the backdrop layers, and cuts the world cards
 scripts/process-logo.py  Splits the logo concepts into a base and a glow layer
+scripts/build-bosses.py  Cuts the boss sprite sheets
+scripts/build-boss-audio.py  Synthesizes the placeholder boss sound effects
+scripts/build-boss-music.py  Cuts the placeholder boss track from a recording
 archive/             Retired levels and the old static backgrounds
 tests/               Vitest suites
 ios/, android/       Capacitor native projects
@@ -282,6 +289,16 @@ python3 scripts/build-backdrops.py hell --stills /tmp/hell.jpg --video /tmp/hell
 `--stills` and `--video` composite the world with sample bricks to check readability and the loop. Each run also writes the world carousel cards (`public/assets/images/ui/world_<id>.webp`, cropped from `key.jpg`); `--thumbs-only` writes just those.
 
 Any texture missing at runtime is replaced by a procedural canvas drawing (`src/art/procedural.ts`), so new brick kinds or powerups can be prototyped before their art exists.
+
+### Boss sprites
+
+A boss is drawn from one sheet of animation frames on a flat white background, `art-src/bosses/<id>.jpg`. `scripts/build-bosses.py` (requires Pillow) keys out the white, cuts the grid named in its `BOSSES` table and writes `public/assets/images/bosses/<id>.png` with the frames in reading order:
+
+```sh
+python3 scripts/build-bosses.py
+```
+
+The boss sound effects (`public/assets/audio/boss/`) and the boss track (`public/assets/audio/music/boss-placeholder.mp3`) are placeholders. `scripts/build-boss-audio.py` synthesizes the effects (numpy, ffmpeg) and `scripts/build-boss-music.py --fetch` downloads a recording with yt-dlp and cuts the track from it. [docs/boss-fights/authoring.md](docs/boss-fights/authoring.md) is the guide to adding a boss.
 
 ## Mobile builds
 

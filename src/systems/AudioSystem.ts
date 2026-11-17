@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
 import { WIDTH } from '../config';
 import { panAt, variation } from '../core/AudioMix';
 import { BOSS_MOOD_FALLBACK, BOSS_STINGER, BOSS_SWELL_S, type BossMood } from '../core/Boss';
@@ -114,6 +115,8 @@ class AudioSystem {
   private game?: Phaser.Game;
   private sound?: Phaser.Sound.BaseSoundManager;
   private music?: MusicEngine;
+  /** The boss track, on the same bus as the level song. Only one of the two plays at a time. */
+  private boss?: MusicEngine;
   private musicKey?: MusicKey;
   private wantedMusic?: MusicKey;
   private hitCount = 0;
@@ -185,7 +188,7 @@ class AudioSystem {
     this.applyPlatformMute();
     if (!this.sound || this.sound.locked || !this.wantedMusic) return;
     if (!save.state.settings.music) return;
-    if (this.musicKey === this.wantedMusic && this.music?.playing) return;
+    if (this.musicKey === this.wantedMusic && this.musicPlaying) return;
     this.playMusic(this.wantedMusic, true);
   }
 
@@ -270,7 +273,9 @@ class AudioSystem {
     const music = this.musicEngine();
     if (!music) return;
     if (force) music.stop();
-    else if (this.musicKey === key && music.playing) return;
+    else if (this.musicKey === key && this.musicPlaying) return;
+    // The boss track never plays under a song that was asked for by name.
+    this.boss?.stop(force ? 'cut' : 'fade');
     this.musicKey = key;
     music.play(MUSIC_START[key], MUSIC_VOLUME[key]);
   }
@@ -286,14 +291,18 @@ class AudioSystem {
    */
   bossMusic(mood: BossMood): void {
     if (!this.sound || !save.state.settings.music || this.sound.locked) return;
-    const music = this.musicEngine();
-    if (!music) return;
+    const level = this.musicEngine();
+    if (!level) return;
     this.wantedMusic = 'music';
     this.musicKey = 'music';
-    // Until the boss song exists, each boss mood plays from a section of the level song.
+    // The calm after the fight is the level song's. So is every mood when no boss track loaded.
+    const boss = mood === 'rest' ? undefined : this.bossEngine();
+    const on = boss ?? level;
+    const off = boss ? level : this.boss;
+    off?.stop('fade');
     const mapped = BOSS_MOOD_FALLBACK[mood];
-    if (music.playing) music.setMood(mapped, true);
-    else music.play(mapped, MUSIC_VOLUME.music, BOSS_SWELL_S);
+    if (on.playing) on.setMood(mapped, true);
+    else on.play(mapped, MUSIC_VOLUME.music, BOSS_SWELL_S);
   }
 
   /** The phrase that ends a boss fight, over the silence the final hit leaves. */
@@ -303,7 +312,9 @@ class AudioSystem {
 
   /** The music muffles for a moment and opens back up, for a lost ball. */
   musicDip(): void {
-    if (this.musicKey === 'music') this.music?.dip();
+    if (this.musicKey !== 'music') return;
+    this.music?.dip();
+    this.boss?.dip();
   }
 
   private get webAudio(): Phaser.Sound.WebAudioSoundManager | undefined {
@@ -333,6 +344,22 @@ class AudioSystem {
     this.bins = new Uint8Array(this.analyser.frequencyBinCount);
     this.music.output.connect(this.analyser);
     return this.music;
+  }
+
+  /** The boss track's engine, once a boss level has loaded the track. It shares the song's bus. */
+  private bossEngine(): MusicEngine | undefined {
+    if (this.boss) return this.boss;
+    const mgr = this.webAudio;
+    const buffer = this.game?.cache.audio.get(BOSS_MUSIC_KEY) as AudioBuffer | undefined;
+    if (!mgr || !this.musicBus || !(buffer instanceof AudioBuffer)) return undefined;
+    this.boss = new MusicEngine(mgr.context, this.musicBus, buffer, BOSS_TRACK);
+    if (this.analyser) this.boss.output.connect(this.analyser);
+    return this.boss;
+  }
+
+  /** Either track is sounding. */
+  private get musicPlaying(): boolean {
+    return !!this.music?.playing || !!this.boss?.playing;
   }
 
   /** The mix, built on first use and rebuilt if Phaser swaps its master node. */
@@ -400,7 +427,7 @@ class AudioSystem {
 
   /** Low-frequency energy of the music, 0..1, or undefined when it can't be measured. */
   musicLevel(): number | undefined {
-    if (!this.analyser || !this.bins || !this.music?.playing) return undefined;
+    if (!this.analyser || !this.bins || !this.musicPlaying) return undefined;
     this.analyser.getByteFrequencyData(this.bins);
     // Bins are about 170 Hz wide at 44.1 kHz: the first three cover the kick and bass.
     return (this.bins[0]! + this.bins[1]! + this.bins[2]!) / (3 * 255);
@@ -451,6 +478,7 @@ class AudioSystem {
   /** Stops the music but remembers what was wanted, for the settings toggle. */
   private haltMusic(ending: MusicEnding): void {
     this.music?.stop(ending);
+    this.boss?.stop(ending);
     this.musicKey = undefined;
   }
 
@@ -491,6 +519,7 @@ class AudioSystem {
   /** Pause: quieter and muffled. The pause menu's own sounds skip the black hole and the dream. */
   duckMusic(duck: boolean): void {
     this.music?.duck(duck);
+    this.boss?.duck(duck);
     this.paused = duck;
     this.applySfxTone();
     this.applyDream();
@@ -509,7 +538,9 @@ class AudioSystem {
 
   /** A hit-stop muffles the music for its `ms` and lets go quickly after. */
   dip(ms: number): void {
-    if (this.musicKey === 'music') this.music?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
+    if (this.musicKey !== 'music') return;
+    this.music?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
+    this.boss?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
   }
 
   /** While a black hole is open the sound effects drop in pitch and lose their top end. */
@@ -526,7 +557,10 @@ class AudioSystem {
   setDream(on: boolean): void {
     if (on === this.dreaming) return;
     this.dreaming = on;
-    if (!on || this.musicKey === 'music') this.music?.dream(on);
+    if (!on || this.musicKey === 'music') {
+      this.music?.dream(on);
+      this.boss?.dream(on);
+    }
     this.mix();
     this.applySfxTone();
     this.applyDream();
@@ -537,9 +571,11 @@ class AudioSystem {
     this.gravity = false;
     this.paused = false;
     this.dreaming = false;
-    this.music?.dream(false);
-    // Restart and quit leave from the pause menu, and the engine keeps its duck across a stop.
-    this.music?.duck(false);
+    // Restart and quit leave from the pause menu, and an engine keeps its duck across a stop.
+    for (const engine of [this.music, this.boss]) {
+      engine?.dream(false);
+      engine?.duck(false);
+    }
     this.applySfxTone();
     this.applyDream();
     const m = this.mixNodes;

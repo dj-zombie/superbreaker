@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { worldForLevel, worldForRun, type WorldId } from '../art/backdrops';
+import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
 import {
   ARENA_MID,
   COLORS,
@@ -14,8 +15,10 @@ import {
   HYPER_DAMAGE_MULT,
   HYPER_TIME_SCALE,
   PHYSICS_FPS,
+  RENDER_ZOOM,
   STAGE_W,
   WIDTH,
+  WING,
 } from '../config';
 import { guardedShare, pickHomingTarget, type HomingBox } from '../core/Homing';
 import { MusicIntensity } from '../core/MusicMood';
@@ -334,7 +337,12 @@ export class Play extends BaseScene {
     ParallaxBackdrop.preload(this, this.world);
     // A boss's sheet loads with its level, so the levels without one never fetch it.
     const boss = this.runConfig ? undefined : this.levels[this.levelIndex - 1]?.boss;
-    if (boss) BossBody.preload(this, BOSSES[boss]);
+    if (!boss) return;
+    BossBody.preload(this, BOSSES[boss]);
+    // So does the boss track. A second boss level finds it in the cache.
+    if (!this.cache.audio.exists(BOSS_MUSIC_KEY)) {
+      this.load.audio(BOSS_MUSIC_KEY, `assets/${BOSS_TRACK.path}`);
+    }
   }
 
   create(): void {
@@ -1297,6 +1305,7 @@ export class Play extends BaseScene {
 
   /** Ball lanterns follow mode and Fever; shadows lean away from the lead ball. */
   private syncLights(): void {
+    this.lighting.held = !!this.boss?.cinematic;
     const look = this.lighting.look.ball;
     const fever = this.fever.active ? this.fever.trailColor : undefined;
     let main: Ball | undefined;
@@ -1716,11 +1725,8 @@ export class Play extends BaseScene {
     this.titleBand(kicker, name, INTRO_HOLD_MS);
   }
 
-  /**
-   * The band itself: a small line over a name, across the field. It folds away after `holdMs`;
-   * the function it returns takes it down at once, for a scene that is skipped.
-   */
-  private titleBand(kicker: string, name: string, holdMs: number): () => void {
+  /** The band itself: a small line over a name, across the field. It folds away after `holdMs`. */
+  private titleBand(kicker: string, name: string, holdMs: number): void {
     const t = theme();
     const band = this.add.container(WIDTH / 2, ARENA_MID - 40).setDepth(25);
     const bg = this.add.rectangle(0, 0, WIDTH, 112, t.palette.base, 0.78);
@@ -1734,12 +1740,6 @@ export class Play extends BaseScene {
     const top = label(this, 0, -24, kicker, 13, { t, color: t.palette.textDim });
     const head = heading(this, 0, 14, name, 40, { t });
     band.add([bg, ...rules, top, head]);
-    const remove = () => {
-      // It may have folded away by itself already.
-      if (!band.active) return;
-      this.tweens.killTweensOf([band, head]);
-      band.destroy();
-    };
     if (calm()) {
       band.setAlpha(0);
       this.tweens.chain({
@@ -1750,7 +1750,7 @@ export class Play extends BaseScene {
           { alpha: 0, delay: holdMs - 300, duration: 300, onComplete: () => band.destroy() },
         ],
       });
-      return remove;
+      return;
     }
     band.setScale(1, 0);
     head.setX(-WIDTH);
@@ -1766,7 +1766,6 @@ export class Play extends BaseScene {
       ease: 'Cubic.In',
       onComplete: () => band.destroy(),
     });
-    return remove;
   }
 
   /**
@@ -2024,7 +2023,6 @@ export class Play extends BaseScene {
       juice: this.juice,
       lighting: this.lighting,
       scenery: this.scenery,
-      backdrop: this.backdrop,
       powerups: this.powerups,
       paddle: this.paddle,
       ballInPlay: () => this.ballList.some((b) => !b.attached),
@@ -2033,20 +2031,45 @@ export class Play extends BaseScene {
       bricksAdded: (bricks, board) => this.onBricksAdded(bricks, board),
       creditHit: (brick, cause) => this.creditBreak(brick, cause, 0),
       addScore: (n) => this.addScore(n),
+      addCoins: (n) => {
+        this.hud.coinsEarned += n;
+        save.addCoins(n);
+      },
       setLabel: (title, detail) => {
         this.hud.title = title;
         this.hud.detail = detail;
       },
-      defeated: () => this.win(),
+      defeated: () => {
+        // A tap can end the award before the calm came in, and Results must not play in silence.
+        const mood = this.boss?.music;
+        if (mood) audio.bossMusic(mood);
+        this.win();
+      },
       setHud: (view) => {
         this.hud.boss = view;
       },
-      titleCard: (kicker, name, holdMs) => this.titleBand(kicker, name, holdMs),
+      frame: (zoom, x, y) => this.frameShot(zoom, x, y),
       showHint: () => this.showHint(),
       impact: (x, y, scale, color) => this.bossImpact(x, y, scale, color),
       balls: () => this.ballList,
       hurt: () => this.loseLife(true),
     };
+  }
+
+  /**
+   * A boss scene's camera: `zoom` times closer than play, centred on a point of the field, and
+   * held where the view never leaves the stage. Zoom 1 is the view `setupCamera` gives.
+   */
+  private frameShot(zoom: number, x: number, y: number): void {
+    const z = Math.max(1, zoom);
+    const halfW = STAGE_W / (2 * z);
+    const halfH = HEIGHT / (2 * z);
+    const cam = this.cameras.main;
+    cam.setZoom(RENDER_ZOOM * z);
+    cam.centerOn(
+      Phaser.Math.Clamp(x, -WING + halfW, WIDTH + WING - halfW),
+      Phaser.Math.Clamp(y, halfH, HEIGHT - halfH),
+    );
   }
 
   private onBricksAdded(bricks: readonly Brick[], board: boolean): void {

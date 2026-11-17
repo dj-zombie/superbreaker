@@ -1,4 +1,7 @@
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { BOSS_TRACK } from '../src/art/bossMusic';
 import { MUSIC_TRACK } from '../src/art/music';
 import { BOSS_MOODS, BOSS_MOOD_FALLBACK } from '../src/core/Boss';
 import {
@@ -128,6 +131,46 @@ describe('music track', () => {
       expect(list.play.length, mood).toBeGreaterThan(0);
       for (const name of list.play) expect(MUSIC_TRACK.segments[name], name).toBeDefined();
     }
+  });
+
+  it('has a section of the boss track behind every boss mood', () => {
+    for (const mood of BOSS_MOODS) {
+      const list = BOSS_TRACK.moods[BOSS_MOOD_FALLBACK[mood]];
+      expect(list, mood).toBeDefined();
+      expect(list.play.length, mood).toBeGreaterThan(0);
+      expect(list.loop, mood).toBeLessThan(list.play.length);
+      for (const name of list.play) expect(BOSS_TRACK.segments[name], name).toBeDefined();
+    }
+  });
+
+  it('plays the boss song through whatever the phase, and opens it once', () => {
+    // The engine lets a section run on only when the new mood's list holds it too. The song is
+    // one piece, so a list that differed between two moods would cut it at a change of phase.
+    const lists = BOSS_MOODS.map((mood) => BOSS_TRACK.moods[BOSS_MOOD_FALLBACK[mood]]);
+    expect(new Set(lists.map((list) => `${list.play.join()}@${list.loop}`)).size).toBe(1);
+    const { play, loop } = lists[0]!;
+    expect(play).toEqual(['open', 'loop']);
+    // The opening is heard once: the list wraps to the section after it.
+    expect(play[loop]).toBe('loop');
+    expect(BOSS_TRACK.segments.loop!.beats).toBe(BOSS_TRACK.segments.open!.beats);
+  });
+
+  it('lays the boss track out in whole bars, end to end, after the sync click', () => {
+    expect(BOSS_TRACK.beat).toBeCloseTo(60 / BOSS_TRACK.bpm, 9);
+    const sections = Object.entries(BOSS_TRACK.segments).sort(([, a], [, b]) => a.at - b.at);
+    let end = sections[0]![1].at;
+    expect(end).toBeGreaterThan(BOSS_TRACK.click);
+    for (const [name, seg] of sections) {
+      expect(seg.beats % 4, name).toBe(0);
+      expect(seg.gain, name).toBeGreaterThan(0);
+      // No gap and no overlap: a section starts where the one before it ends.
+      expect(seg.at, name).toBeCloseTo(end, 6);
+      end = seg.at + seg.beats * BOSS_TRACK.beat;
+    }
+    const file = join(__dirname, '..', 'public', 'assets', BOSS_TRACK.path);
+    expect(existsSync(file), BOSS_TRACK.path).toBe(true);
+    // 128 kbit/s or more is 16 kB a second: a file that holds every section is at least this big.
+    expect(statSync(file).size).toBeGreaterThan(end * 16_000 * 0.5);
   });
 
   it('cuts whole bars that start after the sync click', () => {

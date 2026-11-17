@@ -235,6 +235,11 @@ class Lightning {
   }
 
   update(clock: number): void {
+    if (this.sys.held) {
+      this.flashes = [];
+      this.nextStrike = Math.max(this.nextStrike, clock + 1);
+      return;
+    }
     if (clock >= this.nextStrike && this.busy()) this.nextStrike = clock + 1;
     if (clock >= this.nextStrike) {
       this.nextStrike = clock + this.interval * rand(0.6, 1.4);
@@ -299,6 +304,11 @@ class FailingLights {
   }
 
   update(clock: number): void {
+    if (this.sys.held) {
+      this.blinks = [];
+      this.nextAt = Math.max(this.nextAt, clock + SPUTTER_QUIET);
+      return;
+    }
     if (!this.active) {
       if (clock < this.nextAt || this.sys.relit) return;
       if (this.sys.sinceFlash < SPUTTER_QUIET) {

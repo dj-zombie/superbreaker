@@ -400,6 +400,63 @@ const painters: Record<string, [number, number, Painter]> = {
       ctx.stroke();
     },
   ],
+  /** The keepsake a dead boss leaves: a gold medal with a cut stone, face on so it can be spun. */
+  boss_trophy: [
+    160,
+    160,
+    (ctx, w, h) => {
+      const cx = w / 2;
+      const cy = h / 2;
+      const r = w / 2 - 4;
+      const gold = ctx.createLinearGradient(0, 0, w, h);
+      gold.addColorStop(0, '#fff3b0');
+      gold.addColorStop(0.45, '#f2b632');
+      gold.addColorStop(1, '#9a5a10');
+      ctx.fillStyle = gold;
+      ctx.beginPath();
+      // A scalloped edge: twelve lobes round the rim.
+      for (let i = 0; i <= 96; i++) {
+        const a = (i / 96) * Math.PI * 2;
+        const rr = r - 5 + 5 * Math.cos(a * 12);
+        ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#7a4208';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.74, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#fff6c8';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.68, 0, Math.PI * 2);
+      ctx.stroke();
+      // The stone: an eight-sided cut, lit from the top left.
+      const stone = r * 0.46;
+      const cut = (k: number): void => {
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+          ctx.lineTo(cx + Math.cos(a) * stone * k, cy + Math.sin(a) * stone * k);
+        }
+        ctx.closePath();
+      };
+      const red = ctx.createLinearGradient(cx - stone, cy - stone, cx + stone, cy + stone);
+      red.addColorStop(0, '#ff9a8a');
+      red.addColorStop(0.5, '#e0241c');
+      red.addColorStop(1, '#6a0608');
+      ctx.fillStyle = red;
+      cut(1);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#4a0406';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      cut(0.55);
+      ctx.fill();
+    },
+  ],
   crack1: [
     60,
     32,
@@ -638,6 +695,7 @@ export const ALWAYS_PROCEDURAL = [
   'hazard_shot',
   'hazard_skull',
   'hazard_mark',
+  'boss_trophy',
   'crack1',
   'crack2',
   'shield_bar',

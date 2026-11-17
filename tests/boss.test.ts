@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ABILITY_HITS,
   AFTERMATH_MS,
+  AWARD_GUARD_MS,
+  BARS_MS,
   BOSS_TUNING,
   BossState,
   DEFAULT_GAP_MS,
@@ -32,6 +34,8 @@ import {
   type BossStep,
   type HazardSpec,
   type PaddleEffect,
+  envelope,
+  letterbox,
 } from '../src/core/Boss';
 import { DIFFICULTY, FIREBALL_DAMAGE } from '../src/core/Difficulty';
 import { DIFFICULTIES, FIELD_WIDTH } from '../src/core/types';
@@ -328,23 +332,57 @@ describe('BossState flow', () => {
     expect(s.pool).toBe(8);
   });
 
-  it('cannot skip the fight, the finale, the aftermath or the end', () => {
+  it('cannot skip the fight, the finale or the end', () => {
     const s = live(2);
     s.tick(2 * SKIP_GUARD_MS, true);
     expect(s.skip()).toEqual([]);
     expect(s.step).toBe('fight');
     s.damage(20);
-    s.tick(2 * SKIP_GUARD_MS, true);
+    s.tick(DEATH_MS - 1, true);
     expect(s.skip()).toEqual([]);
     expect(s.step).toBe('finale');
-    s.tick(DEATH_MS, true);
-    expect(s.step).toBe('aftermath');
-    expect(s.stepMs).toBe(2 * SKIP_GUARD_MS);
-    expect(s.skip()).toEqual([]);
-    expect(s.step).toBe('aftermath');
-    s.tick(AFTERMATH_MS, true);
+    s.tick(1 + AFTERMATH_MS, true);
+    expect(s.step).toBe('done');
     expect(s.skip()).toEqual([]);
     expect(s.step).toBe('done');
+  });
+
+  it('holds the award through its guard, then a tap goes on to the end', () => {
+    const s = live(2);
+    s.damage(20);
+    s.tick(DEATH_MS, true);
+    expect(s.step).toBe('aftermath');
+    expect(s.skip()).toEqual([]);
+    s.tick(AWARD_GUARD_MS - 1, true);
+    expect(s.skip()).toEqual([]);
+    expect(s.step).toBe('aftermath');
+    s.tick(1, true);
+    expect(s.skip()).toEqual([step('done')]);
+    expect(s.step).toBe('done');
+    // The end is reported once: time passing after the tap has nothing more to say.
+    expect(s.tick(AFTERMATH_MS, true)).toEqual([]);
+  });
+
+  it('ends the award by itself when nobody taps', () => {
+    const s = live(2);
+    s.damage(20);
+    s.tick(DEATH_MS, true);
+    expect(AFTERMATH_MS).toBeGreaterThan(AWARD_GUARD_MS);
+    expect(s.tick(AFTERMATH_MS - 1, true)).toEqual([]);
+    expect(s.step).toBe('aftermath');
+    expect(s.tick(1, true)).toEqual([step('done')]);
+  });
+
+  it('says how long each step lasts', () => {
+    const s = intro();
+    expect(s.stepLength).toBe(HUSH_MS);
+    s.tick(HUSH_MS, true);
+    expect(s.stepLength).toBe(ENTRANCE_MS);
+    s.tick(ENTRANCE_MS, true);
+    expect(s.stepLength).toBe(REVEAL_MS);
+    s.tick(REVEAL_MS, true);
+    expect(s.step).toBe('fight');
+    expect(s.stepLength).toBe(Infinity);
   });
 
   it('runs the finale, the aftermath and the end to the millisecond', () => {
@@ -876,5 +914,72 @@ describe('sway', () => {
     }
     // Half a period on it is the mirror image, so a period is not shorter than it says.
     expect(motion(900 + PERIOD_MS / 2).x).toBeCloseTo(-motion(900).x);
+  });
+});
+
+describe('envelope', () => {
+  it('comes in over its lead and goes out over its tail', () => {
+    expect(envelope(0, 1000, 200, 100)).toBe(0);
+    expect(envelope(100, 1000, 200, 100)).toBe(0.5);
+    expect(envelope(200, 1000, 200, 100)).toBe(1);
+    expect(envelope(900, 1000, 200, 100)).toBe(1);
+    expect(envelope(950, 1000, 200, 100)).toBe(0.5);
+    expect(envelope(1000, 1000, 200, 100)).toBe(0);
+  });
+
+  it('starts full with no lead and ends full with no tail', () => {
+    expect(envelope(0, 1000, 0, 100)).toBe(1);
+    expect(envelope(1000, 1000, 200, 0)).toBe(1);
+    expect(envelope(500, Infinity, 200, 0)).toBe(1);
+  });
+
+  it('is never under 0 or over 1, before the start, after the end, or on bad input', () => {
+    expect(envelope(-50, 1000, 200, 100)).toBe(0);
+    expect(envelope(1500, 1000, 200, 100)).toBe(0);
+    expect(envelope(500, 1000, 200, 100)).toBe(1);
+    expect(envelope(NaN, 1000, 200, 100)).toBe(0);
+  });
+});
+
+describe('letterbox', () => {
+  it('closes through the hush and stays closed through the entrance', () => {
+    expect(letterbox('hush', 0, HUSH_MS)).toBe(0);
+    expect(letterbox('hush', BARS_MS / 2, HUSH_MS)).toBe(0.5);
+    expect(letterbox('hush', HUSH_MS, HUSH_MS)).toBe(1);
+    expect(letterbox('entrance', 0, 4000)).toBe(1);
+    expect(letterbox('entrance', 4000, 4000)).toBe(1);
+  });
+
+  it('is open by the time the reveal hands over to the fight, and all through the fight', () => {
+    expect(letterbox('reveal', 0, REVEAL_MS)).toBe(1);
+    expect(letterbox('reveal', REVEAL_MS - BARS_MS, REVEAL_MS)).toBe(1);
+    expect(letterbox('reveal', REVEAL_MS - BARS_MS / 2, REVEAL_MS)).toBe(0.5);
+    expect(letterbox('reveal', REVEAL_MS, REVEAL_MS)).toBe(0);
+    expect(letterbox('fight', 0, Infinity)).toBe(0);
+    expect(letterbox('fight', 60_000, Infinity)).toBe(0);
+  });
+
+  it('closes and opens again around a phase scene, however short the scene is', () => {
+    expect(letterbox('transition', 0, 1800)).toBe(0);
+    expect(letterbox('transition', BARS_MS, 1800)).toBe(1);
+    expect(letterbox('transition', 1800 - BARS_MS, 1800)).toBe(1);
+    expect(letterbox('transition', 1800, 1800)).toBe(0);
+    // A scene shorter than the two moves together never shows a bar past where it is going.
+    for (let ms = 0; ms <= 600; ms += 50) {
+      const k = letterbox('transition', ms, 600);
+      expect(k, `${ms}`).toBeGreaterThanOrEqual(0);
+      expect(k, `${ms}`).toBeLessThanOrEqual(Math.min(ms, 600 - ms) / BARS_MS + 1e-9);
+    }
+    // A step with no length is passed straight through and shows nothing.
+    expect(letterbox('transition', 0, 0)).toBe(0);
+  });
+
+  it('closes for the death and stays closed under the award', () => {
+    expect(letterbox('finale', 0, 3000)).toBe(0);
+    expect(letterbox('finale', BARS_MS, 3000)).toBe(1);
+    expect(letterbox('finale', 3000, 3000)).toBe(1);
+    expect(letterbox('aftermath', 0, AFTERMATH_MS)).toBe(1);
+    expect(letterbox('aftermath', AFTERMATH_MS, AFTERMATH_MS)).toBe(1);
+    expect(letterbox('done', 0, Infinity)).toBe(0);
   });
 });

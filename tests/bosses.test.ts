@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BOSSES } from '../src/bosses';
@@ -6,6 +6,7 @@ import { AUDIO_ASSETS } from '../src/config';
 import {
   BOSS_ANIMS,
   BOSS_IDS,
+  BOSS_STINGER,
   BOSS_TUNING,
   MIN_WINDUP_MS,
   SAFE_GAP,
@@ -22,10 +23,11 @@ import {
   type TiledMap,
   type TiledTileset,
 } from '../src/core/LevelParser';
+import { MAX_FLASH_HZ } from '../src/core/Lighting';
 import { Rng } from '../src/core/Rng';
 import { BH, BW, COLS } from '../src/core/procgen/grid';
 import { FIELD_WIDTH, LEVEL_MAX_Y } from '../src/core/types';
-import type { BossDef, Cutscene } from '../src/systems/BossDirector';
+import type { BossDef, BossStage, Cutscene } from '../src/systems/BossDirector';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
@@ -82,6 +84,27 @@ function cutscenes(def: BossDef): Array<[string, Cutscene]> {
   for (const phase of def.phases) if (phase.enter) found.push([`enter ${phase.id}`, phase.enter]);
   if (def.death) found.push(['death', def.death]);
   return found;
+}
+
+/** A stage that answers every call with more of itself, at (0, 0), and counts whole-screen flashes. */
+function countingStage(flash: () => void): BossStage {
+  const handler: ProxyHandler<() => unknown> = {
+    get: (_target, prop) => {
+      if (prop === 'x' || prop === 'y') return 0;
+      if (prop === 'impact' || prop === 'glimpse') return flash;
+      return stage;
+    },
+    apply: () => stage,
+  };
+  const stage: unknown = new Proxy(() => undefined, handler);
+  return stage as BossStage;
+}
+
+/** When, in ms into a scene, its cues flash the whole screen: once for each `impact` or `glimpse`. */
+function flashTimes(scene: Cutscene): number[] {
+  const times: number[] = [];
+  for (const cue of scene.cues) cue.run(countingStage(() => times.push(cue.at)));
+  return times.sort((a, b) => a - b);
 }
 
 describe.each(BOSS_IDS)('boss %s', (id) => {
@@ -157,6 +180,18 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
       for (const cue of scene.cues) {
         expect(cue.at, name).toBeGreaterThanOrEqual(0);
         expect(cue.at, name).toBeLessThanOrEqual(scene.lengthMs);
+      }
+    }
+  });
+
+  it('never asks for more whole-screen flashes in one second than the limiter lets through', () => {
+    const allowed = Math.floor(MAX_FLASH_HZ);
+    for (const [name, scene] of cutscenes(def)) {
+      const times = flashTimes(scene);
+      // The framework's own blow on the final hit opens the death scene.
+      if (name === 'death') times.unshift(0);
+      for (let i = allowed; i < times.length; i++) {
+        expect(times[i]! - times[i - allowed]!, `${name}: the flash at ${times[i]} ms`).toBeGreaterThanOrEqual(1000);
       }
     }
   });
@@ -248,27 +283,89 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
   });
 });
 
+describe('boss sounds', () => {
+  const keys = new Map<string, string>(AUDIO_ASSETS.map((a) => [a.key, a.path]));
+  const SRC = join(__dirname, '..', 'src');
+  // Everything that plays a sound in a fight: the framework's files and every boss's own.
+  const files = [
+    join(SRC, 'systems', 'BossDirector.ts'),
+    join(SRC, 'systems', 'HazardSystem.ts'),
+    ...readdirSync(join(SRC, 'bosses')).map((name) => join(SRC, 'bosses', name)),
+  ];
+
+  it('plays only sounds the game loads: a key it does not load would throw in the fight', () => {
+    let found = 0;
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      // A sound named where it plays, a sound named by a constant, and an attack's tell.
+      const named = /(?:\.sfx\(\s*|_SFX = |\bsfx: )'([^']+)'/g;
+      for (const [, key] of source.matchAll(named)) {
+        found++;
+        expect(keys.has(key!), `${file}: ${key}`).toBe(true);
+      }
+    }
+    expect(found).toBeGreaterThan(20);
+    expect(keys.has(BOSS_STINGER), BOSS_STINGER).toBe(true);
+  });
+
+  it('has a file on disk behind every boss sound', () => {
+    const boss = [...keys].filter(([, path]) => path.startsWith('audio/boss/'));
+    expect(boss.length).toBe(13);
+    for (const [key, path] of boss) {
+      const file = join(ASSETS, path);
+      expect(existsSync(file), `${key}: ${path}`).toBe(true);
+      expect(statSync(file).size, key).toBeGreaterThan(1000);
+    }
+  });
+});
+
 describe('the Warden attacks', () => {
   const def = BOSSES.warden;
-  const [guardUp, coreExposed] = def.phases;
+  const [guardUp, coreExposed, lastStand] = def.phases;
   const named = (id: string): AttackDef => attacksOf(def).find((a) => a.id === id)!;
   const kinds = (hazards: readonly HazardSpec[], kind: HazardSpec['kind']) => {
     return hazards.filter((h) => h.kind === kind);
   };
 
-  it('plays the volley alone with its guard up, then all three with its core exposed', () => {
+  it('adds an attack with every phase: the volley, then the sweep, then the reaper', () => {
+    expect(def.phases).toHaveLength(3);
     expect(guardUp!.deck?.map((a) => a.id)).toEqual(['volley']);
     expect(guardUp!.pose).toBeUndefined();
-    expect(coreExposed!.deck?.map((a) => a.id)).toEqual(['sweep', 'reaper', 'volley']);
+    expect(coreExposed!.deck?.map((a) => a.id)).toEqual(['sweep', 'volley']);
     expect(coreExposed!.pose).toBe('open');
+    expect(lastStand!.deck?.map((a) => a.id)).toEqual(['reaper', 'sweep', 'volley']);
+    expect(lastStand!.pose).toBe('open');
   });
 
-  it('presses harder in its second phase', () => {
-    const [full, empty] = coreExposed!.gapMs!;
+  it('keeps the skull, the one thing that takes a life, for its last phase', () => {
+    const skulls = (phase: (typeof def.phases)[number]): number => {
+      let n = 0;
+      for (const attack of phase.deck ?? []) {
+        const view = viewOf(def, FIELD_WIDTH / 2, 0.5, 1);
+        n += kinds(attack.plan(view).hazards, 'skull').length;
+      }
+      return n;
+    };
+    expect(skulls(guardUp!)).toBe(0);
+    expect(skulls(coreExposed!)).toBe(0);
+    expect(skulls(lastStand!)).toBeGreaterThan(0);
+  });
+
+  it('presses harder with every phase, and the music climbs with it', () => {
+    const [full2, empty2] = coreExposed!.gapMs!;
+    const [full3, empty3] = lastStand!.gapMs!;
     expect(guardUp!.gapMs).toBeUndefined();
-    expect(full).toBeLessThan(2600);
-    expect(empty).toBeLessThan(1600);
-    expect(empty).toBeLessThan(full);
+    expect(full2).toBeLessThan(2600);
+    expect(empty2).toBeLessThan(1600);
+    expect(empty2).toBeLessThan(full2);
+    expect(full3).toBeLessThan(full2);
+    expect(empty3).toBeLessThan(empty2);
+    expect(empty3).toBeLessThan(full3);
+    expect(def.phases.map((p) => p.intensity)).toEqual(['low', 'mid', 'high']);
+  });
+
+  it('leaves a keepsake with a name', () => {
+    expect(def.trophy).toBe("Warden's Eye");
   });
 
   it('lifts the guard off the core after every attack, and marks the core', () => {

@@ -12,6 +12,8 @@ const LOOPING: readonly BossAnim[] = ['idle', 'tell', 'open'];
 const PUNCH_SCALE = 1.04;
 /** ...taking this long each way, in ms. */
 const PUNCH_MS = 60;
+/** The sprite is solid this far through its entrance, 0..1, so a glimpse in the dark has a shape to show. */
+const ARRIVE_SOLID = 0.6;
 /** The sprite of a dead boss fades out over this long, in ms. */
 const FADE_MS = 300;
 /** Dev tools: a point this far inside a part's edge, in px, counts as inside the part. */
@@ -126,6 +128,12 @@ export class BossBody {
     return { x: this.anchor.x + this.drift.x, y: this.anchor.y + this.drift.y };
   }
 
+  /** Where a camera should look: the middle of the picture, or of the parts when there is none. */
+  get focus(): { x: number; y: number } {
+    const { sprite } = this;
+    return sprite ? { x: sprite.x, y: sprite.y + this.lift } : this.center;
+  }
+
   /** The brick standing in for a part, or undefined once it is retired. */
   part(id: string): Brick | undefined {
     return this.bricks.get(id);
@@ -190,7 +198,7 @@ export class BossBody {
   arrive(t: number): void {
     const k = Math.max(0, Math.min(1, t));
     this.lift = calm() ? 0 : ENTRANCE_DROP * (1 - k);
-    this.sprite?.setAlpha(k);
+    this.sprite?.setAlpha(Math.min(1, k / ARRIVE_SOLID));
   }
 
   /** Plays an animation, unless it is the one already playing. */

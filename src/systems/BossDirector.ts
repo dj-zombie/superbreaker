@@ -1,8 +1,12 @@
 import type Phaser from 'phaser';
 import {
+  AFTERMATH_MS,
+  AWARD_GUARD_MS,
+  AWARD_TROPHY_MS,
   BODY_MAX_SPEED,
   BODY_SCENE_SPEED,
   BOSS_DEFEAT_BONUS,
+  BOSS_DEFEAT_COINS,
   BOSS_PHASE_BONUS,
   BOSS_TUNING,
   BossState,
@@ -12,7 +16,10 @@ import {
   LETHAL_GAP_MS,
   MAX_HAZARDS,
   REVEAL_MS,
+  STINGER_MS,
+  envelope,
   hitsFor,
+  letterbox,
   planProblems,
   windupFor,
   type AttackDef,
@@ -34,9 +41,8 @@ import type { Ball } from '../entities/Ball';
 import type { Brick, BrickOwner, DestroyCause, HitOptions, HitResult } from '../entities/Brick';
 import type { Paddle } from '../entities/Paddle';
 import { save } from '../services';
-import { calm, css, theme } from '../ui/theme';
+import { calm, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
-import type { Backdrop } from './Backdrop';
 import { BossBody } from './BossBody';
 import type { BrickSystem } from './BrickSystem';
 import { HazardSystem } from './HazardSystem';
@@ -80,6 +86,15 @@ export interface Cutscene {
   cues: Cue[];
 }
 
+/** Where a scene points the camera: `zoom` times closer than play, centred on a point of the field. */
+export interface Shot {
+  zoom: number;
+  x: number;
+  y: number;
+  /** Jump there, as a film cuts. Left out, the camera glides. */
+  cut?: boolean;
+}
+
 export interface PhaseDef {
   id: string;
   /** Shown after the boss's name on the HUD label. */
@@ -105,7 +120,7 @@ export interface PhaseDef {
 export interface BossDef {
   id: BossId;
   name: string;
-  /** The line over the name on the title band. The world's name when left out. */
+  /** The line over the name on the title card. The world's name when left out. */
   epithet?: string;
   parts: PartDef[];
   /** The picture drawn over the parts. Without one the parts show as bricks. */
@@ -116,6 +131,8 @@ export interface BossDef {
   entrance?: Cutscene;
   /** The scene the boss dies in, after the final hit. */
   death?: Cutscene;
+  /** The keepsake the award card spins once the boss is dead. Left out, the card has none. */
+  trophy?: string;
 }
 
 /** What cutscenes and phase hooks get: the live systems, plus what the fight owns. */
@@ -147,6 +164,48 @@ export interface BossStage {
   tween(config: Phaser.Types.Tweens.TweenBuilderConfig): Phaser.Tweens.Tween;
   /** A blow at a point, with no sound. `scale` is 1 and `color` the danger colour when left out. */
   impact(x: number, y: number, scale?: number, color?: number): void;
+  /** Points the camera until the scene ends. Null hands it back. It holds still under reduced motion. */
+  shot(shot: Shot | null): void;
+  /**
+   * Lightning, with no sound: the room flashes and the dark of the intro thins for a moment.
+   * Dropped under reduced motion, and when the room has flashed too often.
+   */
+  glimpse(color?: number): void;
+  /** Lifts the dark of the intro now. The reveal lifts it in any case. */
+  unveil(): void;
+}
+
+/** The title card: the line over the name, the name, and how long it has been up of how long it stays. */
+export interface BossTitle {
+  kicker: string;
+  name: string;
+  ms: number;
+  holdMs: number;
+}
+
+/** The award card that follows the death. */
+export interface BossAward {
+  name: string;
+  /** The keepsake's name, or null for a boss that leaves none. */
+  trophy: string | null;
+  score: number;
+  coins: number;
+  /** How long the card has been up, in ms of the fight clock. */
+  ms: number;
+  /** A tap goes on from here. */
+  ready: boolean;
+  /** What is left of the wait before the level goes on by itself, 1..0. */
+  left: number;
+}
+
+/** What the HUD draws over everything while a scene has the field. */
+export interface BossCinema {
+  /** How far in the letterbox bars are, 0..1. */
+  bars: number;
+  /** How black the screen is, 0..1. */
+  dark: number;
+  title: BossTitle | null;
+  award: BossAward | null;
 }
 
 /** The boss's health bar, on HudState.boss. */
@@ -158,8 +217,9 @@ export interface BossHud {
   phases: number;
   /** 0..1 of the current phase's pool. */
   health: number;
-  /** False until the reveal. */
+  /** False until the reveal, and once the boss is dead. */
   shown: boolean;
+  cinema: BossCinema;
 }
 
 /** What the director needs from Play. Built from closures, like RunHost. */
@@ -169,7 +229,6 @@ export interface BossHost {
   readonly juice: JuiceSystem;
   readonly lighting: LightingSystem;
   readonly scenery: ParallaxBackdrop;
-  readonly backdrop: Backdrop;
   readonly powerups: PowerupSystem;
   readonly paddle: Paddle;
   /** A ball is in flight, not waiting on the paddle. */
@@ -183,14 +242,19 @@ export interface BossHost {
   /** One whole hit landed on a part: it earns what breaking a brick earns. */
   creditHit(brick: Brick, cause: DestroyCause): void;
   addScore(n: number): void;
+  /** Coins straight to the player, with no pickup to catch. */
+  addCoins(n: number): void;
   /** HUD label; a null detail shows the bricks left. */
   setLabel(title: string, detail: string | null): void;
   /** The boss is dead and the level is won. */
   defeated(): void;
   /** The health bar. Null takes it down. */
   setHud(view: BossHud | null): void;
-  /** Puts the title band up for `holdMs`, and returns a function that takes it down at once. */
-  titleCard(kicker: string, name: string, holdMs: number): () => void;
+  /**
+   * Points the camera `zoom` times closer at a point of the field, never past the field's edge.
+   * Zoom 1 is the view play uses, wherever it is pointed.
+   */
+  frame(zoom: number, x: number, y: number): void;
   /** The serve hint and countdown, as a level without a boss shows them from the start. */
   showHint(): void;
   /** A blow at a point: a ring, sparks, a shake and light sized by `scale`, with no sound. */
@@ -216,10 +280,36 @@ const FORCED_BOSS_ATTACK = ((): string | undefined => {
 
 /** A body with no motion stays here. */
 const REST = { x: 0, y: 0 } as const;
-/** The title band leaves this long before the reveal ends, in ms, so the hint gets a clear field. */
+/** The title card leaves this long before the reveal ends, in ms, so the hint gets a clear field. */
 const CARD_LEAD_MS = 500;
-/** Text size of the defeat bonus as it pops, in px. */
-const BONUS_SIZE = 30;
+/** The dark of the intro comes down, and lifts, over this long, in ms. */
+const DARK_FADE_MS = 500;
+/** How much of the dark a glimpse takes away, how long it holds, and how long the dark takes to close again, in ms. */
+const GLIMPSE_DEPTH = 0.88;
+const GLIMPSE_HOLD_MS = 90;
+const GLIMPSE_FADE_MS = 380;
+/** How hard a glimpse flashes the room, and its colour when a cue names none: the cold white of lightning. */
+const GLIMPSE_FLASH = 0.5;
+const LIGHTNING = 0xdfe8ff;
+/** Time constant of the camera's glide to a new shot, in ms. */
+const SHOT_EASE_MS = 220;
+/** How close the camera stands for the title card, for a phase scene and for the death scene. */
+const REVEAL_ZOOM = 1.3;
+const SCENE_ZOOM = 1.25;
+const DEATH_ZOOM = 1.45;
+/** The camera starts back to the view play uses this long before a scene hands play back, in ms. */
+const PULL_BACK_MS = 800;
+/** A zoom this close to 1 is the view play uses. */
+const ZOOM_REST = 0.002;
+/** The key light on the boss while it is named, so a dark room still shows it: reach in px, colour, strength. */
+const SPOT_RADIUS = 280;
+const SPOT_COLOR = 0xfff0dc;
+const SPOT_LIGHT = 1.1;
+/** The blow that empties a pool holds the frame this long, in ms. Skipped under reduced motion. */
+const KILL_STOP_MS = 180;
+/** Placeholder sounds until the fight has its own: the title card's hit and the award's chime. */
+const TITLE_SFX = 'boss_title';
+const AWARD_SFX = 'boss_award';
 /** The lock reticle draws over the aim arrow (4) and under the hazards and the ball (5). */
 const RETICLE_DEPTH = 4.1;
 /** The reticle on screen, in px. It is a ring a little flattened, so its turning shows. */
@@ -262,6 +352,23 @@ export class BossDirector implements BrickOwner {
     phases: 0,
     health: 1,
     shown: true,
+    cinema: { bars: 0, dark: 0, title: null, award: null },
+  };
+  /** The title card and the award card. One object each, kept up to date while it shows. */
+  private readonly card: BossTitle = {
+    kicker: '',
+    name: '',
+    ms: 0,
+    holdMs: REVEAL_MS - CARD_LEAD_MS,
+  };
+  private readonly prize: BossAward = {
+    name: '',
+    trophy: null,
+    score: BOSS_DEFEAT_BONUS,
+    coins: BOSS_DEFEAT_COINS,
+    ms: 0,
+    ready: false,
+    left: 1,
   };
   /** The fight clock in ms. It follows the world's time scale and stops for hit-stop. */
   private clock = 0;
@@ -278,16 +385,31 @@ export class BossDirector implements BrickOwner {
   private readonly entranceMs: number;
   /** True from the hush until the fight first begins. */
   private opening: boolean;
-  /** The hush dimmed the arena and nothing has lifted it yet. */
-  private dimmed = false;
+  /** The intro's dark is wanted: nothing has lifted it yet. Reduced motion never shows it. */
+  private veiled = false;
+  /** How dark the screen is now, 0..1, before any glimpse thins it. */
+  private dark = 0;
+  /** Fight-clock time since the last glimpse, in ms. */
+  private glimpsed = Infinity;
+  /** Where a cue pointed the camera, until its scene ends. */
+  private shot?: Shot;
+  /** The next move of the camera is a cut. */
+  private cut = false;
+  /** Where the camera is now, and whether it is away from the view play uses. */
+  private readonly cam = { zoom: 1, x: 0, y: 0 };
+  private framed = false;
+  /** The framework's own shot of the boss. One object, so a frame allocates nothing. */
+  private readonly look: Shot = { zoom: 1, x: 0, y: 0 };
+  /** The award's chime has played. */
+  private chimed = false;
+  /** The key light of the reveal, until the fight begins. */
+  private spot?: Light;
   /** Phases whose setup has run, counted from the first. */
   private ready = 0;
   /** The cutscene playing now. */
   private playing?: Playing;
   /** What phase hooks lit and set moving. It lasts as long as the fight. */
   private readonly kept: Props = { lights: [], tweens: [] };
-  /** Takes the title band down while it is still up. */
-  private dropCard?: () => void;
   /** The animation a cue asked for, until the step or the attack window next changes. */
   private forced?: BossAnim;
   private readonly tuning: BossTuning;
@@ -338,15 +460,13 @@ export class BossDirector implements BrickOwner {
       lighting: host.lighting,
       paddle: host.paddle,
       partPos: (id) => this.cast?.body.part(id),
+      balls: () => host.balls(),
       hurt: () => host.hurt(),
     });
     if (this.opening) {
-      // The hush: the level's music fades and the arena dims before anything arrives.
+      // The hush: the level's music stops and the screen goes black before anything arrives.
       audio.stopMusic('fade');
-      if (!calm()) {
-        host.backdrop.setDark(HUSH_DARK);
-        this.dimmed = true;
-      }
+      this.veiled = true;
       // The HUD is built before the first update and looks for the bar then: it is there, unshown.
       this.showHud();
     } else {
@@ -394,6 +514,8 @@ export class BossDirector implements BrickOwner {
       case 'transition':
         return this.intensity();
       case 'aftermath':
+        // The ending phrase has the silence to itself before the calm comes in.
+        return this.state.stepMs < STINGER_MS ? null : 'rest';
       case 'done':
         return 'rest';
     }
@@ -496,8 +618,8 @@ export class BossDirector implements BrickOwner {
       body.show(this.anim());
     }
     this.aim();
-    // The bar came down with the boss.
-    if (state.step !== 'aftermath') this.showHud();
+    this.showHud();
+    this.present(tick);
   }
 
   /** Dev tools: deals hits as if they had landed, so only in the fight. */
@@ -514,8 +636,8 @@ export class BossDirector implements BrickOwner {
   destroy(): void {
     this.endScene();
     this.clear(this.kept);
-    this.dropCard?.();
-    this.dropCard = undefined;
+    this.spot?.kill();
+    this.spot = undefined;
     this.hazards.destroy();
     this.reticle?.destroy();
     this.reticle = undefined;
@@ -541,6 +663,8 @@ export class BossDirector implements BrickOwner {
     if (e.step === 'transition' || e.step === 'finale') {
       this.settle();
       this.host.paddle.jam(0);
+      // The blow that did it hangs for a moment before the scene takes over.
+      this.host.juice.hitStop(KILL_STOP_MS);
     }
     switch (e.step) {
       case 'hush':
@@ -557,13 +681,12 @@ export class BossDirector implements BrickOwner {
       case 'reveal':
         this.endScene();
         this.summon().body.arrive(1);
-        this.dropCard = this.host.titleCard(
-          this.def.epithet ?? theme().name,
-          this.def.name,
-          REVEAL_MS - CARD_LEAD_MS,
-        );
+        this.card.kicker = this.def.epithet ?? theme().name;
+        this.card.name = this.def.name;
+        audio.sfx(TITLE_SFX, 0.6);
         this.label();
-        this.undim();
+        this.veiled = false;
+        this.spotlight();
         break;
       case 'fight':
         this.begin();
@@ -579,6 +702,8 @@ export class BossDirector implements BrickOwner {
         break;
       case 'done':
         this.over = true;
+        this.host.setHud(null);
+        this.host.frame(1, this.cam.x, this.cam.y);
         this.host.defeated();
         break;
     }
@@ -690,9 +815,12 @@ export class BossDirector implements BrickOwner {
     this.setUp();
     // Nothing was in play before a body appeared, so it starts where its pose and motion put it.
     if (fresh) body.move(this.offset(), Infinity);
-    this.dropCard?.();
-    this.dropCard = undefined;
-    this.undim();
+    // The ball is about to be live: no dark and no close-up outlasts the scene, skipped or not.
+    this.veiled = false;
+    this.dark = 0;
+    this.cam.zoom = 1;
+    this.spot?.kill();
+    this.spot = undefined;
     this.label();
     if (this.opening) {
       this.opening = false;
@@ -709,29 +837,32 @@ export class BossDirector implements BrickOwner {
     this.pose(null);
   }
 
-  /** The final hit: the music cuts dead, the stinger plays and the death scene begins. */
+  /** The final hit: the music cuts dead and the death scene begins. */
   private die(): void {
     audio.stopMusic('cut');
-    audio.bossStinger();
     const { stage } = this.summon();
     const { x, y } = stage.center;
     stage.impact(x, y);
     this.startScene(this.def.death);
   }
 
-  /** The death scene is over: the parts go, the arena clears and the bonus pops. */
+  /**
+   * The death scene is over: the parts go, the arena clears, the ending phrase plays and the
+   * award goes up with what the kill earned.
+   */
   private fall(): void {
     this.endScene();
     this.clear(this.kept);
     const { body } = this.summon();
-    const { x, y } = body.center;
     body.retire(...this.def.parts.map((p) => p.id));
     body.fade();
     this.host.bricks.shatterBelow(-Infinity);
     this.host.addScore(BOSS_DEFEAT_BONUS);
-    const bonus = `+${BOSS_DEFEAT_BONUS.toLocaleString()}`;
-    this.host.juice.popText(x, y, bonus, css(theme().palette.gold), BONUS_SIZE);
-    this.host.setHud(null);
+    this.host.addCoins(BOSS_DEFEAT_COINS);
+    audio.bossStinger();
+    this.prize.name = this.def.name;
+    this.prize.trophy = this.def.trophy ?? null;
+    this.chimed = false;
   }
 
   /** Starts a cutscene. A boss that has none for this moment shows nothing. */
@@ -759,6 +890,8 @@ export class BossDirector implements BrickOwner {
     this.playing = undefined;
     playing.sheet.skip();
     this.clear(playing);
+    // The camera was the scene's to point only while it played.
+    this.shot = undefined;
   }
 
   private clear(props: Props): void {
@@ -768,11 +901,102 @@ export class BossDirector implements BrickOwner {
     props.tweens.length = 0;
   }
 
-  /** Lifts the hush's dim, if it is still down. */
-  private undim(): void {
-    if (!this.dimmed) return;
-    this.dimmed = false;
-    this.host.backdrop.setDark(0);
+  /**
+   * Keeps what the HUD draws over a scene, and the camera, on what the fight shows now. All of it
+   * follows the fight clock, so a pause holds it and a skipped scene leaves nothing behind.
+   */
+  private present(tick: number): void {
+    const { state } = this;
+    const { step, stepMs } = state;
+    const c = this.view.cinema;
+    const still = calm();
+    c.bars = letterbox(step, stepMs, state.stepLength);
+    const target = this.veiled && !still ? HUSH_DARK : 0;
+    const fade = tick / DARK_FADE_MS;
+    this.dark =
+      this.dark < target ? Math.min(target, this.dark + fade) : Math.max(target, this.dark - fade);
+    this.glimpsed += tick;
+    const seen = envelope(this.glimpsed, GLIMPSE_HOLD_MS + GLIMPSE_FADE_MS, 0, GLIMPSE_FADE_MS);
+    c.dark = this.dark * (1 - GLIMPSE_DEPTH * seen);
+    if (step === 'reveal' && stepMs < this.card.holdMs) {
+      this.card.ms = stepMs;
+      c.title = this.card;
+    } else {
+      c.title = null;
+    }
+    if (step === 'aftermath') {
+      const prize = this.prize;
+      prize.ms = stepMs;
+      prize.ready = stepMs >= AWARD_GUARD_MS;
+      prize.left = 1 - stepMs / AFTERMATH_MS;
+      c.award = prize;
+      if (!this.chimed && stepMs >= AWARD_TROPHY_MS) {
+        this.chimed = true;
+        audio.sfx(AWARD_SFX, 0.5);
+      }
+    } else {
+      c.award = null;
+    }
+    this.point(still ? undefined : (this.shot ?? this.staged()), tick);
+  }
+
+  /** Where the framework points the camera when no cue has: in on the boss, for its scenes. */
+  private staged(): Shot | undefined {
+    const body = this.cast?.body;
+    if (!body) return undefined;
+    const { step, stepMs, stepLength } = this.state;
+    const { look } = this;
+    if (step === 'reveal') look.zoom = REVEAL_ZOOM;
+    else if (step === 'transition') look.zoom = SCENE_ZOOM;
+    else if (step === 'finale') look.zoom = DEATH_ZOOM;
+    else return undefined;
+    // A scene that hands play back pulls out first, so the ball never goes live in a close-up.
+    if (step !== 'finale' && stepMs > stepLength - PULL_BACK_MS) return undefined;
+    const { x, y } = body.focus;
+    look.x = x;
+    look.y = y;
+    return look;
+  }
+
+  /** Moves the camera toward `shot`, or back out to the view play uses when there is none. */
+  private point(shot: Shot | undefined, tick: number): void {
+    const { cam } = this;
+    const k = this.cut ? 1 : 1 - Math.exp(-tick / SHOT_EASE_MS);
+    this.cut = false;
+    if (shot) {
+      // At the view play uses the camera looks nowhere in particular, so it starts on the shot.
+      const from = cam.zoom - 1 < ZOOM_REST ? 1 : k;
+      cam.x += (shot.x - cam.x) * from;
+      cam.y += (shot.y - cam.y) * from;
+      cam.zoom += (shot.zoom - cam.zoom) * k;
+    } else {
+      cam.zoom += (1 - cam.zoom) * k;
+    }
+    const rest = cam.zoom - 1 < ZOOM_REST;
+    if (rest) cam.zoom = 1;
+    if (!rest || this.framed) this.host.frame(cam.zoom, cam.x, cam.y);
+    this.framed = !rest;
+  }
+
+  /** Lights the boss for its title card. A lamp on the boss, not a flash of the room. */
+  private spotlight(): void {
+    const { x, y } = this.summon().body.focus;
+    this.spot = this.host.lighting.addLight({
+      x,
+      y,
+      radius: SPOT_RADIUS,
+      color: SPOT_COLOR,
+      intensity: SPOT_LIGHT,
+      priority: 7,
+    });
+  }
+
+  /** Lightning through the dark. It is a whole-screen flash, so the room's limiter has the say. */
+  private glimpse(color: number): void {
+    const { lighting } = this.host;
+    if (calm() || !lighting.flashAmbient(color, GLIMPSE_FLASH)) return;
+    lighting.revealLevel(1);
+    this.glimpsed = 0;
   }
 
   /** The HUD label names the boss and its phase. */
@@ -825,7 +1049,8 @@ export class BossDirector implements BrickOwner {
     view.title = this.def.phases[state.phase]!.title;
     view.phase = state.phase;
     view.phases = this.def.phases.length;
-    view.shown = step !== 'hush' && step !== 'entrance';
+    view.shown =
+      step === 'reveal' || step === 'fight' || step === 'transition' || step === 'finale';
     // The bar fills from empty while the boss is named.
     view.health = step === 'reveal' ? state.stepMs / REVEAL_MS : state.pool / state.poolMax;
     this.host.setHud(view);
@@ -868,6 +1093,14 @@ export class BossDirector implements BrickOwner {
       },
       impact: (x, y, scale = 1, color = theme().palette.danger) => {
         host.impact(x, y, scale, color);
+      },
+      shot: (shot) => {
+        this.shot = shot ?? undefined;
+        this.cut = !!shot?.cut;
+      },
+      glimpse: (color = LIGHTNING) => this.glimpse(color),
+      unveil: () => {
+        this.veiled = false;
       },
     };
   }

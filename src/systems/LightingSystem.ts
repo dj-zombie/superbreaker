@@ -300,6 +300,11 @@ export class LightingSystem {
   ambientScale = 1;
   /** Lights out, set by moods every frame: how far the room lights have sputtered on, 0..1. */
   roomFlicker = 0;
+  /**
+   * Set by the scene every frame: a boss scene has the room, so the world's lightning and failing
+   * lights wait rather than spend the flash limit, and make no sound, where nobody sees them.
+   */
+  held = false;
   stats: LightingStats = { tier: 'medium', lights: 0, drawn: 0, map: '', ms: 0 };
 
   private lights: Light[] = [];

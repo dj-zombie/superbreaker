@@ -2,13 +2,15 @@ import Phaser from 'phaser';
 import { HUD_HEIGHT } from '../config';
 import {
   SHOT_RADIUS,
+  SKULL_POP_RADIUS,
   SKULL_RADIUS,
   type AttackPlan,
   type HazardSpec,
   type PaddleEffect,
 } from '../core/Boss';
+import type { Ball } from '../entities/Ball';
 import type { Paddle } from '../entities/Paddle';
-import { calm, theme } from '../ui/theme';
+import { calm, css, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
 import type { JuiceSystem } from './JuiceSystem';
 import type { Light, LightingSystem } from './LightingSystem';
@@ -21,6 +23,8 @@ export interface HazardHost {
   readonly paddle: Paddle;
   /** Centre of a part now, or undefined once it has left the field. */
   partPos(id: string): { x: number; y: number } | undefined;
+  /** Every ball on the field, waiting on the paddle or in flight. */
+  balls(): readonly Ball[];
   /** A skull landed on the paddle. */
   hurt(): void;
 }
@@ -70,11 +74,27 @@ const SKULL_LIGHT_RADIUS = 110;
 const HIT_SPARKS = 8;
 const MISS_SPARKS = 3;
 const SKULL_SPARKS = 14;
+/** Sparks and ring width, in px, for a skull the ball broke. */
+const POP_SPARKS = 16;
+const POP_RING = 60;
+/** A hit on the paddle shakes the view this long, in ms, and this hard. */
+const HIT_SHAKE_MS = 140;
+const HIT_SHAKE = 0.006;
+/** The light a hit throws on the paddle: its reach in px and its life in ms. */
+const HIT_LIGHT_RADIUS = 150;
+const HIT_LIGHT_MS = 260;
+/** The word a hit pops over the paddle: how far above the line, in px, and its size, in px. */
+const WORD_LIFT = 34;
+const WORD_SIZE = 20;
 /** Placeholder sounds, all from AUDIO_ASSETS, until hazards get their own. */
 const JAM_SFX = 'ui_locked';
 const SHRINK_SFX = 'sfx_smaller';
+const HIT_SFX = 'boss_paddle_hit';
+const SHOT_SFX = 'boss_shot';
+const BEAM_SFX = 'boss_beam';
 const SKULL_LAUNCH_SFX = 'ab_blackhole_open';
 const SKULL_HIT_SFX = 'breach';
+const SKULL_POP_SFX = 'boss_skull_pop';
 
 type Image = Phaser.GameObjects.Image;
 type Rect = Phaser.GameObjects.Rectangle;
@@ -259,6 +279,7 @@ export class HazardSystem {
     e.stage = 'out';
     if (spec.kind === 'beam') {
       e.column?.setAlpha(COLUMN_BRIGHT);
+      audio.sfx(BEAM_SFX, 0.4, 0, { x: spec.x });
       if (e.column && this.lit < MAX_LIGHTS) {
         e.light = host.lighting.addLight({
           x: spec.x - spec.width / 2,
@@ -287,6 +308,7 @@ export class HazardSystem {
       body
         .setDisplaySize(SHOT_LENGTH, 2 * SHOT_RADIUS)
         .setRotation(Math.atan2(host.paddle.y - e.fromY, spec.x - e.fromX));
+      audio.sfx(SHOT_SFX, 0.35, 0, { x: e.fromX });
       return;
     }
     // A skull stays upright and steady all the way down: coins spin and pickups rock.
@@ -322,10 +344,16 @@ export class HazardSystem {
     }
     const flown = (now - spec.at) / spec.flightMs;
     if (flown < 1) {
-      e.body?.setPosition(
-        Phaser.Math.Linear(e.fromX, spec.x, flown),
-        Phaser.Math.Linear(e.fromY, paddle.y, flown),
-      );
+      const x = Phaser.Math.Linear(e.fromX, spec.x, flown);
+      const y = Phaser.Math.Linear(e.fromY, paddle.y, flown);
+      e.body?.setPosition(x, y);
+      // The ball breaks a skull it meets, so the one thing that can save it never costs a life.
+      if (spec.kind === 'skull' && this.met(x, y)) {
+        this.finish(e);
+        juice.burst(x, y, this.color, POP_SPARKS);
+        juice.ring(x, y, this.color, POP_RING);
+        audio.sfx(SKULL_POP_SFX, 0.5, 0, { x });
+      }
       return;
     }
     // It has landed. Its pictures go back first: what it does next may clear every hazard.
@@ -344,11 +372,36 @@ export class HazardSystem {
     this.host.hurt();
   }
 
-  /** A shot or beam found the paddle. `x` is where on the line the sparks fly. */
+  /** Whether a ball in flight is within reach of a skull at this point. */
+  private met(x: number, y: number): boolean {
+    for (const ball of this.host.balls()) {
+      if (!ball.active || ball.attached) continue;
+      const dx = ball.x - x;
+      const dy = ball.y - y;
+      if (dx * dx + dy * dy <= SKULL_POP_RADIUS * SKULL_POP_RADIUS) return true;
+    }
+    return false;
+  }
+
+  /**
+   * A shot or beam found the paddle. `x` is where on the line the sparks fly. The hit is said
+   * four ways, a jolt, a light, a word and a sound, so nobody has to guess what it did.
+   */
   private apply(effect: PaddleEffect, x: number): void {
-    const { paddle, juice } = this.host;
+    const { paddle, juice, lighting } = this.host;
+    const jam = effect.kind === 'jam';
     juice.sparkle(x, paddle.y, this.color, HIT_SPARKS);
-    if (effect.kind === 'jam') {
+    juice.shake(HIT_SHAKE_MS, HIT_SHAKE);
+    juice.popText(
+      paddle.x,
+      paddle.y - WORD_LIFT,
+      jam ? 'JAMMED' : 'SHRUNK',
+      css(this.color),
+      WORD_SIZE,
+    );
+    lighting.flash(x, paddle.y, this.color, HIT_LIGHT_RADIUS, HIT_LIGHT_MS);
+    audio.sfx(HIT_SFX, 0.5, 0, { x });
+    if (jam) {
       paddle.jam(effect.ms);
       audio.sfx(JAM_SFX, 0.5, 0, { x });
     } else {
