@@ -8,6 +8,9 @@ const SHAKE_SCALE = 0.4;
 const SHAKE_MIN = 0.0008;
 const SHAKE_MAX = 0.0055;
 const SHAKE_MAX_MS = 260;
+/** One hero impact, about twice the chain cap, still a fraction of the view. */
+const PUNCH_MAX = 0.012;
+const PUNCH_MAX_MS = 280;
 /** Shards per frame across every burst. A 30-brick chain would otherwise spawn 500 at once. */
 const BURST_BUDGET = 72;
 
@@ -82,6 +85,20 @@ export class JuiceSystem {
     cam.shake(Math.min(durationMs * 0.7, SHAKE_MAX_MS), strength, true);
   }
 
+  /**
+   * A single decaying shake for a hero blast. Stronger than `shake`, and a weaker shake
+   * does not replace it. Screen shake and reduced motion still apply.
+   */
+  punch(durationMs: number, intensity: number): void {
+    if (this.calm || !save.state.settings.screenShake) return;
+    const strength = Math.min(intensity, PUNCH_MAX);
+    if (strength < SHAKE_MIN) return;
+    const cam = this.scene.cameras.main;
+    const fx = cam.shakeEffect;
+    if (fx.isRunning && fx.intensity.x >= strength) return;
+    cam.shake(Math.min(durationMs, PUNCH_MAX_MS), strength, true);
+  }
+
   flash(durationMs = 120, r = 255, g = 255, b = 255): void {
     if (this.calm) return;
     this.scene.cameras.main.flash(durationMs, r, g, b);
@@ -120,7 +137,7 @@ export class JuiceSystem {
     this.sparks.explode(n, x, y);
   }
 
-  ring(x: number, y: number, tint: number, radius: number): void {
+  ring(x: number, y: number, tint: number, radius: number, duration = 360): void {
     const ring =
       this.rings.pop() ??
       this.scene.add.image(0, 0, 'ring').setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
@@ -129,7 +146,7 @@ export class JuiceSystem {
       targets: ring,
       scale: (radius * 2) / ring.width,
       alpha: 0,
-      duration: 360,
+      duration,
       ease: 'Cubic.Out',
       onComplete: () => {
         ring.setVisible(false);

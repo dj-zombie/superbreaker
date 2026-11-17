@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FIRE_FRAMES } from '../art/procedural';
+import { BOOM_FRAMES, FIRE_FRAMES } from '../art/procedural';
 import { ABILITY_INFO, ARENA_MID, HUD_HEIGHT, PADDLE_Y, WIDTH } from '../config';
 import { panAt } from '../core/AudioMix';
 import {
@@ -18,10 +18,20 @@ import { audio } from './AudioSystem';
 import type { Backdrop } from './Backdrop';
 import type { BrickSystem } from './BrickSystem';
 import type { JuiceSystem } from './JuiceSystem';
+import { bombLob } from './bombLob';
 import type { Light, LightingSystem } from './LightingSystem';
 
 export const SLOT_COUNT = 2;
 const ROULETTE_MS = 1_200;
+const BOMB_SPEED = 760;
+const BOMB_HIT_R = 16;
+const BOMB_SIZE = 40;
+/** How far the sprite lifts off its shadow, as a share of the flight. */
+const BOMB_LIFT = 0.28;
+const BOMB_LIFT_MIN = 36;
+const BOMB_LIFT_MAX = 110;
+/** Reduced motion keeps the scale read and shortens the hop. */
+const BOMB_CALM_LIFT = 0.35;
 
 export interface SlotState {
   /** The ability waiting to be fired, once the roulette has stopped. */
@@ -60,8 +70,18 @@ interface Meteor {
 
 interface Bomb {
   img: Phaser.GameObjects.Image;
+  shadow: Phaser.GameObjects.Image;
+  trail?: Phaser.GameObjects.Particles.ParticleEmitter;
+  fuse?: Phaser.GameObjects.Particles.ParticleEmitter;
   vy: number;
   radius: number;
+  /** Launch and predicted landing, in playfield y. The shadow rides this line. */
+  y0: number;
+  y1: number;
+  y: number;
+  x: number;
+  amp: number;
+  baseScale: number;
 }
 
 interface Beam {
@@ -173,7 +193,7 @@ export class AbilitySystem {
   /** Removes projectiles and effects, e.g. when a life is lost. Slots are kept. */
   clearEffects(): void {
     for (const m of this.meteors) this.removeMeteor(m);
-    for (const b of this.bombs) b.img.destroy();
+    for (const b of this.bombs) this.removeBomb(b);
     for (const b of this.beams) {
       b.gfx.destroy();
       b.light?.kill();
@@ -331,9 +351,14 @@ export class AbilitySystem {
 
   private bomb(): void {
     const p = this.host.paddlePos();
-    const img = this.scene.add.image(p.x, p.y - 30, 'ab_bomb').setDepth(7);
-    img.setScale(40 / img.width);
-    this.scene.tweens.add({ targets: img, angle: 360, duration: 600, repeat: -1 });
+    const calm = save.state.settings.reducedMotion;
+    const y0 = p.y - 30;
+    const y1 = Math.min(y0 - 1, this.bombLandingY(p.x, y0));
+    const amp = Phaser.Math.Clamp((y0 - y1) * BOMB_LIFT, BOMB_LIFT_MIN, BOMB_LIFT_MAX);
+    const shadow = this.scene.add.image(p.x, y0, 'spark').setDepth(5).setTint(0x140814);
+    const img = this.scene.add.image(p.x, y0, 'ab_bomb').setDepth(7);
+    const baseScale = BOMB_SIZE / img.width;
+    if (!calm) this.scene.tweens.add({ targets: img, angle: 360, duration: 600, repeat: -1 });
     this.host.lights?.addLight({
       follow: img,
       radius: 80,
@@ -343,26 +368,243 @@ export class AbilitySystem {
       speed: 2.5,
       priority: 7,
     });
-    this.bombs.push({ img, vy: -760, radius: this.stats.bombRadius });
+    const density = Math.max(0.35, this.host.juice.particleScale);
+    const trail = calm
+      ? undefined
+      : this.scene.add
+          .particles(0, 0, 'fire', {
+            follow: img,
+            frame: FIRE_FRAMES,
+            lifespan: 380,
+            frequency: Math.round(16 / density),
+            speed: { min: 8, max: 36 },
+            scale: { start: 1.35, end: 0 },
+            alpha: { start: 0.9, end: 0 },
+            tint: [0xff3c6d, 0xffe08a, 0xff7a1f],
+            blendMode: Phaser.BlendModes.ADD,
+            maxAliveParticles: 40,
+          })
+          .setDepth(6);
+    const fuse = calm
+      ? undefined
+      : this.scene.add
+          .particles(p.x, y0, 'spark', {
+            lifespan: 240,
+            frequency: Math.round(34 / density),
+            speed: { min: 16, max: 48 },
+            angle: { min: 250, max: 290 },
+            scale: { start: 0.55, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: [0xffe08a, 0xffffff],
+            blendMode: Phaser.BlendModes.ADD,
+            maxAliveParticles: 16,
+          })
+          .setDepth(8);
+    const bomb: Bomb = {
+      img,
+      shadow,
+      trail,
+      fuse,
+      vy: -BOMB_SPEED,
+      radius: this.stats.bombRadius,
+      y0,
+      y1,
+      y: y0,
+      x: p.x,
+      amp,
+      baseScale,
+    };
+    this.poseBomb(bomb);
+    this.bombs.push(bomb);
     audio.sfx('ab_bomb_launch', 0.5, 0, { x: p.x });
+  }
+
+  /** Y where a rising bomb first overlaps a brick, or the ceiling when the column is clear. */
+  private bombLandingY(x: number, fromY: number): number {
+    let land = HUD_HEIGHT + 20;
+    for (const brick of this.host.bricks.bricks) {
+      if (!brick.isAlive) continue;
+      if (Math.abs(brick.x - x) >= brick.displayWidth / 2 + BOMB_HIT_R) continue;
+      const touch = brick.y + brick.displayHeight / 2 + BOMB_HIT_R;
+      if (touch < fromY && touch > land) land = touch;
+    }
+    return land;
+  }
+
+  /** Shadow on the flight line, sprite lifted and scaled above it. */
+  private poseBomb(b: Bomb): void {
+    const span = b.y0 - b.y1;
+    const t = span <= 1 ? 1 : (b.y0 - b.y) / span;
+    const lob = bombLob(t);
+    const calm = save.state.settings.reducedMotion ? BOMB_CALM_LIFT : 1;
+    const lift = lob.lift * b.amp * calm;
+    b.shadow.setPosition(b.x, b.y + 6);
+    b.img.setPosition(b.x, b.y - lift);
+    const s = b.baseScale * lob.scale;
+    const h = lob.lift;
+    b.img.setScale(s * (1 - 0.12 * h), s * (1 + 0.18 * h));
+    b.shadow.setScale(3 * lob.shadow, 0.72 * lob.shadow);
+    b.shadow.setAlpha(0.5 * lob.shadow);
+    const fuse = b.fuse;
+    if (!fuse) return;
+    const c = Math.cos(b.img.rotation);
+    const sn = Math.sin(b.img.rotation);
+    const lx = b.img.displayWidth * 0.2;
+    const ly = -b.img.displayHeight * 0.26;
+    fuse.setPosition(b.img.x + lx * c - ly * sn, b.img.y + lx * sn + ly * c);
   }
 
   private updateBombs(dt: number): void {
     for (const b of [...this.bombs]) {
-      b.img.y += b.vy * dt;
-      const touching = this.brickAt(b.img.x, b.img.y, 16, true);
-      if (!touching && b.img.y > HUD_HEIGHT + 20) continue;
+      b.y += b.vy * dt;
+      this.poseBomb(b);
+      const touching = this.brickAt(b.x, b.y, BOMB_HIT_R, true);
+      if (!touching && b.y > HUD_HEIGHT + 20) continue;
       this.bombs = this.bombs.filter((o) => o !== b);
-      const { x, y } = b.img;
-      b.img.destroy();
-      this.blast(x, y, b.radius, 0xff3c6d);
-      this.host.juice.ring(x, y, 0xffffff, b.radius * 1.4);
-      this.host.juice.shake(300, 0.012);
-      this.host.juice.hitStop(60);
-      this.host.juice.flash(160, 255, 120, 160);
-      audio.sfx('ab_bomb_blast', 0.6, 0, { x });
-      audio.duck(0.35, 200);
+      const { x, y, radius } = b;
+      this.removeBomb(b);
+      this.detonateBomb(x, y, radius);
     }
+  }
+
+  private removeBomb(b: Bomb): void {
+    this.scene.tweens.killTweensOf(b.img);
+    b.trail?.stop();
+    b.fuse?.stop();
+    b.img.destroy();
+    b.shadow.destroy();
+    const trail = b.trail;
+    const fuse = b.fuse;
+    if (!trail && !fuse) return;
+    this.scene.time.delayedCall(500, () => {
+      trail?.destroy();
+      fuse?.destroy();
+    });
+  }
+
+  private detonateBomb(x: number, y: number, radius: number): void {
+    const tint = 0xff3c6d;
+    const calm = save.state.settings.reducedMotion;
+    this.blast(x, y, radius, tint, 22);
+    this.playBoom(x, y, radius);
+    const rich = !calm && this.host.juice.particleScale >= 1;
+    if (rich) {
+      this.scene.time.delayedCall(50, () => {
+        this.playBoom(x + radius * 0.28, y - radius * 0.12, radius * 0.55, 0.62);
+      });
+      this.scene.time.delayedCall(90, () => {
+        this.playBoom(x - radius * 0.22, y + radius * 0.16, radius * 0.45, 0.5);
+      });
+    }
+    if (!calm) {
+      const core = this.scene.add
+        .image(x, y, 'spark')
+        .setDepth(10)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setScale(0.15);
+      this.scene.tweens.add({
+        targets: core,
+        scale: Math.max(1.2, radius / 18),
+        alpha: 0,
+        duration: 70,
+        ease: 'Cubic.Out',
+        onComplete: () => core.destroy(),
+      });
+      this.bombBurst(x, y, tint);
+      this.host.juice.ring(x, y, 0xffffff, radius * 1.55, 560);
+      this.host.lights?.flash(x, y, 0xffffff, radius * 1.15, 180, 1.15, 1.5, 9);
+    }
+    const scorch = this.scene.add.image(x, y + 4, 'spark').setDepth(1).setTint(0x2a1020);
+    scorch.setScale((radius * 2.1) / 16, (radius * 0.7) / 16).setAlpha(calm ? 0.28 : 0.45);
+    this.scene.tweens.add({
+      targets: scorch,
+      alpha: 0,
+      delay: 200,
+      duration: 1000,
+      onComplete: () => scorch.destroy(),
+    });
+    this.host.juice.punch(260, 0.012);
+    this.host.juice.hitStop(90);
+    this.host.juice.flash(160, 255, 120, 160);
+    audio.sfx('ab_bomb_blast', 0.6, 0, { x });
+    audio.duck(0.35, 200);
+  }
+
+  /** One pass through the painted blast frames, scaled out to the blast radius. */
+  private playBoom(x: number, y: number, radius: number, amount = 1): void {
+    if (!this.scene.textures.exists('boom')) return;
+    const img = this.scene.add
+      .image(x, y, 'boom', BOOM_FRAMES[0])
+      .setDepth(9)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const end = (radius * 2.1 * amount) / img.width;
+    img.setScale(end * 0.35);
+    BOOM_FRAMES.forEach((frame, i) => {
+      this.scene.time.delayedCall(i * 45, () => {
+        if (!img.active) return;
+        img.setFrame(frame);
+        if (i >= BOOM_FRAMES.length - 1) img.setBlendMode(Phaser.BlendModes.NORMAL);
+      });
+    });
+    this.scene.tweens.add({ targets: img, scale: end, duration: 220, ease: 'Cubic.Out' });
+    this.scene.tweens.add({
+      targets: img,
+      alpha: 0,
+      delay: 140,
+      duration: 160,
+      onComplete: () => img.destroy(),
+    });
+  }
+
+  /** Sparks, debris and smoke that do not share the brick-break particle budget. */
+  private bombBurst(x: number, y: number, tint: number): void {
+    const density = this.host.juice.particleScale;
+    const sparks = Math.max(4, Math.round(24 * density));
+    const debris = Math.max(6, Math.round(14 * density));
+    const smokeN = Math.max(3, Math.round(8 * density));
+    const spark = this.scene.add.particles(x, y, 'spark', {
+      lifespan: { min: 220, max: 480 },
+      speed: { min: 90, max: 380 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 1.15, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [0xffffff, 0xffe08a, tint],
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+      maxAliveParticles: sparks,
+    });
+    spark.setDepth(9).explode(sparks);
+    const shards = this.scene.add.particles(x, y, 'shard', {
+      lifespan: { min: 420, max: 760 },
+      speed: { min: 120, max: 340 },
+      angle: { min: 0, max: 360 },
+      gravityY: 720,
+      rotate: { min: 0, max: 360 },
+      scale: { start: 0.95, end: 0.15 },
+      alpha: { start: 1, end: 0 },
+      tint,
+      emitting: false,
+      maxAliveParticles: debris,
+    });
+    shards.setDepth(8).explode(debris);
+    const smoke = this.scene.add.particles(x, y, 'fire', {
+      frame: 'f4',
+      lifespan: { min: 480, max: 820 },
+      speed: { min: 18, max: 70 },
+      angle: { min: 250, max: 290 },
+      gravityY: -36,
+      scale: { start: 1.5, end: 2.4 },
+      alpha: { start: 0.5, end: 0 },
+      tint: 0x8a8696,
+      emitting: false,
+      maxAliveParticles: smokeN,
+    });
+    smoke.setDepth(8).explode(smokeN);
+    this.scene.time.delayedCall(900, () => {
+      spark.destroy();
+      shards.destroy();
+      smoke.destroy();
+    });
   }
 
   // ---------------------------------------------------------------- laser sweep
@@ -562,14 +804,14 @@ export class AbilitySystem {
   // ---------------------------------------------------------------- helpers
 
   /** Destroys every breakable brick within `radius`, which also sets off TNT chains. */
-  private blast(x: number, y: number, radius: number, tint: number): void {
+  private blast(x: number, y: number, radius: number, tint: number, shards = 14): void {
     for (const b of this.host.bricks.targets) {
       const dx = Math.max(Math.abs(b.x - x) - b.displayWidth / 2, 0);
       const dy = Math.max(Math.abs(b.y - y) - b.displayHeight / 2, 0);
       if (dx * dx + dy * dy <= radius * radius) this.host.bricks.kill(b, 'ability');
     }
     this.host.juice.ring(x, y, tint, radius * 1.2);
-    this.host.juice.burst(x, y, tint, 14);
+    this.host.juice.burst(x, y, tint, shards);
     this.host.lights?.flash(x, y, tint, radius * 2.4, 520, 0.8, 1.2, 8);
     this.host.juice.shake(120, 0.006);
     haptic('medium');

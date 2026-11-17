@@ -770,6 +770,109 @@ export function paintFallback(scene: Phaser.Scene, key: string): boolean {
 }
 
 export const FIRE_FRAMES = ['f0', 'f1', 'f2', 'f3', 'f4'];
+export const BOOM_FRAMES = ['b0', 'b1', 'b2', 'b3', 'b4'] as const;
+
+/** One cell of the mega-bomb explosion: core, burst, fireball, broken ring, smoke. */
+function paintBoomFrame(ctx: Ctx, size: number, frame: number): void {
+  const c = size / 2;
+  if (frame === 0) {
+    const g = ctx.createRadialGradient(c, c, 0, c, c, 16);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.35, '#fff6c8');
+    g.addColorStop(1, 'rgba(255,246,200,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return;
+  }
+  if (frame === 1) {
+    ctx.fillStyle = '#ffe08a';
+    ctx.beginPath();
+    for (let s = 0; s < 16; s++) {
+      const a = (s / 16) * Math.PI * 2 - Math.PI / 2;
+      const r = s % 2 === 0 ? 30 : 11;
+      const x = c + Math.cos(a) * r;
+      const y = c + Math.sin(a) * r;
+      if (s === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    const g = ctx.createRadialGradient(c, c, 0, c, c, 18);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.5, '#ffb020');
+    g.addColorStop(1, 'rgba(255,176,32,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return;
+  }
+  if (frame === 2) {
+    const g = ctx.createRadialGradient(c, c, 2, c, c, 28);
+    g.addColorStop(0, '#fff6d0');
+    g.addColorStop(0.35, '#ff9a1f');
+    g.addColorStop(0.68, '#ff3c6d');
+    g.addColorStop(1, 'rgba(255,60,109,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(c, c, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff1b0';
+    for (const [ox, oy] of [
+      [-16, -8],
+      [14, -12],
+      [8, 14],
+    ] as const) {
+      ctx.beginPath();
+      ctx.arc(c + ox, c + oy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
+  if (frame === 3) {
+    ctx.strokeStyle = '#ff4d3a';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    for (let s = 0; s < 7; s++) {
+      const a0 = s * 0.9 + 0.15;
+      ctx.beginPath();
+      ctx.arc(c, c, 20 + (s % 3), a0, a0 + 0.48);
+      ctx.stroke();
+    }
+    const g = ctx.createRadialGradient(c, c, 0, c, c, 14);
+    g.addColorStop(0, 'rgba(255,220,140,0.95)');
+    g.addColorStop(1, 'rgba(255,80,40,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return;
+  }
+  ctx.fillStyle = 'rgba(168,166,176,0.45)';
+  for (const [ox, oy, r] of [
+    [0, -4, 16],
+    [-12, 6, 12],
+    [13, 7, 11],
+    [1, -14, 8],
+  ] as const) {
+    ctx.beginPath();
+    ctx.arc(c + ox, c + oy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** Five-frame blast played once when the mega bomb lands. */
+function buildBoomTexture(scene: Phaser.Scene): void {
+  const size = 64;
+  if (scene.textures.exists('boom')) scene.textures.remove('boom');
+  const tex = scene.textures.createCanvas('boom', size * BOOM_FRAMES.length, size);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  BOOM_FRAMES.forEach((name, i) => {
+    ctx.save();
+    ctx.translate(i * size, 0);
+    paintBoomFrame(ctx, size, i);
+    ctx.restore();
+    tex.add(name, 0, i * size, 0, size, size);
+  });
+  tex.refresh();
+}
 
 /** Packs the separate fire/smoke particle images into one multi-frame texture for emitters. */
 function buildFireTexture(scene: Phaser.Scene): void {
@@ -800,6 +903,7 @@ function buildFireTexture(scene: Phaser.Scene): void {
 export function ensureProceduralTextures(scene: Phaser.Scene, missing: Iterable<string>): void {
   for (const key of ALWAYS_PROCEDURAL) paintFallback(scene, key);
   buildFireTexture(scene);
+  buildBoomTexture(scene);
   for (const key of missing) {
     if (!paintFallback(scene, key)) {
       console.warn(`[art] no fallback for missing texture "${key}"`);
