@@ -1,0 +1,86 @@
+{
+  "about": "Plates for the Gullet's walls and bricks, made with MiniMax image-01. Each prompt gave two plates, <name>_001.jpg and <name>_002.jpg. $STYLE, $WALL, $BLOCK, $DARK, $BONE and $READ stand for the shared text below.",
+  "command": "mmx image generate --non-interactive --quiet --aspect-ratio <ratio> --n 2 --out-dir . --out-prefix <name> --prompt \"<prompt>\"",
+  "shared": {
+    "STYLE": "Hyper-detailed modern AAA horror game environment art, photoreal sculpted detail, wet and glistening, grimy and nasty, low-key lighting from the upper left, deep black shadows, palette of dark crimson, dried-blood brown and bruise purple, desaturated. Flat front-on orthographic view. No text, no border.",
+    "WALL": "a wall of knotted raw muscle strands, sinew ropes and clotted dark blood that fills the whole frame edge to edge",
+    "BLOCK": "Extreme close-up that fills the entire image edge to edge with one rectangular game block seen exactly front-on:",
+    "DARK": "a thick chunky frame of black chitin and blackened bone runs along all four edges of the image like a heavy picture frame with rounded inner corners, glossy, worn pale along its edges, dried blood in the crevices.",
+    "BONE": "a thick chunky frame of old yellowed bone runs along all four edges of the image like a heavy picture frame with rounded inner corners, cracked, stained with dried blood.",
+    "READ": "Very simple bold shapes that still read when shrunk to a tiny icon; no small clutter. Photoreal macro studio photograph, modern AAA horror game asset, hard key light from the upper left, no text."
+  },
+  "plates": {
+    "wall_a": {
+      "ratio": "1:1",
+      "prompt": "Seamless texture plate for a dark horror video game, flat front-on orthographic view, the whole frame evenly filled edge to edge with a wall of raw flesh inside a monstrous creature: glistening wet muscle fibres, knotted intestines, sinew strands, swollen dark veins, clotted blood pooling in deep black crevices, patches of torn skin and yellow fat, small teeth and bone splinters embedded here and there. Hyper-detailed modern AAA game environment art, photoreal sculpted detail, grimy and nasty, low-key lighting from the upper left, deep black shadows, palette of dark crimson, dried-blood brown and bruise purple, desaturated. No text, no border, no characters, no single focal point."
+    },
+    "wall_b": {
+      "ratio": "1:1",
+      "prompt": "Seamless texture plate for a dark horror video game, flat front-on orthographic view, the whole frame evenly filled edge to edge with a wall of raw flesh inside a monstrous creature: thick knotted muscle strands and sinew ropes woven over each other, swollen dark veins, clotted blood pooling in deep black crevices, a few knuckles of bone showing through. $STYLE No characters, no single focal point."
+    },
+    "maw": {
+      "ratio": "16:9",
+      "prompt": "A huge gaping maw grown into $WALL: a wide oval mouth with no lips, ringed by several rows of long jagged yellowed fangs, torn gums, a black throat going deep, strings of blood and saliva between the teeth. The maw sits in the centre and the flesh wall surrounds it on every side. $STYLE"
+    },
+    "eye": {
+      "ratio": "1:1",
+      "prompt": "One enormous lidless bloodshot eyeball bulging out of a torn socket in $WALL: wet veined sclera, a dilated pupil staring straight ahead, raw meat peeled back around it, blood weeping down from the socket, a few much smaller eyes buried in the meat nearby. The eye sits in the centre and the flesh wall surrounds it on every side. $STYLE"
+    },
+    "eyes": {
+      "ratio": "1:1",
+      "prompt": "Dozens of bloodshot eyeballs of different sizes staring out of $WALL, each in its own torn socket of raw meat, wet, veined, some weeping blood, spread evenly across the whole frame. $STYLE"
+    },
+    "skulls": {
+      "ratio": "1:1",
+      "prompt": "Human skulls, jawbones and ribs half digested and fused into $WALL: sinew grown over the bone, flesh creeping into the eye sockets, blood seeping from the cracks. Bones scattered evenly, sunk deep in the meat. $STYLE"
+    },
+    "face": {
+      "ratio": "1:1",
+      "prompt": "A giant skinless face fused into $WALL, seen straight on: exposed facial muscle, no eyelids, empty black eye sockets, the jaw stretched wide open in a scream showing broken teeth and a black throat, sinew ropes growing from the cheeks into the wall. The face sits in the centre and the flesh wall surrounds it on every side. $STYLE"
+    },
+    "spine": {
+      "ratio": "9:16",
+      "prompt": "A long exposed spine running straight down the middle of the frame from the top edge to the bottom edge, with ribs curving off to each side, half sunk into $WALL: sinew grown over the vertebrae, flesh creeping between the ribs, blood in the gaps. $STYLE"
+    },
+    "drips": {
+      "ratio": "16:9",
+      "prompt": "Thick strands of dark red blood, clotted gore and translucent slime hanging down and dripping from the top edge of the frame, long thin drips of different lengths ending in heavy drops, isolated on a pure black background, photoreal macro photography, glistening wet highlights, no surface behind them, nothing else in frame, no text."
+    },
+    "brick_sac": {
+      "ratio": "16:9",
+      "note": "The brick of every colour. Made green; scripts/mockup.py turns the green to each colour.",
+      "prompt": "$BLOCK $DARK Inside the frame, filling the whole opening, is one big swollen translucent sac of wet membrane, domed and glossy like a blister, glowing bright emerald green from within like a lantern, with a few thick dark veins branching boldly across it and one large wet specular highlight at the upper left. $READ"
+    },
+    "brick_cage": {
+      "ratio": "16:9",
+      "note": "Armoured.",
+      "prompt": "$BLOCK $BONE Inside the frame, filling the whole opening, is one big swollen translucent sac of wet membrane glowing bright emerald green from within like a lantern, and bolted across the front of it are three thick curved rib bones, evenly spaced, standing upright like the bars of a cage, casting shadows on the sac. $READ"
+    },
+    "brick_eye": {
+      "ratio": "16:9",
+      "note": "Watcher.",
+      "prompt": "$BLOCK $DARK Inside the frame, filling the whole opening, is one huge wet bloodshot eyeball staring straight out, with a very large sickly yellow iris and a big black slit pupil dead centre, raw red eyelid flesh squeezed in around it, one large wet specular highlight at the upper left. $READ"
+    },
+    "brick_mouth": {
+      "ratio": "16:9",
+      "note": "The 2x2 brick.",
+      "prompt": "$BLOCK $BONE Inside the frame, filling the whole opening, is one wide snarling mouth of raw red flesh with no lips, bared in a grimace: a row of big yellowed fangs above and a row below, clenched almost shut, a black gap between them, wet gums, strings of saliva. $READ"
+    },
+    "brick_burst": {
+      "ratio": "16:9",
+      "note": "Explosive.",
+      "prompt": "$BLOCK a thick chunky frame of black chitin and blackened bone runs along all four edges of the image like a heavy picture frame with rounded inner corners, glossy, worn pale along its edges. Inside the frame, filling the whole opening, is one swollen pustule stretched tight and about to burst, glowing fierce orange and yellow from within like molten metal, its skin splitting in a few wide bright cracks that radiate from a white-hot core in the centre, dark scorched edges. Very simple bold shapes that still read when shrunk to a tiny icon; no small clutter. Photoreal macro studio photograph, modern AAA horror game asset, no text."
+    },
+    "brick_slab": {
+      "ratio": "16:9",
+      "note": "Unbreakable.",
+      "prompt": "$BLOCK a solid heavy slab of pitted black iron fused with grey bone, with a raised border running along all four edges of the image, one big domed rivet in each corner, and across the middle a single row of four large flat molar teeth set into the metal. Dull and unlit, no glow, dried blood in the pits, pale worn edges catching the light. $READ"
+    }
+  },
+  "trials": {
+    "about": "In trials/: first tries at bricks, not used. They came out small in the frame and the wrong shape, or with detail too fine to read at a brick's size; asking for a block that fills the image edge to edge fixed both.",
+    "brick_test": "A single rectangular block seen straight on, a wide slab about twice as wide as it is tall, centred with a little black margin around it: a heavy frame of pitted black iron with a rivet in each corner, crusted with dried blood and strands of sinew, holding a slab of thick translucent emerald-green resin that glows faintly from within; suspended inside the resin are dark veins and a small cluster of teeth. Photoreal, hyper-detailed modern AAA horror game asset, wet highlights, low-key lighting from the upper left, pure black background, no text.",
+    "brick_bone": "A single game block seen exactly front-on, a wide rounded rectangle about twice as wide as it is tall, filling the frame with a narrow margin of pure black around it. It is a thick chunky frame of old yellowed bone, smooth and heavy with rounded corners, a few dark cracks, stained with dried blood in the crevices. Clamped inside the frame is one big swollen translucent sac of wet membrane, domed and glossy like a blister, glowing bright emerald green from within like a lantern, with three or four thick dark veins branching across it and one large wet specular highlight at the upper left. Very simple bold shapes and a strong clean silhouette so that it still reads when shrunk to a tiny icon; no small clutter. Photoreal macro studio photograph, modern AAA horror game asset, hard key light from the upper left, pure black background, no text.",
+    "brick_shell": "As brick_bone, with the frame: a thick chunky frame of black chitin like a beetle shell, glossy and heavy with rounded corners, its worn edges catching the light, dried blood in the crevices."
+  }
+}
