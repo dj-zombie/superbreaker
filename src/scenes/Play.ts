@@ -1483,6 +1483,7 @@ export class Play extends BaseScene {
     });
     this.lighting.setShadowFocus(main ?? this.paddle);
     this.lighting.setCombo(this.bonus ? this.bonus.state.combo : this.hud.combo);
+    this.lighting.setStageClock(this.bonus?.progress ?? 0);
     this.lighting.setFever(this.fever.active);
     this.syncBeacons();
   }

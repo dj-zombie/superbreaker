@@ -1,12 +1,15 @@
 /**
  * The party mood's rules, without the engine: how far the party has got, where the beat is, and
  * how bright each bulb and beam is. The lights step up where a bonus stage's combo multiplier
- * does, so the room says what the score is doing.
+ * does, so the room says what the score is doing, and the stage's clock takes everyone the same
+ * way as it runs down, so nobody leaves without having seen the rave.
  */
 import { COMBO_STEPS } from './Bonus';
 
 /** The last tier: the full rave. */
 export const PARTY_TOP = COMBO_STEPS.length;
+/** How far through the stage's timer each tier comes in anyway, whatever the combo. */
+export const PARTY_CLOCK: readonly number[] = [0.15, 0.35, 0.6];
 /** How fast the light of a kick dies away, per beat. */
 const KICK_DECAY = 4.5;
 /** A kick lifts the whole room by at most this much, under what counts as a flash. */
@@ -23,11 +26,16 @@ export const PARTY_HUES = [0xff2bd6, 0x22d4ff, 0x7dff3a, 0xffb020] as const;
 /** The bulbs: mostly warm, with a red and a teal every four. */
 export const BULB_COLORS = [0xffd27f, 0xff5048, 0xffd27f, 0x4cd9ff] as const;
 
-/** How far the party has got, 0..PARTY_TOP: one step for each combo step reached. */
-export function partyTier(combo: number): number {
+/**
+ * How far the party has got, 0..PARTY_TOP: one step for each combo step reached, and never less
+ * than the stage's timer, `progress` 0..1 of the way through, has brought it to.
+ */
+export function partyTier(combo: number, progress = 0): number {
   let tier = 0;
   for (const [from] of COMBO_STEPS) if (combo >= from) tier++;
-  return tier;
+  let floor = 0;
+  for (const at of PARTY_CLOCK) if (progress >= at) floor++;
+  return Math.max(tier, floor);
 }
 
 /** A kick drum's light: full on the beat, nearly gone by the next. */

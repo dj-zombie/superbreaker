@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { COMBO_STEPS, comboMultiplier } from '../src/core/Bonus';
 import { MOODS } from '../src/core/Lighting';
 import {
+  PARTY_CLOCK,
   PARTY_DARK,
   PARTY_HUES,
   PARTY_PULSE,
@@ -23,8 +24,20 @@ describe('party tiers', () => {
       const stepped = comboMultiplier(combo) !== comboMultiplier(combo - 1);
       expect(partyTier(combo) !== partyTier(combo - 1)).toBe(stepped);
     }
-    expect([0, 4, 5, 9, 10, 19, 20, 99].map(partyTier)).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
+    expect([0, 4, 5, 9, 10, 19, 20, 99].map((c) => partyTier(c))).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
     expect(PARTY_TOP).toBe(COMBO_STEPS.length);
+  });
+
+  it('climbs with the clock as well, so every player reaches the rave before the end', () => {
+    expect(PARTY_CLOCK).toHaveLength(PARTY_TOP);
+    expect([0, 0.14, 0.15, 0.35, 0.6, 1].map((p) => partyTier(0, p))).toEqual([0, 0, 1, 2, 3, 3]);
+    expect(PARTY_CLOCK.at(-1)!).toBeLessThanOrEqual(0.6);
+  });
+
+  it('lets a hot combo run ahead of the clock, and a lost one fall back only to it', () => {
+    expect(partyTier(20, 0.2)).toBe(PARTY_TOP);
+    expect(partyTier(0, 0.4)).toBe(2);
+    expect(partyTier(5, 0.4)).toBe(2);
   });
 });
 

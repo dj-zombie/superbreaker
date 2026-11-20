@@ -498,6 +498,17 @@ const BALL_SIZE = 40;
 const SPECKS = 36;
 const BALL_TURN_BEATS = 32;
 const SPECK_COLORS = [0xffffff, 0xffd0ec, 0xd0e8ff] as const;
+const SPECK_SIZE = 18;
+/**
+ * The party's own glow, drawn over the backdrop rather than lighting it: coloured light only
+ * shows on art of its own colour, and these must read over any world, on every quality tier.
+ */
+const GLOW_DEPTH = -2.5;
+const BEAM_KEY = 'party_beam';
+const BEAM_W = 170;
+const BEAM_LEN = HEIGHT * 0.88;
+/** Where the moving heads hang, as a share of the width. */
+const HEAD_X = [0.12, 0.37, 0.63, 0.88] as const;
 
 interface Bulb {
   glow: Phaser.GameObjects.Image;
@@ -508,10 +519,11 @@ interface Bulb {
 }
 
 /**
- * A bonus stage's party: the lights keep time with the music and step up with the combo. Steady
- * bulbs at first; past each combo step the bulbs chase, colour washes thump in from the sides,
- * and at the top the room goes dark for moving heads and a mirror ball. Losing a step cuts the
- * power for a moment. Reduced motion keeps the colour and drops the motion.
+ * A bonus stage's party: the lights keep time with the music and step up with the combo, and with
+ * the stage's clock, so every player reaches the top before the end. Steady bulbs at first; past
+ * each step the bulbs chase, colour washes thump in from the sides, and at the top the room goes
+ * dark for moving heads and a mirror ball. Losing a step cuts the power for a moment. Reduced
+ * motion keeps the colour and drops the motion.
  */
 class Party implements MoodFx {
   private beats = 0;
@@ -524,6 +536,9 @@ class Party implements MoodFx {
   private washes: Light[] = [];
   private floor?: Light;
   private heads: Array<{ light: Light; px: number }> = [];
+  private sideGlows: Phaser.GameObjects.Image[] = [];
+  private floorGlow?: Phaser.GameObjects.Image;
+  private beams: Phaser.GameObjects.Image[] = [];
   private ball?: Phaser.GameObjects.Image;
   private cord?: Phaser.GameObjects.Rectangle;
   private ballY = HUD_HEIGHT + BALL_HIDE;
@@ -533,12 +548,12 @@ class Party implements MoodFx {
     private sys: LightingSystem,
     private scene: Phaser.Scene,
   ) {
+    // The party is the stage's whole show, so its washes and heads light on every tier; only the
+    // floor and the bulbs' spill wait for a budget with room for mood lights.
+    for (const x of [-40, WIDTH + 40]) {
+      this.washes.push(sys.addLight({ x, y: HEIGHT * 0.62, radius: 440, intensity: 1.1, priority: 1 }));
+    }
     if (sys.budgetInfo.moodLights) {
-      for (const x of [-40, WIDTH + 40]) {
-        this.washes.push(
-          sys.addLight({ x, y: HEIGHT * 0.62, radius: 440, intensity: 1.1, priority: 1 }),
-        );
-      }
       this.floor = sys.addLight({
         x: WIDTH / 2,
         y: PADDLE_Y + 40,
@@ -547,14 +562,24 @@ class Party implements MoodFx {
         affects: 'backdrop',
         priority: 1,
       });
-      for (const px of [0.12, 0.37, 0.63, 0.88]) {
-        const light = sys.addLight({
-          area: { width: 70, height: HEIGHT * 0.95, cookie: 'shaft' },
-          intensity: 0.8,
-          priority: 1,
-        });
-        this.heads.push({ light, px });
-      }
+    }
+    for (const px of HEAD_X) {
+      const light = sys.addLight({
+        area: { width: 70, height: HEIGHT * 0.95, cookie: 'shaft' },
+        intensity: 0.8,
+        priority: 1,
+      });
+      this.heads.push({ light, px });
+    }
+    const glow = (x: number, y: number, key: string) =>
+      scene.add.image(x, y, key).setBlendMode(Phaser.BlendModes.ADD).setDepth(GLOW_DEPTH).setAlpha(0);
+    for (const x of [0, WIDTH]) {
+      this.sideGlows.push(glow(x, HEIGHT * 0.55, LIGHT_TEX.halo).setDisplaySize(WIDTH, HEIGHT * 0.95));
+    }
+    this.floorGlow = glow(WIDTH / 2, PADDLE_Y + 40, LIGHT_TEX.halo).setDisplaySize(WIDTH * 1.3, 320);
+    const beam = beamTexture(scene);
+    for (const px of HEAD_X) {
+      this.beams.push(glow(WIDTH * px, HUD_HEIGHT - 6, beam).setOrigin(0.5, 0).setDisplaySize(BEAM_W, BEAM_LEN));
     }
     this.cord = scene.add
       .rectangle(WIDTH / 2, 0, 1.5, 1, 0xb4b4c8, 0.8)
@@ -575,7 +600,7 @@ class Party implements MoodFx {
   update(dt: number, clock: number): void {
     const { sys } = this;
     this.beats = audio.musicBeat() ?? this.beats + (dt * PARTY_BPM) / 60;
-    const tier = partyTier(sys.combo);
+    const tier = partyTier(sys.combo, sys.stageClock);
     if (tier < this.tier) this.powerCut(clock);
     this.tier = tier;
     for (let t = 1; t <= PARTY_TOP; t++) {
@@ -614,10 +639,14 @@ class Party implements MoodFx {
       w.color = washHue(this.beats, i);
       w.gain = wash * (0.45 + 0.55 * thump);
     }
+    for (const [i, g] of this.sideGlows.entries()) {
+      g.setTint(washHue(this.beats, i)).setAlpha(wash * (0.3 + 0.15 * thump));
+    }
     if (this.floor) {
       this.floor.color = barHue(this.beats, 2);
       this.floor.gain = wash * (0.3 + 0.7 * thump);
     }
+    this.floorGlow?.setTint(barHue(this.beats, 2)).setAlpha(wash * (0.2 + 0.15 * thump));
     const top = HUD_HEIGHT - 6;
     for (const [i, h] of this.heads.entries()) {
       const rot = beamAngle(i, this.beats, sys.calm);
@@ -628,6 +657,11 @@ class Party implements MoodFx {
       h.light.y = top - Math.sin(rot) * (area.width / 2);
       h.light.color = barHue(this.beats, i % 2);
       h.light.gain = rave * (0.55 + 0.45 * thump);
+    }
+    for (const [i, b] of this.beams.entries()) {
+      b.setRotation(beamAngle(i, this.beats, sys.calm))
+        .setTint(barHue(this.beats, i % 2))
+        .setAlpha(rave * (0.3 + 0.15 * thump));
     }
     this.updateBall(dt, rave, beat);
   }
@@ -652,14 +686,14 @@ class Party implements MoodFx {
       const k = rave * Math.sqrt(Math.max(0, front));
       s.image.setVisible(k > 0.02);
       if (k <= 0.02) continue;
-      const twinkle = !this.sys.calm && (i + twinkleBeat) % 5 === 0 ? 0.6 + 0.4 * beat : 0.6;
+      const twinkle = !this.sys.calm && (i + twinkleBeat) % 5 === 0 ? 0.75 + 0.25 * beat : 0.75;
       s.image
         .setPosition(
           WIDTH / 2 + WIDTH * 0.66 * Math.sin(a) * (0.55 + 0.45 * s.fy),
           from + (PADDLE_Y - from) * s.fy,
         )
         .setAlpha(k * twinkle)
-        .setDisplaySize(12, 12);
+        .setDisplaySize(SPECK_SIZE, SPECK_SIZE);
     }
   }
 
@@ -723,6 +757,8 @@ class Party implements MoodFx {
     this.takeDown();
     for (const l of [...this.washes, ...this.heads.map((h) => h.light)]) l.kill();
     this.floor?.kill();
+    for (const g of [...this.sideGlows, ...this.beams]) g.destroy();
+    this.floorGlow?.destroy();
     for (const s of this.specks) s.image.destroy();
     this.ball?.destroy();
     this.cord?.destroy();
@@ -758,4 +794,29 @@ function ballTexture(scene: Phaser.Scene): string {
   ctx.restore();
   tex.refresh();
   return BALL_KEY;
+}
+
+/** A moving head's beam in haze: a narrow cone from the rig, fading toward the floor. */
+function beamTexture(scene: Phaser.Scene): string {
+  if (scene.textures.exists(BEAM_KEY)) return BEAM_KEY;
+  const w = 64;
+  const h = 256;
+  const tex = scene.textures.createCanvas(BEAM_KEY, w, h);
+  if (!tex) return BEAM_KEY;
+  const ctx = tex.getContext();
+  const fade = ctx.createLinearGradient(0, 0, 0, h);
+  fade.addColorStop(0, 'rgba(255,255,255,1)');
+  fade.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  fade.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.filter = 'blur(5px)';
+  ctx.fillStyle = fade;
+  ctx.beginPath();
+  ctx.moveTo(w / 2 - 3, 0);
+  ctx.lineTo(w / 2 + 3, 0);
+  ctx.lineTo(w - 6, h);
+  ctx.lineTo(6, h);
+  ctx.closePath();
+  ctx.fill();
+  tex.refresh();
+  return BEAM_KEY;
 }

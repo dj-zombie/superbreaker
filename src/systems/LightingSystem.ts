@@ -397,6 +397,7 @@ export class LightingSystem {
   private gloom = 0;
   private boost = 0;
   private comboNow = 0;
+  private stageClockNow = 0;
   private comboBoost = 0;
   private feverBoost = 0;
   private celebrating = false;
@@ -597,6 +598,15 @@ export class LightingSystem {
   /** The combo the scene last reported. */
   get combo(): number {
     return this.comboNow;
+  }
+
+  /** How far a bonus stage's timer has run, 0..1, for the party mood. */
+  setStageClock(progress: number): void {
+    this.stageClockNow = progress;
+  }
+
+  get stageClock(): number {
+    return this.stageClockNow;
   }
 
   /**
