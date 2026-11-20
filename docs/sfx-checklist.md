@@ -188,6 +188,14 @@ Placeholders written by `scripts/build-gallery-audio.py`. Replace them file for 
   - Notes: synthesized placeholder
 - [ ] Recorded · [x] In game · [ ] Signed off — **Bed** `public/assets/audio/music/gallery-placeholder.mp3` (~15s, loops). Bright oom-pah under the whole stage, including the tally, where it ducks.
   - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Rail gun fire** `public/assets/audio/bonus/rail_fire.mp3` (~0.9s). The gallery's only gun, a few times a second. It has to feel huge: a crack, a sub drop, a falling zap and a rumble.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Rail gun charge** `public/assets/audio/bonus/rail_charge.mp3` (0.5s). Plays from every shot as the gun recharges, like a wound-up music box. Its timing is the game's: the bright plink at 0.25s opens the perfect reload, and the soft tick at 0.445s is the gun full. Keep both where they are.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Rail gun perfect** `public/assets/audio/bonus/rail_perfect.mp3` (~0.6s). A shot fired in the perfect reload, on top of the fire. A strongman's bell.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Rail gun jam** `public/assets/audio/bonus/rail_jam.mp3` (~0.55s). Pressed outside the perfect reload: the works sputter and a spring sags with a sad boing.
+  - Notes: synthesized placeholder
 
 ## Old cues to retire
 

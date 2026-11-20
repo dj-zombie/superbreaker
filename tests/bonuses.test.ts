@@ -60,7 +60,7 @@ describe.each(Object.values(BONUSES))('$id', (def) => {
   });
 
   it('costs a lost ball no more than a bronze run can spare', () => {
-    const cost = def.medalBy === 'coins' ? (def.ballLost.coins ?? 0) : (def.ballLost.score ?? 0);
+    const cost = def.medalBy === 'coins' ? (def.ballLost?.coins ?? 0) : (def.ballLost?.score ?? 0);
     expect(cost).toBeLessThan(def.medals[0] / 4);
   });
 
@@ -234,10 +234,9 @@ describe('shooting gallery waves', () => {
   });
 
   it('pays more coins a duck as the combo climbs, and double for the ball', () => {
-    expect(duckCoins(1, false)).toBe(1);
-    expect(duckCoins(1.5, false)).toBe(2);
-    expect(duckCoins(3, false)).toBe(3);
-    expect(duckCoins(1, true)).toBe(2);
+    expect(duckCoins(1)).toBe(1);
+    expect(duckCoins(1.5)).toBe(2);
+    expect(duckCoins(3)).toBe(3);
     expect(bagCoins(BAG_HP, 0) + BAG_JACKPOT).toBeGreaterThanOrEqual(15);
   });
 

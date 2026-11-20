@@ -1,7 +1,17 @@
 import type { BonusStats, Medal } from '../core/Bonus';
 import { sine, still, type Path } from '../core/Motion';
+import type { RailSpec } from '../core/RailGun';
 import type { Rng } from '../core/Rng';
-import type { BonusDef, BonusStage, Field, HitCause, Target, TargetSpec } from '../systems/BonusDirector';
+import type {
+  BonusDef,
+  BonusStage,
+  Field,
+  HitCause,
+  RailShot,
+  Target,
+  TargetSpec,
+} from '../systems/BonusDirector';
+import type { RailLook } from '../systems/RailGunFx';
 
 /**
  * The Shooting Gallery: a fairground booth between the fights. Shoot the ducks and they burst
@@ -39,17 +49,49 @@ export const MAX_CATS = 2;
 /** The waves with a money bag drifting over. */
 export const BAG_WAVES: readonly number[] = [2, 4, 6];
 
-/**
- * A duck's hit points: a cold gatling needs a moment on it, a spun-up one two or three hits.
- * The ball knocks it down in one.
- */
+/** A duck's hit points: one rail gun slug. */
 export const DUCK_HP = 10;
-/** Coins a duck bursts into, before the combo; a ball hit pays double. */
+/** Coins a duck bursts into, before the combo. */
 export const DUCK_COINS = 1;
-export const BALL_MULT = 2;
+/** Each duck past the first that one slug takes down pays this much more. */
+export const MULTI_COINS = 1;
+/** The rail gun: a slug takes a duck's hit points, an overcharged one twice that. */
+export const RAIL: Partial<RailSpec> = { damage: DUCK_HP, overDamage: DUCK_HP * 2 };
+/**
+ * It is a jack-in-the-box: the clown springs out and the slug leaves his mouth. The points are
+ * measured off the parts scripts/build-bonus.py cuts from art-src/bonus/jack.jpg.
+ */
+const JACK: RailLook = {
+  keys: {
+    closed: 'jack_closed',
+    open: 'jack_open',
+    front: 'jack_front',
+    lid: 'jack_lid',
+    spring: 'jack_spring',
+    head: 'jack_head',
+    dazed: 'jack_dazed',
+    puff: 'jack_puff',
+    crank: 'jack_crank',
+    crankOpen: 'jack_crank_open',
+  },
+  width: 1.17,
+  drop: 14,
+  springBase: [132, 200],
+  neck: [132, 131],
+  mouth: [100, 98],
+  hinge: [193, 177],
+  crankAxle: [237, 238],
+  crankAxleOpen: [242, 242],
+  puff: [30, 146],
+  rim: [
+    [56, 189],
+    [142, 207],
+    [226, 190],
+  ],
+};
 /**
  * A money bag's hit points. It spills a coin for every BAG_HP_PER_COIN of them it takes and bursts
- * with the jackpot. A spun-up gatling tears through it; a cold one, or the ball, takes a while.
+ * with the jackpot: four slugs, or two overcharged.
  */
 export const BAG_HP = 40;
 export const BAG_HP_PER_COIN = 4;
@@ -86,9 +128,10 @@ const SIZE: Record<GalleryKind, { w: number; h: number; hit: [number, number] }>
 };
 const TEXTURE: Record<GalleryKind, string> = { duck: 'target_duck', bag: 'target_bag', cat: 'target_cat' };
 const SPARK: Record<GalleryKind, number> = { duck: 0xffe14d, bag: 0xffc93c, cat: 0xff4d4d };
+const FEATHER = 0xfff6e0;
 /** The rail a row of ducks rides on: under their sticks. */
 const RAIL_DY = 31;
-/** The front counter's height, in px, and its depth: just over the targets, under the ball. */
+/** The front counter's height, in px, and its depth: just over the targets, under the beam. */
 const COUNTER_H = 22;
 const TARGET_OVER = 1.5;
 
@@ -153,7 +196,7 @@ export function lifeFor(e: WaveEvent, index: number): number | undefined {
   return Math.max(POP_MIN_MS, POP_MS - index * POP_FALL_MS) + (e.kind === 'cat' ? 300 : 0);
 }
 
-/** The most coins a wave holds without the combo: every duck shot and every bag burst by bolts. */
+/** The most coins a wave holds without the combo or a multi-kill: every duck and bag shot. */
 export function waveCoins(events: readonly WaveEvent[]): number {
   let sum = 0;
   for (const e of events) {
@@ -170,8 +213,15 @@ export function bagCoins(hpBefore: number, hpAfter: number): number {
 }
 
 /** Coins a duck pays at a combo multiplier: one more for each step of the combo. */
-export function duckCoins(multiplier: number, ball: boolean): number {
-  return DUCK_COINS * Math.ceil(multiplier) * (ball ? BALL_MULT : 1);
+export function duckCoins(multiplier: number): number {
+  return DUCK_COINS * Math.ceil(multiplier);
+}
+
+/** What one slug's multi-kill is called and pays on top, by the ducks it took down. */
+export function multiKill(ducks: number): { word: string; coins: number } | null {
+  if (ducks < 2) return null;
+  const word = ducks === 2 ? 'DOUBLE!' : ducks === 3 ? 'TRIPLE!' : 'QUAD!';
+  return { word, coins: (ducks - 1) * MULTI_COINS };
 }
 
 /** One playing of the stage: what is still to come. */
@@ -192,7 +242,6 @@ function spawn(s: BonusStage, e: WaveEvent, wave: number): Target {
     hitHeight: size.hit[1],
     path: pathFor(e, s.field),
     hp: e.kind === 'bag' ? BAG_HP : e.kind === 'duck' ? DUCK_HP : 1,
-    ballPops: e.kind === 'duck',
     lifeMs: lifeFor(e, wave),
     enter: e.lane === 'front' ? 'rise' : undefined,
     spark: SPARK[e.kind],
@@ -203,7 +252,6 @@ function spawn(s: BonusStage, e: WaveEvent, wave: number): Target {
 }
 
 function onHit(s: BonusStage, t: Target, cause: HitCause, popped: boolean, dealt: number): void {
-  const ball = cause === 'ball';
   if (t.kind === 'cat') {
     // An ability's blast takes the cat for free: only an aimed shot costs anything.
     if (cause === 'blast') return;
@@ -237,12 +285,32 @@ function onHit(s: BonusStage, t: Target, cause: HitCause, popped: boolean, dealt
     return;
   }
   s.count('ducks');
-  s.score(DUCK_POINTS * (ball ? BALL_MULT : 1), t.x, t.y, { quiet: true });
-  const n = duckCoins(s.multiplier, ball);
+  // Blown apart: a puff of feathers on top of the coins.
+  s.juice.burst(t.x, t.y, FEATHER, 12);
+  s.score(DUCK_POINTS, t.x, t.y, { quiet: true });
+  const n = duckCoins(s.multiplier);
   s.coins(n, t.x, t.y);
   const { left, right } = s.field;
   if (n > 1) s.say(`+${n}`, Math.min(right - 30, Math.max(left + 30, t.x)), t.y - 20, '#ffd27a', 18 + 3 * n);
   s.audio.sfx('gallery_quack', 0.5, Math.min(s.combo, 12) * 30, { x: t.x });
+}
+
+function onShot(s: BonusStage, shot: RailShot): void {
+  const { field } = s;
+  // A slug into thin air halves the combo: the gun rewards a shot lined up, not a held trigger.
+  if (shot.hits.length === 0) {
+    s.penalty({ combo: 'halve' }, shot.x, field.paddleY - 60, '');
+    return;
+  }
+  const ducks = shot.popped.filter((t) => t.kind === 'duck');
+  const multi = multiKill(ducks.length);
+  if (!multi) return;
+  s.count('multiKills');
+  const top = Math.min(...ducks.map((t) => t.y));
+  const x = Math.min(field.right - 50, Math.max(field.left + 50, shot.x));
+  s.coins(multi.coins, shot.x, top);
+  s.say(multi.word, x, top - 46, '#ffffff', 26 + 4 * ducks.length);
+  s.audio.sfx('combo', 0.5, 200 * ducks.length, { x: shot.x });
 }
 
 function onEscape(s: BonusStage, t: Target): void {
@@ -309,7 +377,7 @@ export const gallery: BonusDef = {
   name: 'Shooting Gallery',
   kicker: 'Bonus stage',
   rules: [
-    { text: 'HOLD FIRE!' },
+    { text: 'TIME YOUR SHOTS!' },
     { icon: 'target_duck', text: 'Coins' },
     { icon: 'target_bag', text: 'Jackpot' },
     { icon: 'target_cat', text: `Don't!`, avoid: true },
@@ -317,9 +385,9 @@ export const gallery: BonusDef = {
   durationMs: GALLERY_MS,
   medalBy: 'coins',
   medals: [30, 60, 100],
-  ballLost: { combo: 'reset' },
-  // Slower at the top than the default, so the stream stays readable and ducks take a moment.
-  guns: { gatling: { fastGapMs: 60 } },
+  // A shooting gallery is played with the gun alone.
+  ball: false,
+  guns: { rail: RAIL, railLook: JACK },
   // A lazy ride down past the midway, after the boss's dive.
   backdrop: 'carnival',
   pace: 0.6,
@@ -327,6 +395,7 @@ export const gallery: BonusDef = {
   setup,
   tick: (s) => tick(s),
   onHit,
+  onShot,
   onEscape,
   tally: (stats) => [
     { label: 'Ducks', value: stats.counts.ducks ?? 0 },

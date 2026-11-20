@@ -3,15 +3,17 @@
 
 Stand-ins until the real sounds exist. The bed is an original oom-pah in C, written to the
 layout in src/art/galleryMusic.ts: a sync click, then 32 beats at 128 BPM from 0.25s. It is not
-anybody else's tune. The one-shots are the ducks, the bag, the jackpot and the cat.
+anybody else's tune. The one-shots are the ducks, the bag, the jackpot, the cat and the rail gun.
+The rail gun's charge is timed to src/core/RailGun.ts: its bright plink opens the perfect reload.
 
 Every sound is oscillators and noise from a seeded generator, so a second run writes the same
 audio. Effects are mono, the bed is stereo. Requires numpy and ffmpeg.
 
-Usage: python3 scripts/build-gallery-audio.py
+Usage: python3 scripts/build-gallery-audio.py [--only rail_fire rail_charge ...]
 """
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
 import tempfile
@@ -189,12 +191,96 @@ def meow(rng: np.random.Generator) -> np.ndarray:
     return fade_ends((body + air) * env_hit(n, 0.03, 0.11), 0.008, 0.04)
 
 
+def lowpass(x: np.ndarray, cutoff: float) -> np.ndarray:
+    k = 1 - np.exp(-2 * np.pi * cutoff / SR)
+    out = np.empty_like(x)
+    acc = 0.0
+    for i, v in enumerate(x):
+        acc += k * (v - acc)
+        out[i] = acc
+    return out
+
+
+def sweep(f0: float, f1: float, seconds: float, glide: float) -> np.ndarray:
+    """A pitch falling or rising from f0 toward f1, most of the way there by `glide` seconds."""
+    t = clock(seconds)
+    f = f1 + (f0 - f1) * np.exp(-t / glide)
+    return 2 * np.pi * np.cumsum(f) / SR
+
+
+def rail_fire(rng: np.random.Generator) -> np.ndarray:
+    """The rail gun: a crack, a sub drop that lands in the chest, a falling zap and a rumble."""
+    seconds = 0.9
+    n = samples(seconds)
+    out = np.zeros(n)
+    crack = lowpass(np.diff(noise(rng, 0.06, 0.016), prepend=0), 7000) * 2.2
+    put(out, 0, crack, 0.9)
+    sub = np.sin(sweep(140, 34, 0.6, 0.07)) * env_hit(samples(0.6), 0.002, 0.2)
+    put(out, 0, sub, 1.1)
+    zap_phase = sweep(2600, 160, 0.4, 0.06)
+    zap = (np.sin(zap_phase) + 0.5 * np.sin(2 * zap_phase) + 0.3 * np.sin(3 * zap_phase))
+    put(out, 0.002, zap * env_hit(samples(0.4), 0.001, 0.1), 0.32)
+    t = clock(0.6)
+    ring = sum(a * np.sin(2 * np.pi * 330 * r * t) for r, a in ((1, 1), (2.76, 0.6), (5.4, 0.35)))
+    put(out, 0.004, ring * env_hit(samples(0.6), 0.001, 0.18), 0.14)
+    rumble = lowpass(rng.standard_normal(n), 260) * env_hit(n, 0.01, 0.32)
+    put(out, 0.01, rumble, 1.6)
+    return fade_ends(np.tanh(out * 1.6), 0.0005, 0.08)
+
+
+def rail_charge(rng: np.random.Generator) -> np.ndarray:
+    """
+    The capacitor filling, as a wound-up music box: plinks climbing under a rising whine, then a
+    bright one at 0.25s, the start of the perfect reload, and a soft tick as it is full at 0.445s.
+    """
+    seconds = 0.5
+    out = np.zeros(samples(seconds))
+    whine = np.sin(sweep(260, 980, 0.46, 0.9)) * np.minimum(clock(0.46) / 0.4, 1)
+    put(out, 0, whine * env_hit(samples(0.46), 0.05, 1.0), 0.1)
+    for at, note in ((0.02, 84), (0.08, 88), (0.14, 91), (0.2, 93)):
+        put(out, at, tone(note, 0.12, (1, 0.08, 0.3), 0.05), 0.32)
+    put(out, 0.25, tone(100, 0.2, (1, 0.12, 0.4, 0.1), 0.07), 1)
+    put(out, 0.445, tone(96, 0.05, (1, 0.2), 0.012), 0.3)
+    return fade_ends(out + 0.01 * noise(rng, seconds, 0.2), 0.002, 0.02)
+
+
+def rail_perfect(rng: np.random.Generator) -> np.ndarray:
+    """A perfect reload: the strongman's bell, rung clean, with a sparkle on top."""
+    seconds = 0.6
+    out = np.zeros(samples(seconds))
+    t = clock(seconds)
+    bell = sum(a * np.sin(2 * np.pi * 1180 * r * t) for r, a in ((1, 1), (2.32, 0.45), (4.07, 0.25)))
+    put(out, 0, bell * env_hit(samples(seconds), 0.001, 0.22), 0.8)
+    for i, note in enumerate((96, 100, 103)):
+        put(out, 0.02 + i * 0.03, tone(note, 0.3, (1, 0.2), 0.08), 0.3)
+    put(out, 0, np.diff(noise(rng, 0.3, 0.05), prepend=0), 0.25)
+    return fade_ends(out, 0.001, 0.06)
+
+
+def rail_jam(rng: np.random.Generator) -> np.ndarray:
+    """A jam: the works sputter, and the clown's spring sags with a sad boing."""
+    seconds = 0.55
+    out = np.zeros(samples(seconds))
+    for at in (0, 0.055, 0.1):
+        put(out, at, lowpass(noise(rng, 0.04, 0.008), 1800), 1.2)
+    n = samples(0.45)
+    t = np.arange(n) / SR
+    f = (260 - 120 * np.minimum(t / 0.4, 1)) * (1 + 0.35 * np.sin(2 * np.pi * 13 * t) * np.exp(-t / 0.2))
+    boing = np.sin(2 * np.pi * np.cumsum(f) / SR) * env_hit(n, 0.01, 0.16)
+    put(out, 0.1, boing, 0.9)
+    return fade_ends(out, 0.001, 0.04)
+
+
 EFFECTS = (
     ("peck", peck),
     ("quack", quack),
     ("spill", spill),
     ("jackpot", jackpot),
     ("meow", meow),
+    ("rail_fire", rail_fire),
+    ("rail_charge", rail_charge),
+    ("rail_perfect", rail_perfect),
+    ("rail_jam", rail_jam),
 )
 
 
@@ -254,16 +340,31 @@ def build_bed() -> np.ndarray:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument(
+        "--only",
+        nargs="+",
+        metavar="NAME",
+        help="write just these one-shots (e.g. rail_fire), leaving the rest and the bed alone",
+    )
+    args = parser.parse_args()
+    names = [name for name, _ in EFFECTS]
+    unknown = sorted(set(args.only or []) - set(names))
+    if unknown:
+        raise SystemExit(f"unknown sound: {', '.join(unknown)}")
     written: list[Path] = []
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         for i, (name, synth) in enumerate(EFFECTS):
+            if args.only and name not in args.only:
+                continue
             rng = np.random.default_rng([SEED, i])
             path = SFX_OUT / f"{name}.mp3"
             save(normalize(synth(rng)), path, SFX_BITRATE, tmp)
             written.append(path)
-        save(build_bed(), MUSIC_OUT, MUSIC_BITRATE, tmp)
-        written.append(MUSIC_OUT)
+        if not args.only:
+            save(build_bed(), MUSIC_OUT, MUSIC_BITRATE, tmp)
+            written.append(MUSIC_OUT)
     for path in written:
         channels = 2 if path == MUSIC_OUT else 1
         seconds = decode(path, channels).shape[-1] / SR

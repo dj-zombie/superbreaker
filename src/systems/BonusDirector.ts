@@ -21,6 +21,7 @@ import {
 } from '../core/Bonus';
 import { DEFAULT_GATLING, Gatling, type GatlingSpec } from '../core/Gatling';
 import { fall, type Path } from '../core/Motion';
+import { DEFAULT_RAIL, inColumn, RailGun, type RailSpec } from '../core/RailGun';
 import { Rng } from '../core/Rng';
 import { BRICK_HEALTH } from '../core/procgen/grid';
 import { LEVEL_MAX_Y, type BrickSpec } from '../core/types';
@@ -34,6 +35,7 @@ import { COIN, CollectibleSystem, type Collectible, type CollectibleKind } from 
 import type { JuiceSystem } from './JuiceSystem';
 import type { LaserStream } from './LaserSystem';
 import type { LightingSystem } from './LightingSystem';
+import { RailGunFx, type RailLook } from './RailGunFx';
 
 /** Ids of the bricks that stand in for targets, clear of the level's own and a boss's. */
 export const BONUS_ID_BASE = 200_000;
@@ -184,9 +186,25 @@ export interface BonusStage {
   keep<T extends Phaser.GameObjects.GameObject>(obj: T): T;
 }
 
-/** A stage's hold-to-fire gatling: always there, never out of ammo, harder the longer it is held. */
+/**
+ * A stage's gun, one or the other. The gatling streams under a held trigger, harder the longer it
+ * is held. The rail gun fires one heavy slug up a whole column, and rewards a well-timed press.
+ */
 export interface GunsDef {
   gatling?: Partial<GatlingSpec>;
+  rail?: Partial<RailSpec>;
+  /** What the rail gun looks like, drawn in place of the paddle. The paddle when left out. */
+  railLook?: RailLook;
+}
+
+/** One rail gun slug, as the stage hears of it once its hits have landed. */
+export interface RailShot {
+  x: number;
+  overcharged: boolean;
+  /** Everything in its column. */
+  hits: readonly Target[];
+  /** Of those, the ones it popped. */
+  popped: readonly Target[];
 }
 
 /** What one bonus stage is. Everything else is the framework's. */
@@ -203,8 +221,10 @@ export interface BonusDef {
   medals: readonly [number, number, number];
   /** The medals count the score, or the coins. The score when left out. */
   medalBy?: MedalBy;
-  /** What a lost ball costs. It never costs a life. */
-  ballLost: Penalty;
+  /** False: the stage is played without a ball, with its guns alone. */
+  ball?: false;
+  /** What a lost ball costs. It never costs a life. Nothing when left out. */
+  ballLost?: Penalty;
   /** The stage has hold-to-fire guns, which heat up and overheat. Without, the gun skill is as ever. */
   guns?: GunsDef;
   /** The stage's own scenery, and how fast it scrolls against a level's. The world's when left out. */
@@ -224,6 +244,8 @@ export interface BonusDef {
    * so the hook only scores and reacts. `dealt` is the hit points it took, never more than it had.
    */
   onHit(s: BonusStage, target: Target, cause: HitCause, popped: boolean, dealt: number): void;
+  /** A rail gun slug went up, after `onHit` heard of each target it hit. */
+  onShot?(s: BonusStage, shot: RailShot): void;
   /** A target left the field unhit, by its own timer or past the side. */
   onEscape?(s: BonusStage, target: Target): void;
   /** The paddle caught a collectible. Coins are the framework's; anything else is the stage's. */
@@ -315,6 +337,10 @@ export interface BonusHost {
   timeScale(): number;
   /** The fire button, the mouse or a held skill button is down. */
   triggerHeld(): boolean;
+  /** A touch tap pulled the trigger once since the last call. */
+  takeTap(): boolean;
+  /** The rail gun fired. */
+  fired(): void;
   /** The held trigger, for the guns. Null puts them away. */
   stream(held: LaserStream | null): void;
   /** Bolts the guns have fired. */
@@ -370,6 +396,9 @@ export class BonusDirector implements BrickOwner {
 
   readonly state: BonusState;
   readonly gatling?: Gatling;
+  readonly rail?: RailGun;
+  private readonly railFx?: RailGunFx;
+  private railShots = 0;
   private readonly rng: Rng;
   private readonly items: CollectibleSystem;
   private readonly slots: TargetSlot[] = [];
@@ -408,10 +437,15 @@ export class BonusDirector implements BrickOwner {
       durationMs: def.durationMs,
       medals: def.medals,
       medalBy: def.medalBy,
-      ballLost: def.ballLost,
+      ballLost: def.ballLost ?? {},
       tally: (stats) => def.tally(stats),
     });
-    if (def.guns) this.gatling = new Gatling({ ...DEFAULT_GATLING, ...def.guns.gatling });
+    if (def.guns?.rail) {
+      this.rail = new RailGun({ ...DEFAULT_RAIL, ...def.guns.rail });
+      this.railFx = new RailGunFx(host.scene, host.juice, host.lighting, host.paddle, def.guns.railLook);
+    } else if (def.guns) {
+      this.gatling = new Gatling({ ...DEFAULT_GATLING, ...def.guns.gatling });
+    }
     this.field = {
       left: 0,
       right: WIDTH,
@@ -466,6 +500,11 @@ export class BonusDirector implements BrickOwner {
     return step === 'scoring' || step === 'tally' || step === 'done';
   }
 
+  /** The stage is played with a ball. */
+  get ball(): boolean {
+    return this.def.ball !== false;
+  }
+
   /** The ball waits on the paddle and its serve clock stands still. */
   get holdServe(): boolean {
     return this.state.step === 'intro';
@@ -478,7 +517,7 @@ export class BonusDirector implements BrickOwner {
 
   /** The stage has hold-to-fire guns in place of the gun skill. */
   get guns(): boolean {
-    return !!this.gatling;
+    return !!this.gatling || !!this.rail;
   }
 
   /** A tap. True when the stage took it, so it does nothing else. */
@@ -532,8 +571,9 @@ export class BonusDirector implements BrickOwner {
     this.clock += tick;
     const events = state.tick(state.step === 'tally' ? dt : tick);
     if (state.step === 'play') {
-      this.updateGuns(tick);
+      const shot = this.updateGuns(tick);
       this.applyHits();
+      if (shot) this.landShot(shot);
       this.def.tick(this.stage, tick);
       this.applyHits();
     }
@@ -556,6 +596,7 @@ export class BonusDirector implements BrickOwner {
     for (const t of this.slots) this.drop(t);
     this.slots.length = 0;
     this.items.destroy();
+    this.railFx?.destroy();
     for (const obj of this.kept) obj.destroy();
     this.kept.length = 0;
     this.host.lighting.takeDownBulbs();
@@ -591,12 +632,14 @@ export class BonusDirector implements BrickOwner {
     const { host } = this;
     host.slowmo(0);
     this.gatling?.reset();
+    this.rail?.reset();
+    this.railFx?.stow();
     host.stream(null);
     this.pending.length = 0;
     for (const t of this.slots) if (t.live) this.remove(t, 'hide');
     this.items.vacuum();
     this.items.dropUnpulled();
-    const shots = host.shotsFired() - this.shotsBefore;
+    const shots = this.rail ? this.railShots : host.shotsFired() - this.shotsBefore;
     this.state.count('shots', shots);
     const p = theme().palette;
     host.juice.popText(WIDTH / 2, this.field.top + 160, 'TIME!', css(p.accentHi), 56, 1.4);
@@ -716,9 +759,11 @@ export class BonusDirector implements BrickOwner {
 
   // ---------------------------------------------------------------- guns
 
-  private updateGuns(tick: number): void {
+  /** Runs the gun for `tick`. A rail gun slug that went up is returned, its hits queued. */
+  private updateGuns(tick: number): Omit<RailShot, 'popped'> | null {
+    if (this.rail) return this.updateRail(this.rail, tick);
     const { gatling, host, held } = this;
-    if (!gatling) return;
+    if (!gatling) return null;
     const up = gatling.update(tick, host.triggerHeld());
     if (up !== null) {
       // Each step up in power gets its own ring and word, so the player feels the spin pay off.
@@ -739,6 +784,44 @@ export class BonusDirector implements BrickOwner {
     held.gapMs = gatling.gapMs;
     held.damage = gatling.damage;
     host.stream(held);
+    return null;
+  }
+
+  private updateRail(rail: RailGun, tick: number): Omit<RailShot, 'popped'> | null {
+    const { host } = this;
+    const event = rail.update(tick, host.triggerHeld(), host.takeTap());
+    this.railFx?.update(rail, tick);
+    if (!event) return null;
+    if (event.kind === 'jam') {
+      this.railFx?.jam();
+      return null;
+    }
+    const x = host.paddle.x;
+    const { overcharged } = event;
+    // Straight up from the paddle: everything over it in the column, front to back.
+    const boxes = this.slots
+      .filter((t) => t.live && t.y < this.field.paddleY)
+      .map((t) => ({ x: t.x, halfW: (t.spec.hitWidth ?? t.spec.width) / 2, t }));
+    const hits = inColumn(boxes, x, rail.halfWidth(overcharged)).map((b) => b.t);
+    const damage = rail.damage(overcharged);
+    for (const t of hits) this.pending.push({ target: t, cause: 'bolt', damage });
+    this.railShots++;
+    host.fired();
+    return { x, overcharged, hits };
+  }
+
+  /** A slug's hits have landed: the stage hears of it, and the shot gets its look. */
+  private landShot(shot: Omit<RailShot, 'popped'>): void {
+    const popped = shot.hits.filter((t) => !t.live);
+    this.def.onShot?.(this.stage, { ...shot, popped });
+    this.railFx?.fire({
+      x: shot.x,
+      overcharged: shot.overcharged,
+      halfWidth: this.rail?.halfWidth(shot.overcharged) ?? 0,
+      popped: popped.length,
+      topY: popped.length > 0 ? Math.min(...popped.map((t) => t.y)) : undefined,
+      multiplier: this.state.multiplier,
+    });
   }
 
   // ---------------------------------------------------------------- targets

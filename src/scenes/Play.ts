@@ -277,6 +277,8 @@ const LASER_GLOW_GAP_MS = 80;
 const SLOWMO_TINT = 0xa8c4ff;
 /** A ball lost in a bonus stage is back on the paddle and away again after this long. */
 const BONUS_SERVE_MS = 600;
+/** The words over the paddle as a stage played without a ball begins. */
+const FIRE_HINT = { pad: 'PRESS A TO FIRE', touch: 'TAP TO FIRE', desktop: 'CLICK TO FIRE' } as const;
 /** Arcade: the bonus round played after every boss. */
 const ARCADE_BONUS: BonusId = 'gallery';
 
@@ -297,6 +299,8 @@ export class Play extends BaseScene {
   private bonus?: BonusDirector;
   /** A HUD skill button is holding a bonus stage's trigger down. */
   private hudTrigger = false;
+  /** A touch tap pulled a ball-less stage's trigger once, for its next update. */
+  private tapFire = false;
   private diff!: DifficultyConfig;
   private paddle!: Paddle;
   private balls!: Phaser.Physics.Arcade.Group;
@@ -382,6 +386,7 @@ export class Play extends BaseScene {
     this.serveMs = 0;
     this.countdownShown = 0;
     this.hudTrigger = false;
+    this.tapFire = false;
   }
 
   /** Campaign: where this level sits, a level or one of the stops after one. */
@@ -880,7 +885,7 @@ export class Play extends BaseScene {
     if (this.hudTrigger && !this.input.manager.pointers.some((p) => p.isDown)) this.hudTrigger = false;
     const keys = this.inputSys.keys;
     if (this.hudTrigger || keys.held('gun')) return true;
-    if (!this.ballList.some((b) => !b.attached)) return false;
+    if (!this.ballless && !this.ballList.some((b) => !b.attached)) return false;
     if (keys.held('launch') || padHeld(PadButton.south)) return true;
     const p = this.input.activePointer;
     return p.isDown && !p.wasTouch;
@@ -893,7 +898,12 @@ export class Play extends BaseScene {
 
   private skillViews(): SkillView[] {
     const gatling = this.bonus?.gatling;
+    const rail = this.bonus?.rail;
     return SKILL_IDS.map((id) => {
+      // A rail gun's ring is its capacitor filling, and it lights white in the perfect reload.
+      if (id === 'gun' && rail) {
+        return { id, fraction: rail.charge, ready: true, active: rail.inSweetSpot };
+      }
       // A bonus stage's gatling is always ready; its ring shows how far the barrels have spun up.
       if (id === 'gun' && gatling) {
         return { id, fraction: gatling.spin, ready: true, active: gatling.firing };
@@ -947,7 +957,8 @@ export class Play extends BaseScene {
     if (this.finished || !this.scene.isActive() || this.coach?.frozen || this.boss?.cinematic) {
       return;
     }
-    if (this.bonus?.cinematic) return;
+    // A stage played without a ball keeps the stock for later: most of it is for the ball.
+    if (this.bonus?.cinematic || this.ballless) return;
     const id = save.useStockPowerup(i);
     if (!id) return;
     const x = this.paddle.x;
@@ -1055,9 +1066,15 @@ export class Play extends BaseScene {
     this.rearm();
   }
 
+  /** A bonus stage played with its guns alone is on: no ball is served, and none can be lost. */
+  private get ballless(): boolean {
+    return !!this.bonus?.active && !this.bonus.ball;
+  }
+
   /** A fresh ball on the paddle wherever it is, waiting for an aimed launch. */
   private rearm(): void {
     this.balls.clear(true, true);
+    if (this.ballless) return;
     const ball = this.makeBall(this.paddle.x, PADDLE_Y - 24);
     ball.attach(0);
     this.aim = -Math.PI / 2;
@@ -1075,6 +1092,12 @@ export class Play extends BaseScene {
     }
     if (this.boss?.skip()) return;
     if (this.bonus?.skip()) return;
+    // Without a ball, a tap on the field pulls the trigger once. A mouse, a key or a pad button
+    // is held, and the trigger already reads those.
+    if (this.ballless) {
+      if (this.input.activePointer.wasTouch) this.tapFire = true;
+      return;
+    }
     if (this.ballList.some((b) => b.attached)) this.launch();
     else this.useSkill('gun');
   }
@@ -1191,6 +1214,7 @@ export class Play extends BaseScene {
   }
 
   private checkLostBalls(): void {
+    if (this.ballless) return;
     if (save.state.settings.godMode) this.bounceOffFloor();
     for (const b of this.ballList) {
       if (b.y > LOSE_Y) b.destroy();
@@ -1902,12 +1926,12 @@ export class Play extends BaseScene {
     else audio.bossMusic(mood);
   }
 
-  private showHint(): void {
+  private showHint(text = 'TAP TO LAUNCH'): void {
     this.clearHint();
     const t = theme();
     // While the tutorial shows the controls, its pictures stand in for the words.
     if (!this.coaching) {
-      this.hint = label(this, WIDTH / 2, PADDLE_Y - 160, 'TAP TO LAUNCH', 18, { t, color: t.palette.text });
+      this.hint = label(this, WIDTH / 2, PADDLE_Y - 160, text, 18, { t, color: t.palette.text });
       this.hint.setDepth(20).setStroke(css(t.palette.base), 6);
       if (!calm()) {
         this.tweens.add({
@@ -2298,6 +2322,8 @@ export class Play extends BaseScene {
     const def = BONUSES[ARCADE_BONUS];
     this.bonus = new BonusDirector(def, this.bonusHost(), { seed });
     exposeBonus(this.bonus);
+    // The boss's ball was put back on the paddle; a stage played without one takes it away.
+    if (!this.bonus.ball) this.rearm();
     this.switchScenery(def.backdrop ?? this.world, def.pace ?? 1);
   }
 
@@ -2367,6 +2393,15 @@ export class Play extends BaseScene {
       paddle: this.paddle,
       timeScale: () => this.physics.world.timeScale,
       triggerHeld: () => this.triggerHeld(),
+      takeTap: () => {
+        const tapped = this.tapFire;
+        this.tapFire = false;
+        return tapped;
+      },
+      fired: () => {
+        this.clearHint();
+        haptic('medium');
+      },
       stream: (held) => this.laser.stream(held),
       shotsFired: () => this.laser.shots,
       slowmo: (ms) => this.slowmoFor(ms),
@@ -2388,7 +2423,7 @@ export class Play extends BaseScene {
         this.hud.bonus = view;
       },
       titleBand: (kicker, name, holdMs) => this.titleBand(kicker, name, holdMs),
-      serve: () => this.showHint(),
+      serve: () => this.showHint(this.ballless ? FIRE_HINT[controlDevice()] : undefined),
       finished: (result) => this.bonusFinished(result),
     };
   }
