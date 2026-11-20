@@ -23,6 +23,7 @@ import { DEFAULT_GATLING, Gatling, type GatlingSpec } from '../core/Gatling';
 import { fall, type Path } from '../core/Motion';
 import { DEFAULT_RAIL, inColumn, RailGun, type RailSpec } from '../core/RailGun';
 import { Rng } from '../core/Rng';
+import { SkillCharge, SKILLS } from '../core/Skills';
 import { BRICK_HEALTH } from '../core/procgen/grid';
 import { LEVEL_MAX_Y, type BrickSpec } from '../core/types';
 import type { Brick, BrickOwner, DestroyCause, HitOptions, HitResult } from '../entities/Brick';
@@ -68,6 +69,8 @@ const BURST_SPEED = 260;
 const BURST_GRAVITY = 900;
 /** The medal's sound as it lands: the results screen's stars, one per tier. */
 const MEDAL_SFX = { bronze: 'star_1', silver: 'star_2', gold: 'star_3' } as const;
+/** Words over the paddle sit this far up, in px, when the rail gun's clown stands on it. */
+const CLOWN_CLEAR = 165;
 
 /** Dev builds only: `&tally=gold` (or bronze, silver, none) opens straight on a filled tally. */
 export const FORCED_TALLY = ((): Medal | undefined => {
@@ -187,14 +190,27 @@ export interface BonusStage {
 }
 
 /**
- * A stage's gun, one or the other. The gatling streams under a held trigger, harder the longer it
- * is held. The rail gun fires one heavy slug up a whole column, and rewards a well-timed press.
+ * A stage's guns. The gatling streams under a held trigger, harder the longer it is held. The rail
+ * gun fires one heavy slug up a whole column, and rewards a well-timed press. With a `burst`, the
+ * rail gun is the main gun and the gatling its sidearm, fired in bursts on its own button.
  */
 export interface GunsDef {
   gatling?: Partial<GatlingSpec>;
   rail?: Partial<RailSpec>;
   /** What the rail gun looks like, drawn in place of the paddle. The paddle when left out. */
   railLook?: RailLook;
+  burst?: BurstSpec;
+}
+
+/** The rail gun's sidearm: a gatling burst on a cooldown that its kills and perfect reloads cut. */
+export interface BurstSpec {
+  /** From empty to ready, in ms of play. The stage starts with it ready. */
+  cooldownMs: number;
+  /** How long a burst fires. */
+  durationMs: number;
+  /** Cooldown each target a slug pops takes off, and a perfect reload's on top. */
+  perKillMs: number;
+  perPerfectMs: number;
 }
 
 /** One rail gun slug, as the stage hears of it once its hits have landed. */
@@ -341,6 +357,10 @@ export interface BonusHost {
   takeTap(): boolean;
   /** The rail gun fired. */
   fired(): void;
+  /** The sidearm's own trigger: its button, its key, the right mouse button or pad X. */
+  secondaryHeld(): boolean;
+  /** The sidearm has charged and can be fired. */
+  burstReady(): void;
   /** The held trigger, for the guns. Null puts them away. */
   stream(held: LaserStream | null): void;
   /** Bolts the guns have fired. */
@@ -397,8 +417,12 @@ export class BonusDirector implements BrickOwner {
   readonly state: BonusState;
   readonly gatling?: Gatling;
   readonly rail?: RailGun;
+  /** The rail gun's sidearm's charge: the gatling fires while it runs. */
+  readonly burst?: SkillCharge;
   private readonly railFx?: RailGunFx;
   private railShots = 0;
+  private burstHeld = false;
+  private burstWasReady = false;
   private readonly rng: Rng;
   private readonly items: CollectibleSystem;
   private readonly slots: TargetSlot[] = [];
@@ -413,6 +437,8 @@ export class BonusDirector implements BrickOwner {
   private over = false;
   /** Bolts fired before the stage began, so the accuracy only counts its own. */
   private shotsBefore = 0;
+  /** Gatling shots fired as of the last frame, so the clown's head can take each one. */
+  private sidearmShots = 0;
   /** Count-up ticks already heard. */
   private ticked = 0;
   private medalRung = false;
@@ -440,11 +466,20 @@ export class BonusDirector implements BrickOwner {
       ballLost: def.ballLost ?? {},
       tally: (stats) => def.tally(stats),
     });
-    if (def.guns?.rail) {
-      this.rail = new RailGun({ ...DEFAULT_RAIL, ...def.guns.rail });
-      this.railFx = new RailGunFx(host.scene, host.juice, host.lighting, host.paddle, def.guns.railLook);
-    } else if (def.guns) {
-      this.gatling = new Gatling({ ...DEFAULT_GATLING, ...def.guns.gatling });
+    const guns = def.guns;
+    if (guns?.rail) {
+      this.rail = new RailGun({ ...DEFAULT_RAIL, ...guns.rail });
+      this.railFx = new RailGunFx(host.scene, host.juice, host.lighting, host.paddle, guns.railLook);
+    }
+    if (guns && (!guns.rail || guns.burst)) {
+      this.gatling = new Gatling({ ...DEFAULT_GATLING, ...guns.gatling });
+    }
+    if (guns?.rail && guns.burst) {
+      const { cooldownMs, durationMs, perKillMs } = guns.burst;
+      this.burst = new SkillCharge(
+        { label: 'Machine Gun', color: SKILLS.gun.color, cooldownMs, perBreakMs: perKillMs, durationMs },
+        1,
+      );
     }
     this.field = {
       left: 0,
@@ -513,6 +548,11 @@ export class BonusDirector implements BrickOwner {
   /** The stage is not in play: taps skip or do nothing, and abilities wait. */
   get cinematic(): boolean {
     return !this.over && this.state.step !== 'play';
+  }
+
+  /** The rail gun is drawn in place of the paddle. */
+  get gunDrawn(): boolean {
+    return !!this.def.guns?.railLook;
   }
 
   /** The stage has hold-to-fire guns in place of the gun skill. */
@@ -633,6 +673,7 @@ export class BonusDirector implements BrickOwner {
     host.slowmo(0);
     this.gatling?.reset();
     this.rail?.reset();
+    this.burst?.stop();
     this.railFx?.stow();
     host.stream(null);
     this.pending.length = 0;
@@ -759,32 +800,75 @@ export class BonusDirector implements BrickOwner {
 
   // ---------------------------------------------------------------- guns
 
-  /** Runs the gun for `tick`. A rail gun slug that went up is returned, its hits queued. */
+  /** Runs the guns for `tick`. A rail gun slug that went up is returned, its hits queued. */
   private updateGuns(tick: number): Omit<RailShot, 'popped'> | null {
-    if (this.rail) return this.updateRail(this.rail, tick);
-    const { gatling, host, held } = this;
-    if (!gatling) return null;
-    const up = gatling.update(tick, host.triggerHeld());
+    const shot = this.rail ? this.updateRail(this.rail, tick) : null;
+    if (this.gatling) this.updateGatling(this.gatling, tick);
+    return shot;
+  }
+
+  /** The gatling: under the held trigger, or as the rail gun's sidearm while a burst runs. */
+  private updateGatling(gatling: Gatling, tick: number): void {
+    const { host, held } = this;
+    const firing = this.burst ? this.updateBurst(this.burst, tick) : host.triggerHeld();
+    const up = gatling.update(tick, firing);
     if (up !== null) {
       // Each step up in power gets its own ring and word, so the player feels the spin pay off.
       const top = up > gatling.spec.damageAt.length;
       const p = theme().palette;
       audio.sfx(top ? 'surge' : 'combo', top ? 0.5 : 0.4, top ? 0 : 300, { x: host.paddle.x });
-      host.juice.popText(
-        host.paddle.x,
-        host.paddle.y - 96,
-        top ? 'MAX POWER!' : `POWER x${up}`,
-        css(top ? p.accentHi : p.accent),
-        top ? 22 : 18,
-      );
+      // A sidearm's burst spins up too fast to read every step, so it names only the top one.
+      if (top || !this.burst) {
+        host.juice.popText(
+          host.paddle.x,
+          host.paddle.y - (this.railFx ? CLOWN_CLEAR : 96),
+          top ? 'MAX POWER!' : `POWER x${up}`,
+          css(top ? p.accentHi : p.accent),
+          top ? 22 : 18,
+        );
+      }
       host.juice.ring(host.paddle.x, host.paddle.y, top ? p.accentHi : p.accent, top ? 90 : 60);
     }
     held.firing = gatling.firing;
     held.spin = gatling.spin;
     held.gapMs = gatling.gapMs;
     held.damage = gatling.damage;
-    host.stream(held);
-    return null;
+    if (this.burst && this.railFx) {
+      held.mouth = this.railFx.sidearmMuzzle();
+      const shots = host.shotsFired();
+      if (shots > this.sidearmShots) this.railFx.sidearmShot();
+      this.sidearmShots = shots;
+    }
+    // A sidearm's pods tuck away once the burst is over and its barrels have stopped.
+    host.stream(this.burst && !firing && gatling.spin <= 0 ? null : held);
+  }
+
+  /** The sidearm's charge and trigger. True while a burst fires. */
+  private updateBurst(burst: SkillCharge, tick: number): boolean {
+    const { host } = this;
+    const held = host.secondaryHeld();
+    const pressed = held && !this.burstHeld;
+    this.burstHeld = held;
+    if (pressed) {
+      if (burst.use()) this.burstOn();
+      else if (!burst.active) audio.sfx('ui_off', 0.3, 0, { x: host.paddle.x });
+    }
+    if (burst.update(tick, true) === 'end') this.railFx?.rattle(false);
+    if (burst.ready && !this.burstWasReady) host.burstReady();
+    this.burstWasReady = burst.ready;
+    return burst.active;
+  }
+
+  private burstOn(): void {
+    const { host } = this;
+    const { x, y } = host.paddle;
+    const color = SKILLS.gun.color;
+    this.railFx?.rattle(true);
+    host.juice.popText(x, y - CLOWN_CLEAR, 'MACHINE GUN!', css(color), 22, 1.2);
+    host.juice.ring(x, y, color, 110);
+    host.juice.shake(120, 0.004);
+    audio.sfx('surge', 0.5, 0, { x });
+    host.fired();
   }
 
   private updateRail(rail: RailGun, tick: number): Omit<RailShot, 'popped'> | null {
@@ -814,6 +898,10 @@ export class BonusDirector implements BrickOwner {
   private landShot(shot: Omit<RailShot, 'popped'>): void {
     const popped = shot.hits.filter((t) => !t.live);
     this.def.onShot?.(this.stage, { ...shot, popped });
+    const spec = this.def.guns?.burst;
+    if (this.burst && spec) {
+      this.burst.knock(popped.length * spec.perKillMs + (shot.overcharged ? spec.perPerfectMs : 0));
+    }
     this.railFx?.fire({
       x: shot.x,
       overcharged: shot.overcharged,

@@ -369,11 +369,11 @@ export const IMAGE_ASSETS: ImageAsset[] = [
     'jack_front',
     'jack_lid',
     'jack_spring',
-    'jack_head',
     'jack_dazed',
     'jack_puff',
     'jack_crank',
     'jack_crank_open',
+    'jack_head_up',
   ].map((key) => ({
     key,
     path: `images/bonus/${key}.png`,

@@ -57,6 +57,17 @@ describe('SkillCharge', () => {
     expect(s.charge).toBe(1);
   });
 
+  it('knocks any amount off the cooldown, but not while running', () => {
+    const s = new SkillCharge(def, 0);
+    s.knock(2_500);
+    expect(s.charge).toBeCloseTo(0.25);
+    s.knock(20_000);
+    expect(s.ready).toBe(true);
+    s.use();
+    s.knock(5_000);
+    expect(s.charge).toBe(0);
+  });
+
   it('can be stopped early without giving the charge back', () => {
     const s = new SkillCharge(def, 1);
     s.use();

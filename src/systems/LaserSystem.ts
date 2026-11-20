@@ -84,6 +84,8 @@ const SWARM_RETARGET_MS = 100;
 const POD_INSET = 12;
 const POD_HIDE = 12;
 const POD_HEIGHT = 22;
+/** Pods draw behind the paddle, so they slide out of it. */
+export const POD_DEPTH = -0.5;
 const KICK_PX = 3;
 const FLASH_MS = 60;
 const TRAIL_EVERY_MS = 22;
@@ -96,6 +98,8 @@ const IMPACT_SOUND_GAP_MS = 70;
 const SPARK_BUDGET = 36;
 const STEEL_HEAT = 0x9aa3b5;
 const DEG = Math.PI / 180;
+/** From one mouth, a pattern's two pods become two streams this many degrees either side of up. */
+const MOUTH_FAN = 3;
 
 class Bolt extends Phaser.Physics.Arcade.Image {
   declare body: Phaser.Physics.Arcade.Body;
@@ -141,6 +145,8 @@ export interface LaserStream {
   gapMs: number;
   /** Each bolt's damage now, in the stage's target hit points. */
   damage: number;
+  /** Fire from this one point, with the pods kept in, e.g. a clown's mouth. */
+  mouth?: { x: number; y: number };
 }
 
 /** A streamed bolt's tracer, in px, at damage 1; it grows with each point more. */
@@ -207,6 +213,8 @@ export class LaserSystem {
   private wallBoxes: HomingBox[] = [];
   /** The held trigger, while a bonus stage has the guns out. */
   private held: LaserStream | null = null;
+  /** The held stream's mouth as last given, kept so the barrels can still vent there once it lets go. */
+  private lastMouth?: { x: number; y: number };
   private wasFiring = false;
   /** Bolts fired since the scene started. A bonus stage works its accuracy out from it. */
   shots = 0;
@@ -237,7 +245,7 @@ export class LaserSystem {
 
     const pod = (side: -1 | 1): Pod => ({
       side,
-      img: scene.add.image(0, 0, 'laser_pod').setOrigin(0.5, 1).setDepth(-0.5).setVisible(false),
+      img: scene.add.image(0, 0, 'laser_pod').setOrigin(0.5, 1).setDepth(POD_DEPTH).setVisible(false),
       flash: this.flashImage(),
       kick: 0,
       glow: 0,
@@ -311,12 +319,18 @@ export class LaserSystem {
     if (this.source === 'burst') this.begin('burst');
   }
 
+  /** Draws the pods at `depth`: over a gun drawn in place of the paddle, so they sit on its sides. */
+  podsAt(depth: number): void {
+    for (const p of this.pods) p.img.setDepth(depth);
+  }
+
   /**
    * Keeps the pods out for a bonus stage's held trigger, set every frame before `update`. Null
    * tucks them away. A pickup or a burst still outranks it.
    */
   stream(held: LaserStream | null): void {
     this.held = held;
+    if (held) this.lastMouth = held.mouth;
   }
 
   update(dtMs: number): void {
@@ -357,12 +371,21 @@ export class LaserSystem {
       if ((this.held?.spin ?? 0) < 0.3) audio.sfx('laser_spinup', 0.25, 0, { x });
       return;
     }
-    if (!save.state.settings.reducedMotion) {
-      for (const p of this.pods) {
-        const m = this.muzzle(p);
-        this.smoke.explode(this.spend(3), m.x, m.y);
-      }
+    if (save.state.settings.reducedMotion) return;
+    const mouth = this.mouth;
+    if (mouth) {
+      this.smoke.explode(this.spend(5), mouth.x, mouth.y);
+      return;
     }
+    for (const p of this.pods) {
+      const m = this.muzzle(p);
+      this.smoke.explode(this.spend(3), m.x, m.y);
+    }
+  }
+
+  /** Where a held stream fires from, when it fires from one point instead of the pods. */
+  private get mouth(): { x: number; y: number } | undefined {
+    return this.source === 'stream' ? this.lastMouth : undefined;
   }
 
   /** Removes every bolt and tucks the pods away, e.g. when a life is lost. */
@@ -415,27 +438,34 @@ export class LaserSystem {
     this.patternShot = 0;
     this.steamAcc = 0;
     this.scene.tweens.killTweensOf(this.deploy);
-    this.scene.tweens.add({ targets: this.deploy, t: 0, duration: 160, ease: 'Back.Out' });
+    const mouth = !!this.mouth;
+    if (!mouth) this.scene.tweens.add({ targets: this.deploy, t: 0, duration: 160, ease: 'Back.Out' });
     for (const p of this.pods) {
       p.light?.kill();
-      p.light = this.host.lights.addLight({
-        follow: p.img,
-        radius: 64,
-        color: this.look.glow,
-        intensity: 0.5,
-        priority: 5,
-      });
+      // Firing from a mouth, one pod's light follows the flash there instead and the other stays off.
+      p.light =
+        mouth && p.side < 0
+          ? undefined
+          : this.host.lights.addLight({
+              follow: mouth ? this.center : p.img,
+              radius: 64,
+              color: this.look.glow,
+              intensity: 0.5,
+              priority: 5,
+            });
     }
     audio.sfx('laser_spinup', 0.35, 0, { x: this.host.paddle.x });
   }
 
   /** The barrels vent their heat and the pods tuck back into the paddle. */
   private finish(): void {
+    const mouth = this.mouth;
     this.source = null;
     const calm = save.state.settings.reducedMotion;
+    if (mouth && !calm) this.smoke.explode(this.spend(10), mouth.x, mouth.y);
     for (const p of this.pods) {
       const { x, y } = this.muzzle(p);
-      if (!calm) this.smoke.explode(this.spend(8), x, y);
+      if (!calm && !mouth) this.smoke.explode(this.spend(8), x, y);
       p.light?.kill();
       p.light = undefined;
     }
@@ -538,9 +568,11 @@ export class LaserSystem {
     const m = GUN_PATTERNS[id].shot(this.patternMs, this.patternShot++);
     const { paddle } = this.host;
     const span = paddle.halfWidth - POD_INSET;
-    const pod = Math.abs(m.at) > 0.85 ? this.pods[m.at < 0 ? 0 : 1] : null;
-    const { x, y } = pod ? this.muzzle(pod) : { x: paddle.x + m.at * span, y: paddle.y - 14 };
-    const b = this.spawn(x, y, m.angle + Phaser.Math.FloatBetween(-0.8, 0.8) * DEG, speed, tint);
+    const mouth = this.mouth;
+    const pod = !mouth && Math.abs(m.at) > 0.85 ? this.pods[m.at < 0 ? 0 : 1] : null;
+    const { x, y } = mouth ?? (pod ? this.muzzle(pod) : { x: paddle.x + m.at * span, y: paddle.y - 14 });
+    const angle = m.angle + (mouth ? m.at * MOUTH_FAN * DEG : 0);
+    const b = this.spawn(x, y, angle + Phaser.Math.FloatBetween(-0.8, 0.8) * DEG, speed, tint);
     if (b) {
       b.body.velocity.x += strafe;
       if (m.weave) {
@@ -558,7 +590,7 @@ export class LaserSystem {
       this.centerAt = x - paddle.x;
       this.centerGlow = 1;
     }
-    if (!calm) this.casings[sideOf < 0 ? 0 : 1].emitParticleAt(x, y + 8, 1);
+    if (!calm && !mouth) this.casings[sideOf < 0 ? 0 : 1].emitParticleAt(x, y + 8, 1);
     this.shotSound(m.at, x, remainingMs);
   }
 
@@ -775,13 +807,13 @@ export class LaserSystem {
   }
 
   private centerMuzzle(): { x: number; y: number } {
-    return { x: this.host.paddle.x + this.centerAt, y: this.host.paddle.y - 14 };
+    return this.mouth ?? { x: this.host.paddle.x + this.centerAt, y: this.host.paddle.y - 14 };
   }
 
   private updatePods(dtMs: number, remainingMs: number): void {
     const paddle = this.host.paddle;
     const calm = save.state.settings.reducedMotion;
-    const hidden = this.deploy.t >= 1;
+    const hidden = this.deploy.t >= 1 || !!this.mouth;
     const heat = this.heatColor(remainingMs);
     const flashAlpha = calm ? 0.5 : 1;
     const cooling = this.source !== null && remainingMs < LASER_COOL_MS;

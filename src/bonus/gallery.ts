@@ -1,10 +1,12 @@
 import type { BonusStats, Medal } from '../core/Bonus';
+import type { GatlingSpec } from '../core/Gatling';
 import { sine, still, type Path } from '../core/Motion';
 import type { RailSpec } from '../core/RailGun';
 import type { Rng } from '../core/Rng';
 import type {
   BonusDef,
   BonusStage,
+  BurstSpec,
   Field,
   HitCause,
   RailShot,
@@ -57,9 +59,17 @@ export const DUCK_COINS = 1;
 export const MULTI_COINS = 1;
 /** The rail gun: a slug takes a duck's hit points, an overcharged one twice that. */
 export const RAIL: Partial<RailSpec> = { damage: DUCK_HP, overDamage: DUCK_HP * 2 };
+/** The sidearm's gatling: it reaches full power within a burst, not after one. */
+const SIDEARM: Partial<GatlingSpec> = { spinUpMs: 900, spinDownMs: 400 };
+/**
+ * The sidearm's burst: it starts ready and is back from empty in 4s of play, quicker by 0.5s a
+ * target the rail gun pops and 0.8s a perfect reload, so a sharp player fires it every few seconds.
+ */
+const BURST: BurstSpec = { cooldownMs: 4_000, durationMs: 3_000, perKillMs: 500, perPerfectMs: 800 };
 /**
  * It is a jack-in-the-box: the clown springs out and the slug leaves his mouth. The points are
- * measured off the parts scripts/build-bonus.py cuts from art-src/bonus/jack.jpg.
+ * measured off the parts scripts/build-bonus.py cuts from art-src/bonus/jack.jpg and
+ * jack_head_up.jpg.
  */
 const JACK: RailLook = {
   keys: {
@@ -68,7 +78,7 @@ const JACK: RailLook = {
     front: 'jack_front',
     lid: 'jack_lid',
     spring: 'jack_spring',
-    head: 'jack_head',
+    head: 'jack_head_up',
     dazed: 'jack_dazed',
     puff: 'jack_puff',
     crank: 'jack_crank',
@@ -78,7 +88,7 @@ const JACK: RailLook = {
   drop: 14,
   springBase: [132, 200],
   neck: [132, 131],
-  mouth: [100, 98],
+  mouth: [132, 70],
   hinge: [193, 177],
   crankAxle: [237, 238],
   crankAxleOpen: [242, 242],
@@ -387,7 +397,7 @@ export const gallery: BonusDef = {
   medals: [30, 60, 100],
   // A shooting gallery is played with the gun alone.
   ball: false,
-  guns: { rail: RAIL, railLook: JACK },
+  guns: { rail: RAIL, railLook: JACK, gatling: SIDEARM, burst: BURST },
   // A lazy ride down past the midway, after the boss's dive.
   backdrop: 'carnival',
   pace: 0.6,

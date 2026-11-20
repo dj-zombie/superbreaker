@@ -112,11 +112,12 @@ import { FrameMonitor, particleDensity } from '../systems/Quality';
 import { FeverSystem } from '../systems/FeverSystem';
 import { InputSystem } from '../systems/InputSystem';
 import { JuiceSystem } from '../systems/JuiceSystem';
-import { FORCED_LASER_MODE, LaserSystem } from '../systems/LaserSystem';
+import { FORCED_LASER_MODE, LaserSystem, POD_DEPTH } from '../systems/LaserSystem';
 import { OnboardingCoach, type CoachHand } from '../systems/OnboardingCoach';
 import { LightingSystem, type Light } from '../systems/LightingSystem';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/PowerupSystem';
+import { GUN_DEPTH } from '../systems/RailGunFx';
 import { RunDirector, type RunHost } from '../systems/RunDirector';
 import { framePanel, glowLineTexture } from '../ui/frames';
 import { slam } from '../ui/fx/motion';
@@ -301,6 +302,10 @@ export class Play extends BaseScene {
   private hudTrigger = false;
   /** A touch tap pulled a ball-less stage's trigger once, for its next update. */
   private tapFire = false;
+  /** This stage's sidearm READY call-out has said how to fire it. */
+  private burstTaught = false;
+  /** A sidearm press since the director last looked: a tap can be up again before a frame runs. */
+  private sidearmTap = false;
   private diff!: DifficultyConfig;
   private paddle!: Paddle;
   private balls!: Phaser.Physics.Arcade.Group;
@@ -387,6 +392,8 @@ export class Play extends BaseScene {
     this.countdownShown = 0;
     this.hudTrigger = false;
     this.tapFire = false;
+    this.burstTaught = false;
+    this.sidearmTap = false;
   }
 
   /** Campaign: where this level sits, a level or one of the stops after one. */
@@ -638,7 +645,7 @@ export class Play extends BaseScene {
     this.bonus = bonus
       ? new BonusDirector(BONUSES[bonus], this.bonusHost(), { seed: randomSeed() })
       : undefined;
-    exposeBonus(this.bonus);
+    this.bonusIn();
     this.runDirector?.attach(this.runHost());
     this.inputSys = new InputSystem(
       this,
@@ -651,7 +658,17 @@ export class Play extends BaseScene {
     const keys = this.inputSys.keys;
     SLOT_ACTIONS.forEach((action, i) => keys.on(action, () => this.fireSlot(i)));
     STOCK_ACTIONS.forEach((action, i) => keys.on(action, () => this.useStock(i)));
-    for (const id of SKILL_IDS) keys.on(id, () => this.useSkill(id));
+    for (const id of SKILL_IDS) {
+      keys.on(id, () => {
+        // The sidearm's key must not latch the HUD trigger: that latch sticks while the left
+        // button is held and would silence the rail gun the click is firing.
+        if (id === 'gun' && this.bonus?.burst) {
+          this.pullSidearm();
+          return;
+        }
+        this.useSkill(id);
+      });
+    }
     // Dev only: with `?laser=<mode>`, L hands out a laser for play-testing that mode.
     const kb = this.input.keyboard;
     if (FORCED_LASER_MODE) kb?.addKey(Phaser.Input.Keyboard.KeyCodes.L).on('down', () => this.devLaser());
@@ -666,10 +683,20 @@ export class Play extends BaseScene {
     const stockButtons: number[] = [PadButton.lb, PadButton.rb, PadButton.lt, PadButton.rt];
     this.unsubscribePad = onPadButton((button, down) => {
       if (!down) return;
+      // A rail gun's sidearm takes X, in play and through the tally so it never fires a slot.
+      if (button === PadButton.west && this.bonus?.burst) {
+        this.pullSidearm();
+        return;
+      }
       if (button === PadButton.west) this.fireSlot(0);
       else if (button === PadButton.north) this.fireSlot(1);
       else if (button === PadButton.east) this.useSkill('slowmo');
       else if (stockButtons.includes(button)) this.useStock(stockButtons.indexOf(button));
+    });
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      // Touch sets the left button, so this stays a mouse's right button. macOS Ctrl-click counts:
+      // Phaser reports it as the right button.
+      if (p.rightButtonDown()) this.pullSidearm();
     });
     // A boss level or a bonus stage never runs the tutorial.
     const noTutorial = save.state.seenInstructions || !!this.level.boss || !!this.bonus;
@@ -831,7 +858,9 @@ export class Play extends BaseScene {
     if (this.bonus?.cinematic) return;
     // In a bonus stage with guns, the gun button is a trigger: held down, it fires.
     if (id === 'gun' && this.bonus?.guns) {
+      // Held so the same click does not also fire the rail gun. The sidearm itself is the tap.
       this.hudTrigger = true;
+      if (this.bonus.burst) this.pullSidearm();
       return;
     }
     // The tutorial's skill stops wait on their own skill; the others leave the skills alone.
@@ -881,14 +910,47 @@ export class Play extends BaseScene {
    * launch key, pad A or a held mouse button.
    */
   private triggerHeld(): boolean {
-    // The HUD button's release can be missed when the finger slides off the screen.
-    if (this.hudTrigger && !this.input.manager.pointers.some((p) => p.isDown)) this.hudTrigger = false;
+    this.checkHudTrigger();
     const keys = this.inputSys.keys;
-    if (this.hudTrigger || keys.held('gun')) return true;
+    // With a sidearm, the gun button, its key and the right mouse button are the sidearm's.
+    const sidearm = !!this.bonus?.burst;
+    if (!sidearm && (this.hudTrigger || keys.held('gun'))) return true;
     if (!this.ballless && !this.ballList.some((b) => !b.attached)) return false;
     if (keys.held('launch') || padHeld(PadButton.south)) return true;
     const p = this.input.activePointer;
+    if (sidearm) return p.isDown && !p.wasTouch && p.leftButtonDown() && !this.hudTrigger;
     return p.isDown && !p.wasTouch;
+  }
+
+  /**
+   * A bonus stage's sidearm trigger: a press of its button, its key, the right mouse button or
+   * pad X. The button's latch is not a hold here, so a missed release with another finger still
+   * down cannot eat the next tap.
+   */
+  private secondaryHeld(): boolean {
+    this.checkHudTrigger();
+    const p = this.input.activePointer;
+    const tap = this.sidearmTap;
+    this.sidearmTap = false;
+    return (
+      tap ||
+      this.inputSys.keys.held('gun') ||
+      padHeld(PadButton.west) ||
+      (p.isDown && !p.wasTouch && p.rightButtonDown())
+    );
+  }
+
+  /** Arms the sidearm for the next update. Nothing until the stage is in play. */
+  private pullSidearm(): void {
+    const bonus = this.bonus;
+    if (!bonus?.burst || !bonus.active || bonus.cinematic) return;
+    if (this.finished || this.cleared || !this.scene.isActive()) return;
+    this.sidearmTap = true;
+  }
+
+  /** The HUD button's release can be missed when the finger slides off the screen. */
+  private checkHudTrigger(): void {
+    if (this.hudTrigger && !this.input.manager.pointers.some((p) => p.isDown)) this.hudTrigger = false;
   }
 
   /** Charged, and for the gun, no laser pickup already firing: that holds its charge. */
@@ -899,7 +961,12 @@ export class Play extends BaseScene {
   private skillViews(): SkillView[] {
     const gatling = this.bonus?.gatling;
     const rail = this.bonus?.rail;
+    const burst = this.bonus?.burst;
     return SKILL_IDS.map((id) => {
+      // A rail gun's sidearm has the gun button: its ring is the burst's cooldown, then its time left.
+      if (id === 'gun' && burst) {
+        return { id, fraction: burst.fraction, ready: burst.ready, active: burst.active };
+      }
       // A rail gun's ring is its capacitor filling, and it lights white in the perfect reload.
       if (id === 'gun' && rail) {
         return { id, fraction: rail.charge, ready: true, active: rail.inSweetSpot };
@@ -949,6 +1016,24 @@ export class Play extends BaseScene {
         : { pad: 'PRESS B', touch: 'TAP THE HOURGLASS', desktop: `PRESS ${skillKeyLabel(id)} OR SHIFT` };
     this.juice.popText(WIDTH / 2, ARENA_MID + 40, `${def.label.toUpperCase()} READY`, css(def.color), 26);
     this.juice.popText(WIDTH / 2, ARENA_MID + 74, how[device], '#ffffff', 16);
+    audio.sfx('ui_on', 0.45);
+  }
+
+  /** A rail gun's sidearm has charged: the first time in a stage it says how to fire it. */
+  private burstReadyHint(): void {
+    const color = css(SKILLS.gun.color);
+    // Over the MACHINE GUN! call-out that firing it straight away puts over the clown.
+    const y = this.paddle.y - 290;
+    this.juice.popText(WIDTH / 2, y, 'MACHINE GUN READY', color, 20);
+    if (!this.burstTaught) {
+      this.burstTaught = true;
+      const how = {
+        pad: 'PRESS X',
+        touch: 'TAP THE BULLETS',
+        desktop: `RIGHT-CLICK OR PRESS ${skillKeyLabel('gun')}`,
+      };
+      this.juice.popText(WIDTH / 2, y + 30, how[controlDevice()], '#ffffff', 15);
+    }
     audio.sfx('ui_on', 0.45);
   }
 
@@ -2321,7 +2406,7 @@ export class Play extends BaseScene {
     this.clearHint();
     const def = BONUSES[ARCADE_BONUS];
     this.bonus = new BonusDirector(def, this.bonusHost(), { seed });
-    exposeBonus(this.bonus);
+    this.bonusIn();
     // The boss's ball was put back on the paddle; a stage played without one takes it away.
     if (!this.bonus.ball) this.rearm();
     this.switchScenery(def.backdrop ?? this.world, def.pace ?? 1);
@@ -2338,7 +2423,9 @@ export class Play extends BaseScene {
     this.bonus.destroy();
     this.bonus = undefined;
     exposeBonus(undefined);
+    this.laser.podsAt(POD_DEPTH);
     this.hudTrigger = false;
+    this.sidearmTap = false;
     audio.playMusic('music');
     this.switchScenery(this.world, 1);
   }
@@ -2384,7 +2471,17 @@ export class Play extends BaseScene {
     };
   }
 
+  /** A bonus stage's director is in: the pods sit on a gun drawn in place of the paddle. */
+  private bonusIn(): void {
+    exposeBonus(this.bonus);
+    this.sidearmTap = false;
+    this.burstTaught = false;
+    if (this.bonus?.gunDrawn) this.laser.podsAt(GUN_DEPTH + 0.05);
+  }
+
   private bonusHost(): BonusHost {
+    // A bonus stage's sidearm fires on the right mouse button.
+    this.input.mouse?.disableContextMenu();
     return {
       scene: this,
       bricks: this.bricks,
@@ -2402,6 +2499,8 @@ export class Play extends BaseScene {
         this.clearHint();
         haptic('medium');
       },
+      secondaryHeld: () => this.secondaryHeld(),
+      burstReady: () => this.burstReadyHint(),
       stream: (held) => this.laser.stream(held),
       shotsFired: () => this.laser.shots,
       slowmo: (ms) => this.slowmoFor(ms),

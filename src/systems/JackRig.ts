@@ -17,6 +17,7 @@ export interface JackLook {
     front: string;
     lid: string;
     spring: string;
+    /** His head thrown back, mouth open to the sky: both guns fire out of it. */
     head: string;
     /** His head when the gun jams, and the puff of smoke that comes with it. */
     dazed: string;
@@ -32,7 +33,7 @@ export interface JackLook {
   /** Where the spring stands in the box, and where it meets his neck at rest. */
   springBase: Point;
   neck: Point;
-  /** Where the slug leaves him; it is kept over the paddle's middle. */
+  /** The glow in his open mouth, where both guns fire from; it is kept over the paddle's middle. */
   mouth: Point;
   /** The middle of the lid's hinge. */
   hinge: Point;
@@ -71,6 +72,14 @@ const SHAKE = 2.4;
 const RATTLE = 0.06;
 /** The crank's turns a second, while the capacitor fills. */
 const CRANK_TURNS = 3;
+/**
+ * Firing the sidearm he throws his head back and stretches this much taller, in canvas px, over
+ * about TIP_MS. Each shot knocks his head down by up to RECOIL px.
+ */
+const STRETCH = 26;
+const TIP_MS = 90;
+const RECOIL = 5;
+const RECOIL_BACK = 0.12;
 /** Jammed, he slumps this many degrees and sags this far. */
 const SLUMP = -16;
 const SAG = 10;
@@ -118,6 +127,8 @@ export class JackRig {
   private holdMs = 0;
   private dazed = false;
   private stowed = false;
+  /** The sidearm is firing: he stays out, shaking. */
+  private rattling = false;
   private clock = 0;
   private crankTurn = 0;
   private leanSide = 1;
@@ -125,6 +136,9 @@ export class JackRig {
   /** Wound up by the capacitor, eased toward each frame: his sag, shake and the box's tremble. */
   private wind = 0;
   private shake = 0;
+  /** 0..1, how far he has stretched up to fire the sidearm, and its latest shot's knock. */
+  private tip = 0;
+  private recoil = 0;
   private tweens: Phaser.Tweens.Tween[] = [];
   private scale = 1;
   private x = 0;
@@ -160,7 +174,7 @@ export class JackRig {
   update(rail: RailGun, dtMs: number): void {
     if (this.stowed) return;
     this.clock += dtMs;
-    this.holdMs -= dtMs;
+    this.holdMs = this.rattling ? HOLD_MS : this.holdMs - dtMs;
     const jammedOut = rail.jammed && !rail.ready;
     if (this.mode === 'open' && this.holdMs <= 0 && !jammedOut) this.duck();
 
@@ -173,7 +187,9 @@ export class JackRig {
     else if (!rail.ready && rail.sinceMs > to) wind = COIL * 0.4;
     const ease = Math.min(1, dtMs / 50);
     this.wind += (wind - this.wind) * ease;
-    this.shake += ((sweet && !calm() ? 1 : 0) - this.shake) * Math.min(1, dtMs / 30);
+    this.shake += (((sweet || this.rattling) && !calm() ? 1 : 0) - this.shake) * Math.min(1, dtMs / 30);
+    this.tip += ((this.rattling ? 1 : 0) - this.tip) * Math.min(1, dtMs / TIP_MS);
+    this.recoil = Math.max(0, this.recoil - dtMs * RECOIL_BACK);
     if (!rail.ready && !calm()) this.crankTurn += (dtMs / 1000) * CRANK_TURNS * Math.PI * 2;
   }
 
@@ -187,18 +203,20 @@ export class JackRig {
     this.wind = 0;
     if (calm()) {
       Object.assign(this.anim, { dy: 0, lean: 0, lid: 1, squash: 1 });
-      return;
+    } else {
+      this.leanSide = -this.leanSide;
+      this.anim.dy = -KICK;
+      this.anim.lean = LEAN * this.leanSide;
+      this.tween({ dy: 0, lean: 0 }, BOING_MS, 'Elastic.Out', [1, 0.32]);
+      this.anim.lid = wasShut ? LID_FROM : 1.12;
+      this.tween({ lid: 1 }, LID_MS, 'Elastic.Out', [1, 0.4]);
+      if (wasShut) {
+        this.anim.squash = 0.9;
+        this.tween({ squash: 1 }, 200, 'Back.Out');
+      }
     }
-    this.leanSide = -this.leanSide;
-    this.anim.dy = -KICK;
-    this.anim.lean = LEAN * this.leanSide;
-    this.tween({ dy: 0, lean: 0 }, BOING_MS, 'Elastic.Out', [1, 0.32]);
-    this.anim.lid = wasShut ? LID_FROM : 1.12;
-    this.tween({ lid: 1 }, LID_MS, 'Elastic.Out', [1, 0.4]);
-    if (wasShut) {
-      this.anim.squash = 0.9;
-      this.tween({ squash: 1 }, 200, 'Back.Out');
-    }
+    // The beam is drawn this frame, so he has to be out in it, not a frame later.
+    this.apply();
   }
 
   /** The gun jammed: he slumps, dazed, with a puff of smoke. */
@@ -228,11 +246,28 @@ export class JackRig {
     }
   }
 
+  /** The sidearm started or stopped: he pops out for it and shakes until it stops. */
+  rattle(on: boolean): void {
+    this.rattling = on;
+    if (!on) return;
+    // Already out and slumped from a jam: the thrown-back head, without popping again.
+    if (this.mode !== 'open') this.fire();
+    else if (this.dazed) this.setDazed(false);
+  }
+
+  /** A sidearm shot left his mouth: it knocks his head. */
+  shot(): void {
+    if (!calm()) this.recoil = RECOIL * Phaser.Math.FloatBetween(0.6, 1);
+  }
+
   /** The time is up: he ducks in and the box goes still. */
   stow(): void {
     this.stowed = true;
+    this.rattling = false;
     this.wind = 0;
     this.shake = 0;
+    this.tip = 0;
+    this.recoil = 0;
     if (this.mode === 'open') this.duck();
   }
 
@@ -243,6 +278,20 @@ export class JackRig {
       x: this.x + (this.look.mouth[0] - this.w / 2) * this.scale,
       y: this.y + my * this.scale,
     };
+  }
+
+  /** His mouth as he stands this frame, shaking and stretched, in the world. */
+  mouthNow(): { x: number; y: number } {
+    const { head, root } = this.main;
+    const { mouth, neck } = this.look;
+    const ox = mouth[0] - neck[0];
+    const oy = mouth[1] - neck[1];
+    const c = Math.cos(head.rotation);
+    const s = Math.sin(head.rotation);
+    const p = root
+      .getLocalTransformMatrix()
+      .transformPoint(head.x + ox * c - oy * s, head.y + ox * s + oy * c);
+    return { x: p.x, y: p.y };
   }
 
   /** `n` points along the box's front rim, in the world, left to right. */
@@ -358,7 +407,7 @@ export class JackRig {
 
     const [bx, by] = this.local(look.springBase);
     const rest = look.springBase[1] - look.neck[1];
-    const reach = rest - this.anim.dy - this.wind;
+    const reach = rest - this.anim.dy - this.wind + this.tip * STRETCH - this.recoil;
     const lean = Phaser.Math.DegToRad(this.anim.lean);
     p.spring
       .setPosition(bx, by)
@@ -396,7 +445,13 @@ export class JackRig {
   private setDazed(dazed: boolean): void {
     if (this.dazed === dazed) return;
     this.dazed = dazed;
-    const key = dazed ? this.look.keys.dazed : this.look.keys.head;
+    this.showHead();
+  }
+
+  /** Dazed by a jam, else thrown back to fire. */
+  private showHead(): void {
+    const k = this.look.keys;
+    const key = this.dazed ? k.dazed : k.head;
     this.main.head.setTexture(key);
     this.shadow.head.setTexture(key);
   }

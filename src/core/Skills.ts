@@ -90,8 +90,13 @@ export class SkillCharge {
 
   /** A brick broke: knock some time off the cooldown. */
   onBreak(): void {
+    this.knock(this.def.perBreakMs);
+  }
+
+  /** Knocks `ms` off the cooldown. Nothing while the skill runs. */
+  knock(ms: number): void {
     if (this.active) return;
-    this.charge = clamp01(this.charge + this.def.perBreakMs / this.def.cooldownMs);
+    this.charge = clamp01(this.charge + ms / this.def.cooldownMs);
   }
 
   /** Fires the skill if it is ready. */

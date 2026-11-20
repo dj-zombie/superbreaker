@@ -7,7 +7,8 @@ sprite and fitted, aspect kept, into the size the game draws it from.
 
 The jack-in-the-box's poses are cut differently: one scale for all of them, each on the same
 canvas with the bottom middle of the box at the bottom middle, then cut again into the parts the
-game animates (box, lid, spring, heads, crank), each left on that canvas so they line up.
+game animates (box, lid, spring, heads, crank), each left on that canvas so they line up. The
+head he fires with is its own sheet, set on that canvas at the spring's top.
 
 Usage: python3 scripts/build-bonus.py   (requires Pillow)
 """
@@ -57,6 +58,9 @@ DAZED = {"bottom": 140, "spring": (100, 145), "neck": 114, "shift": (7, 13)}
 # Nothing of the open box is above its back rim.
 BOX_TOP = 160
 PUFF = (0, 98, 50, 162)
+# His head thrown back to fire, from its own sheet: drawn this wide, its ruff's
+# bottom middle on the spring's top at "neck", a few px down so the ruff hides the spring's end.
+HEAD_UP = {"width": 122, "neck": (132, 131), "tuck": 5}
 
 
 def below(p: tuple, q: tuple, x: float, y: float) -> bool:
@@ -153,6 +157,30 @@ def jack_parts(closed: Image.Image, popped: Image.Image, jammed: Image.Image) ->
     part(moved, "puff")
 
 
+def head_up(size: tuple) -> None:
+    """The thrown-back head, on the poses' canvas, and where the glow in its mouth is brightest."""
+    print("jack_head_up.jpg")
+    head = art.trim(art.remove_white_background(Image.open(art.SRC / "jack_head_up.jpg")), pad=0)
+    w = HEAD_UP["width"]
+    head = head.resize((w, round(head.height * w / head.width)), Image.LANCZOS)
+    nx, ny = HEAD_UP["neck"]
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    left, top = nx - w // 2, ny + HEAD_UP["tuck"] - head.height
+    canvas.paste(head, (left, top), head)
+    art.save(canvas, f"{JACK_DIR}/jack_head_up.png")
+    # The glow is the yellowest part of the head: bright red and green, little blue.
+    px = head.load()
+    hot = [
+        (x, y)
+        for y in range(head.height)
+        for x in range(head.width)
+        if px[x, y][3] > 200 and px[x, y][0] > 230 and px[x, y][1] > 190 and px[x, y][2] < 140
+    ]
+    mx = sum(x for x, _ in hot) / len(hot) + left
+    my = sum(y for _, y in hot) / len(hot) + top
+    print(f"  mouth glow at ({mx:.0f}, {my:.0f}) from {len(hot)} px")
+
+
 def feet_x(img: Image.Image) -> float:
     """The middle of what is opaque along the bottom of a trimmed pose: the box's base."""
     alpha = img.getchannel("A")
@@ -178,6 +206,7 @@ def jack() -> None:
         canvas.paste(pose, (round(width / 2 - fx), height - pose.height), pose)
         canvases.append(canvas)
     jack_parts(*canvases)
+    head_up((width, height))
 
 
 def main() -> None:

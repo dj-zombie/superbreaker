@@ -37,7 +37,7 @@ const PELLET_KEY = 'rail_pellet';
 const BEAM_KEY = 'rail_beam';
 const SHADOW_KEY = 'rail_shadow';
 /** A look's gun draws just over the paddle's place, under the targets. */
-const GUN_DEPTH = 0.6;
+export const GUN_DEPTH = 0.6;
 /** Callouts sit this far over the clown's mouth, in px: clear of his hair. */
 const CALLOUT_OVER_MOUTH = 70;
 
@@ -295,6 +295,21 @@ export class RailGunFx {
     juice.shake(90, 0.004);
     juice.popText(paddle.x, this.calloutY, 'JAM!', '#9a9a9a', 16);
     audio.sfx('rail_jam', 0.55, 0, { x: paddle.x });
+  }
+
+  /** The sidearm is firing: the clown stays out and shakes with it. */
+  rattle(on: boolean): void {
+    this.rig?.rattle(on);
+  }
+
+  /** Where the sidearm's shots leave from: the clown's mouth, or nowhere without the clown. */
+  sidearmMuzzle(): { x: number; y: number } | undefined {
+    return this.rig?.mouthNow();
+  }
+
+  /** A sidearm shot went: it knocks the clown's head. */
+  sidearmShot(): void {
+    this.rig?.shot();
   }
 
   /** The timer is out: the lamps go dark and the gun shuts. */
