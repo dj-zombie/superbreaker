@@ -172,6 +172,23 @@ The new screens are the title attract and hub, the world carousel, the level pat
 - [ ] Recorded · [ ] In game · [ ] Signed off — **Pause** `public/assets/audio/ui/pause.mp3` (~0.2s). Soft thud as the pause menu slides in over the blurred game. Resume can use the falling whoosh.
   - Notes:
 
+## Shooting gallery
+
+Placeholders written by `scripts/build-gallery-audio.py`. Replace them file for file. The bed is an original loop, not a recording: drop a track you can ship on the same path and keep the layout in `src/art/galleryMusic.ts` (a click at 0.02s, then 32 beats at 128 BPM from 0.25s).
+
+- [ ] Recorded · [x] In game · [ ] Signed off — **Peck** `public/assets/audio/bonus/peck.mp3` (~0.09s). Wooden knock when a bolt hits a duck that is still up. Pitch rises as it gets closer to popping.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Quack** `public/assets/audio/bonus/quack.mp3` (~0.28s). The duck pops. Pitch climbs a little with the combo.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Spill** `public/assets/audio/bonus/spill.mp3` (~0.16s). A coin shaking out of the money bag. Pitch rises as the bag empties.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Jackpot** `public/assets/audio/bonus/jackpot.mp3` (~0.4s). The bag bursts. C major arpeggio, short enough to finish inside the slow-motion.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Meow** `public/assets/audio/bonus/meow.mp3` (~0.32s). The cat, when it is shot on purpose. Comic, not an error buzzer.
+  - Notes: synthesized placeholder
+- [ ] Recorded · [x] In game · [ ] Signed off — **Bed** `public/assets/audio/music/gallery-placeholder.mp3` (~15s, loops). Bright oom-pah under the whole stage, including the tally, where it ducks.
+  - Notes: synthesized placeholder
+
 ## Old cues to retire
 
 Check these when the new files are in game, so a signed-off sound is the one you actually hear.

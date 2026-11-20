@@ -21,6 +21,8 @@ import {
 import { HUD_FONT } from '../art/fonts';
 import type { SlotState } from '../systems/AbilitySystem';
 import type { BossHud } from '../systems/BossDirector';
+import { BonusHudView } from '../ui/BonusHudView';
+import { BonusTallyView } from '../ui/BonusTallyView';
 import { BossCinemaView } from '../ui/BossCinemaView';
 import { MAX_LIVES } from '../core/Difficulty';
 import { SKILLS, SKILL_IDS, type SkillId, type SkillView } from '../core/Skills';
@@ -162,6 +164,9 @@ export class Hud extends BaseScene {
   private bossBar?: BossBarView;
   /** Built the first time a boss fight has the level: the black, the bars and the cards. */
   private cinema?: BossCinemaView;
+  /** Built the first time a bonus stage has the level: its clock and medal track, and its tally. */
+  private bonusStrip?: BonusHudView;
+  private tally?: BonusTallyView;
   /** Wide stage: the HUD lives in the wing plates and none of the board pieces exist. */
   private plates?: WingPlates;
   private wide = false;
@@ -187,6 +192,8 @@ export class Hud extends BaseScene {
     this.coachSpot = undefined;
     this.bossBar = undefined;
     this.cinema = undefined;
+    this.bonusStrip = undefined;
+    this.tally = undefined;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewport, this);
@@ -271,14 +278,16 @@ export class Hud extends BaseScene {
     this.tweens.add({ targets: this.chrome, alpha: 1, duration: 280, ease: 'Cubic.Out' });
   }
 
-  /** Anything added straight to the scene, apart from the cinema, belongs to the chrome. */
+  /** Anything added straight to the scene, apart from the cinema and the bonus views, belongs to the chrome. */
   private tuckLoose(): void {
     const mine = this.cinema?.owns();
+    const strip = this.bonusStrip?.owns();
+    const tally = this.tally?.owns();
     const list = this.children.list;
     let moved = false;
     for (let i = 0; i < list.length; ) {
       const child = list[i]!;
-      if (child === this.chrome || mine?.has(child)) {
+      if (child === this.chrome || mine?.has(child) || strip?.has(child) || tally?.has(child)) {
         i++;
         continue;
       }
@@ -509,6 +518,9 @@ export class Hud extends BaseScene {
     root.setSize(r * 2, r * 2);
     root.setInteractive(new Phaser.Geom.Circle(r, r, r + 6), Phaser.Geom.Circle.Contains);
     root.on(Phaser.Input.Events.POINTER_DOWN, () => this.play.useSkill(id));
+    // A bonus stage's gun is a trigger, held as long as the finger stays on the button.
+    root.on(Phaser.Input.Events.POINTER_UP, () => this.play.releaseSkill(id));
+    root.on(Phaser.Input.Events.POINTER_OUT, () => this.play.releaseSkill(id));
     return { root, glow, timer, glyph, key, ready: false };
   }
 
@@ -579,6 +591,12 @@ export class Hud extends BaseScene {
     this.drawCoachHand(s.coachHand);
     if (s.boss && !this.cinema) this.cinema = new BossCinemaView(this);
     this.cinema?.update(s.boss?.cinema ?? null);
+    if (s.bonus && !this.bonusStrip) {
+      this.bonusStrip = new BonusHudView(this);
+      this.tally = new BonusTallyView(this);
+    }
+    this.bonusStrip?.update(s.bonus);
+    this.tally?.update(s.bonus?.tally ?? null);
     if (this.plates) {
       this.plates.spotlight(s.coachSlot, s.coachSkill);
       this.plates.update(s, delta);

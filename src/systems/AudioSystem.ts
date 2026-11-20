@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
+import { GALLERY_MUSIC_KEY, GALLERY_TRACK } from '../art/galleryMusic';
 import { WIDTH } from '../config';
 import { audibleMs, detunedMs, panAt, variation } from '../core/AudioMix';
 import { BOSS_MOOD_FALLBACK, BOSS_STINGER, BOSS_SWELL_S, type BossMood } from '../core/Boss';
@@ -115,8 +116,10 @@ class AudioSystem {
   private game?: Phaser.Game;
   private sound?: Phaser.Sound.BaseSoundManager;
   private music?: MusicEngine;
-  /** The boss track, on the same bus as the level song. Only one of the two plays at a time. */
+  /** The boss track, on the same bus as the level song. Only one song plays at a time. */
   private boss?: MusicEngine;
+  /** The shooting gallery's bed, on the same bus. It takes over for that stage and then bows out. */
+  private gallery?: MusicEngine;
   private musicKey?: MusicKey;
   private wantedMusic?: MusicKey;
   private hitCount = 0;
@@ -300,8 +303,9 @@ class AudioSystem {
     if (!music) return;
     if (force) music.stop();
     else if (this.musicKey === key && this.musicPlaying) return;
-    // The boss track never plays under a song that was asked for by name.
+    // A named song never plays under the boss track or the gallery bed.
     this.boss?.stop(force ? 'cut' : 'fade');
+    this.gallery?.stop(force ? 'cut' : 'fade');
     this.musicKey = key;
     music.play(MUSIC_START[key], MUSIC_VOLUME[key]);
   }
@@ -309,6 +313,27 @@ class AudioSystem {
   /** Play's read on the moment, every frame. The menus keep their own mood. */
   steerMusic(cue: MusicCue): void {
     if (this.musicKey === 'music') this.music?.steer(cue);
+  }
+
+  /**
+   * The shooting gallery's bed. `on` swells it in and sits the level song out; `off` lets the bed
+   * finish. Play asks every frame it is on, so music switched back on mid-stage finds it.
+   */
+  bonusMusic(on: boolean): void {
+    if (!on) {
+      this.gallery?.stop('fade');
+      return;
+    }
+    if (!this.sound || !save.state.settings.music || this.sound.locked) return;
+    const level = this.musicEngine();
+    const gallery = this.galleryEngine();
+    if (!level || !gallery) return;
+    this.wantedMusic = 'music';
+    this.musicKey = 'music';
+    level.stop('fade');
+    this.boss?.stop('fade');
+    if (gallery.playing) return;
+    gallery.play('groove', MUSIC_VOLUME.music, 0.7);
   }
 
   /**
@@ -341,6 +366,7 @@ class AudioSystem {
     if (this.musicKey !== 'music') return;
     this.music?.dip();
     this.boss?.dip();
+    this.gallery?.dip();
   }
 
   private get webAudio(): Phaser.Sound.WebAudioSoundManager | undefined {
@@ -383,9 +409,20 @@ class AudioSystem {
     return this.boss;
   }
 
-  /** Either track is sounding. */
+  /** The gallery bed's engine, once that stage has loaded the track. It shares the song's bus. */
+  private galleryEngine(): MusicEngine | undefined {
+    if (this.gallery) return this.gallery;
+    const mgr = this.webAudio;
+    const buffer = this.game?.cache.audio.get(GALLERY_MUSIC_KEY) as AudioBuffer | undefined;
+    if (!mgr || !this.musicBus || !(buffer instanceof AudioBuffer)) return undefined;
+    this.gallery = new MusicEngine(mgr.context, this.musicBus, buffer, GALLERY_TRACK);
+    if (this.analyser) this.gallery.output.connect(this.analyser);
+    return this.gallery;
+  }
+
+  /** Any of the songs is sounding. */
   private get musicPlaying(): boolean {
-    return !!this.music?.playing || !!this.boss?.playing;
+    return !!this.music?.playing || !!this.boss?.playing || !!this.gallery?.playing;
   }
 
   /** The mix, built on first use and rebuilt if Phaser swaps its master node. */
@@ -505,6 +542,7 @@ class AudioSystem {
   private haltMusic(ending: MusicEnding): void {
     this.music?.stop(ending);
     this.boss?.stop(ending);
+    this.gallery?.stop(ending);
     this.musicKey = undefined;
   }
 
@@ -546,6 +584,7 @@ class AudioSystem {
   duckMusic(duck: boolean): void {
     this.music?.duck(duck);
     this.boss?.duck(duck);
+    this.gallery?.duck(duck);
     this.paused = duck;
     this.applySfxTone();
     this.applyDream();
@@ -567,6 +606,7 @@ class AudioSystem {
     if (this.musicKey !== 'music') return;
     this.music?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
     this.boss?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
+    this.gallery?.dip(HIT_STOP_HZ, ms / 1000, HIT_STOP_RELEASE_TC);
   }
 
   /** While a black hole is open the sound effects drop in pitch and lose their top end. */
@@ -586,6 +626,7 @@ class AudioSystem {
     if (!on || this.musicKey === 'music') {
       this.music?.dream(on);
       this.boss?.dream(on);
+      this.gallery?.dream(on);
     }
     this.mix();
     this.applySfxTone();
@@ -598,7 +639,7 @@ class AudioSystem {
     this.paused = false;
     this.dreaming = false;
     // Restart and quit leave from the pause menu, and an engine keeps its duck across a stop.
-    for (const engine of [this.music, this.boss]) {
+    for (const engine of [this.music, this.boss, this.gallery]) {
       engine?.dream(false);
       engine?.duck(false);
     }

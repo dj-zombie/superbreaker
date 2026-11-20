@@ -3,6 +3,14 @@ import type { WorldId } from '../art/backdrops';
 import { FIRE_FRAMES } from '../art/procedural';
 import { HUD_HEIGHT, PADDLE_Y, WIDTH } from '../config';
 import { powerupStats, type PowerupStats } from '../core/Economy';
+import {
+  GUN_PATTERNS,
+  PATTERN_MS,
+  nextPattern,
+  weaveSpeed,
+  type GunPatternId,
+  type Weave,
+} from '../core/GunPattern';
 import { pickHomingTarget, type HomingBox } from '../core/Homing';
 import {
   LASER_COOL_MS,
@@ -57,7 +65,7 @@ const LOOKS: Record<WorldId, LaserLook> = {
 };
 
 /** Pooled bolts; the pool reuses them, and a full pool skips a shot rather than growing. */
-const MAX_BOLTS = 48;
+const MAX_BOLTS = 64;
 const BOLT_LIFE_MS = 3_000;
 const STEEL_SPARK = 0xcfd6e6;
 /** Bolts pick up this share of the paddle's sideways speed, up to STRAFE_MAX px/s. */
@@ -99,6 +107,9 @@ class Bolt extends Phaser.Physics.Arcade.Image {
   /** Helix: the strand center's sideways speed, and its place in the weave. */
   drift = 0;
   phase = 0;
+  /** A patterned gun bolt's swing in flight, and how many px a half paddle was when it left. */
+  weave: Weave | null = null;
+  span = 0;
   target: Brick | null = null;
   retargetIn = 0;
   trailAcc = 0;
@@ -117,8 +128,24 @@ interface Target extends HomingBox {
   brick: Brick;
 }
 
-/** What has the pods out: a laser pickup, or the gun skill's short burst. */
-type LaserSource = 'pickup' | 'burst';
+/** What has the pods out: a laser pickup, the gun skill's short burst, or a bonus stage's held trigger. */
+type LaserSource = 'pickup' | 'burst' | 'stream';
+
+/** A held trigger, as a bonus stage's gatling runs it. */
+export interface LaserStream {
+  /** The trigger is held. */
+  firing: boolean;
+  /** 0..1, how far the barrels have spun up: the pods glow toward white and the shots climb. */
+  spin: number;
+  /** Ms between shots now. */
+  gapMs: number;
+  /** Each bolt's damage now, in the stage's target hit points. */
+  damage: number;
+}
+
+/** A streamed bolt's tracer, in px, at damage 1; it grows with each point more. */
+const STREAM_TRACER: readonly [number, number] = [5, 20];
+const STREAM_GROW: readonly [number, number] = [2, 5];
 
 function box(b: Brick): Target {
   return { x: b.x, y: b.y, halfW: b.spec.width / 2, halfH: b.spec.height / 2, brick: b };
@@ -153,9 +180,15 @@ export class LaserSystem {
   private cooldown = 0;
   private volley = 0;
   private side: -1 | 1 = -1;
+  /** The gun skill's and a bonus stage's gatling fire in patterns; a pickup's guns do not. */
+  private pattern: GunPatternId | null = null;
+  private patternMs = 0;
+  private patternShot = 0;
   private readonly pods: [Pod, Pod];
   private readonly center: Phaser.GameObjects.Image;
   private centerGlow = 0;
+  /** Where along the paddle the middle flash sits, in px from its center. */
+  private centerAt = 0;
   /** 0 = pods out, 1 = tucked behind the paddle. */
   private readonly deploy = { t: 1 };
   private steamAcc = 0;
@@ -172,6 +205,11 @@ export class LaserSystem {
   private budgetFrame = -1;
   private targetBoxes: Target[] | null = null;
   private wallBoxes: HomingBox[] = [];
+  /** The held trigger, while a bonus stage has the guns out. */
+  private held: LaserStream | null = null;
+  private wasFiring = false;
+  /** Bolts fired since the scene started. A bonus stage works its accuracy out from it. */
+  shots = 0;
 
   constructor(
     private scene: Phaser.Scene,
@@ -273,21 +311,58 @@ export class LaserSystem {
     if (this.source === 'burst') this.begin('burst');
   }
 
+  /**
+   * Keeps the pods out for a bonus stage's held trigger, set every frame before `update`. Null
+   * tucks them away. A pickup or a burst still outranks it.
+   */
+  stream(held: LaserStream | null): void {
+    this.held = held;
+  }
+
   update(dtMs: number): void {
     const pickup = this.host.powerups.effect('laser');
     if (pickup) this.burstLeftMs = 0;
-    const source: LaserSource | null = pickup ? 'pickup' : this.burstLeftMs > 0 ? 'burst' : null;
+    const held = this.held;
+    const source: LaserSource | null = pickup
+      ? 'pickup'
+      : this.burstLeftMs > 0
+        ? 'burst'
+        : held
+          ? 'stream'
+          : null;
     if (source && source !== this.source) this.begin(source);
     else if (!source && this.source) this.finish();
-    const remainingMs = pickup?.remainingMs ?? this.burstLeftMs;
+    const remainingMs = source === 'stream' ? Infinity : (pickup?.remainingMs ?? this.burstLeftMs);
     this.targetBoxes = null;
     const stopped = this.host.juice.inHitStop;
-    if (source && !stopped) {
+    const firing = source !== 'stream' || !!held?.firing;
+    if (source === 'stream') this.trigger(firing);
+    if (source && firing && !stopped) {
       this.updateFire(dtMs, remainingMs);
       if (source === 'burst') this.burstLeftMs = Math.max(0, this.burstLeftMs - dtMs);
     }
     this.updatePods(dtMs, remainingMs);
     if (!stopped) this.updateBolts(dtMs);
+  }
+
+  /** The held trigger went down or came up: the guns spin up from cold, or vent. */
+  private trigger(firing: boolean): void {
+    if (firing === this.wasFiring) return;
+    this.wasFiring = firing;
+    const { x } = this.host.paddle;
+    if (firing) {
+      this.elapsedMs = 0;
+      this.cooldown = 0;
+      // From cold the barrels wind up; still spinning, they just carry on.
+      if ((this.held?.spin ?? 0) < 0.3) audio.sfx('laser_spinup', 0.25, 0, { x });
+      return;
+    }
+    if (!save.state.settings.reducedMotion) {
+      for (const p of this.pods) {
+        const m = this.muzzle(p);
+        this.smoke.explode(this.spend(3), m.x, m.y);
+      }
+    }
   }
 
   /** Removes every bolt and tucks the pods away, e.g. when a life is lost. */
@@ -296,6 +371,7 @@ export class LaserSystem {
     this.source = null;
     this.burstLeftMs = 0;
     this.pending = undefined;
+    this.wasFiring = false;
     this.scene.tweens.killTweensOf(this.deploy);
     this.deploy.t = 1;
     for (const p of this.pods) {
@@ -317,16 +393,26 @@ export class LaserSystem {
       this.pending = undefined;
       this.previous = this.mode;
       this.stats = upgrades;
-    } else {
+    } else if (source === 'burst') {
       this.mode = 'gun';
       this.stats = { ...upgrades, laserDurationMs: this.burstMs, laserBudget: this.burstBudget };
+    } else {
+      this.mode = 'gun';
+      this.stats = upgrades;
     }
-    this.plan = laserSchedule(this.mode, this.stats);
+    this.plan =
+      source === 'stream' ? { volleys: 0, bolts: 0, damage: 1 } : laserSchedule(this.mode, this.stats);
     this.source = source;
+    this.wasFiring = false;
     this.elapsedMs = 0;
     this.cooldown = 0;
     this.volley = 0;
     this.side = -1;
+    // A held trigger opens on the twin guns and moves through the rest; a burst gets one of them.
+    this.pattern =
+      source === 'stream' ? 'twin' : source === 'burst' ? nextPattern('twin', Math.random) : null;
+    this.patternMs = 0;
+    this.patternShot = 0;
     this.steamAcc = 0;
     this.scene.tweens.killTweensOf(this.deploy);
     this.scene.tweens.add({ targets: this.deploy, t: 0, duration: 160, ease: 'Back.Out' });
@@ -365,9 +451,26 @@ export class LaserSystem {
     // A long frame can owe a few volleys; more than that and the frame was a stall, not a burst.
     for (let owed = 0; this.cooldown <= 0 && owed < 4; owed++) {
       this.fire(remainingMs);
-      this.cooldown += volleyGap(this.mode, this.stats, this.elapsedMs, remainingMs);
+      const held = this.source === 'stream' ? this.held : null;
+      this.cooldown += held ? held.gapMs : volleyGap(this.mode, this.stats, this.elapsedMs, remainingMs);
     }
     this.elapsedMs += dtMs;
+    if (this.pattern) {
+      this.patternMs += dtMs;
+      if (this.source === 'stream' && this.patternMs >= PATTERN_MS) this.switchPattern();
+    }
+  }
+
+  /** The held gatling moves on to its next pattern, and names it over the paddle. */
+  private switchPattern(): void {
+    this.pattern = nextPattern(this.pattern, Math.random);
+    this.patternMs = 0;
+    this.patternShot = 0;
+    const { paddle } = this.host;
+    const label = GUN_PATTERNS[this.pattern].label.toUpperCase();
+    const color = `#${this.look.core.toString(16).padStart(6, '0')}`;
+    this.host.juice.popText(paddle.x, paddle.y - 64, label, color, 14);
+    audio.sfx('ui_pip', 0.25, 600, { x: paddle.x });
   }
 
   private fire(remainingMs: number): void {
@@ -380,7 +483,13 @@ export class LaserSystem {
         ? 0
         : Phaser.Math.Clamp(this.host.paddle.vx * STRAFE_SHARE, -STRAFE_MAX, STRAFE_MAX);
 
+    if (this.pattern && this.mode === 'gun') {
+      this.firePattern(this.pattern, def.speed, tint, strafe, remainingMs, calm);
+      return;
+    }
+
     if (this.mode === 'helix') {
+      this.centerAt = 0;
       const { x, y } = this.centerMuzzle();
       for (const phase of [0, Math.PI]) {
         const b = this.spawn(x, y, 0, def.speed, tint);
@@ -414,6 +523,45 @@ export class LaserSystem {
     this.shotSound(pod.side, x, remainingMs);
   }
 
+  /**
+   * One shot of a pattern: from a pod when it sits at an end, else from the paddle's top edge
+   * with the middle flash moved to meet it.
+   */
+  private firePattern(
+    id: GunPatternId,
+    speed: number,
+    tint: number,
+    strafe: number,
+    remainingMs: number,
+    calm: boolean,
+  ): void {
+    const m = GUN_PATTERNS[id].shot(this.patternMs, this.patternShot++);
+    const { paddle } = this.host;
+    const span = paddle.halfWidth - POD_INSET;
+    const pod = Math.abs(m.at) > 0.85 ? this.pods[m.at < 0 ? 0 : 1] : null;
+    const { x, y } = pod ? this.muzzle(pod) : { x: paddle.x + m.at * span, y: paddle.y - 14 };
+    const b = this.spawn(x, y, m.angle + Phaser.Math.FloatBetween(-0.8, 0.8) * DEG, speed, tint);
+    if (b) {
+      b.body.velocity.x += strafe;
+      if (m.weave) {
+        b.weave = m.weave;
+        b.span = span;
+        b.drift = b.body.velocity.x;
+      }
+      b.setRotation(Math.atan2(b.body.velocity.y, b.body.velocity.x) + Math.PI / 2);
+    }
+    const sideOf: -1 | 1 = m.at < 0 ? -1 : 1;
+    if (pod) {
+      pod.glow = 1;
+      if (!calm) pod.kick = KICK_PX;
+    } else {
+      this.centerAt = x - paddle.x;
+      this.centerGlow = 1;
+    }
+    if (!calm) this.casings[sideOf < 0 ? 0 : 1].emitParticleAt(x, y + 8, 1);
+    this.shotSound(m.at, x, remainingMs);
+  }
+
   /** Launch angles off vertical for one volley, in radians; positive leans right. */
   private aim(side: -1 | 1, count: number): number[] {
     switch (this.mode) {
@@ -438,20 +586,31 @@ export class LaserSystem {
     // Pooled bolts swap textures between modes, so the body takes its size from the new one.
     b.setTexture(key);
     b.body.setSize();
-    const [w, h] = missile ? [7, 14] : this.mode === 'scatter' ? [4, 16] : [5, 20];
+    const held = this.source === 'stream' ? this.held : null;
+    const more = held ? held.damage - 1 : 0;
+    const [w, h] = missile
+      ? [7, 14]
+      : this.mode === 'scatter'
+        ? [4, 16]
+        : held
+          ? [STREAM_TRACER[0] + more * STREAM_GROW[0], STREAM_TRACER[1] + more * STREAM_GROW[1]]
+          : [5, 20];
     b.setDisplaySize(w, h).setDepth(5).setBlendMode(Phaser.BlendModes.ADD).setAlpha(1);
     b.setTint(this.look.core, this.look.core, tint, tint).setRotation(angle);
     b.mode = this.mode;
-    b.damage = this.plan.damage;
+    b.damage = held ? held.damage : this.plan.damage;
     b.tail = tint;
     b.age = 0;
     b.bounces = 0;
     b.drift = 0;
     b.phase = Math.random() * Math.PI * 2;
+    b.weave = null;
+    b.span = 0;
     b.target = null;
     b.retargetIn = 0;
     b.trailAcc = 0;
     b.body.setVelocity(Math.sin(angle) * speed, -Math.cos(angle) * speed);
+    this.shots++;
     return b;
   }
 
@@ -468,12 +627,16 @@ export class LaserSystem {
         v.x = b.drift + HELIX_AMP * HELIX_OMEGA * Math.cos((HELIX_OMEGA * b.age) / 1000 + b.phase);
       } else if (b.mode === 'swarm') {
         this.steer(b, dtMs);
+      } else if (b.weave) {
+        v.x = b.drift + weaveSpeed(b.weave, b.age) * b.span;
       }
       if (!this.inPlay(b)) {
         this.kill(b);
         continue;
       }
-      if (b.mode !== 'gun' && b.mode !== 'scatter') b.setRotation(Math.atan2(v.y, v.x) + Math.PI / 2);
+      if ((b.mode !== 'gun' && b.mode !== 'scatter') || b.weave) {
+        b.setRotation(Math.atan2(v.y, v.x) + Math.PI / 2);
+      }
       if (calm || density <= 0) continue;
       b.trailAcc += dtMs;
       const every = (b.mode === 'swarm' ? SMOKE_EVERY_MS : TRAIL_EVERY_MS) / density;
@@ -612,7 +775,7 @@ export class LaserSystem {
   }
 
   private centerMuzzle(): { x: number; y: number } {
-    return { x: this.host.paddle.x, y: this.host.paddle.y - 14 };
+    return { x: this.host.paddle.x + this.centerAt, y: this.host.paddle.y - 14 };
   }
 
   private updatePods(dtMs: number, remainingMs: number): void {
@@ -652,7 +815,8 @@ export class LaserSystem {
   private heatColor(remainingMs: number): number {
     if (!this.source) return STEEL_HEAT;
     const total = this.elapsedMs + remainingMs;
-    const p = total > 0 ? this.elapsedMs / total : 0;
+    const p =
+      this.source === 'stream' ? (this.held?.spin ?? 0) : total > 0 ? this.elapsedMs / total : 0;
     return p < 0.7 ? mix(STEEL_HEAT, this.look.glow, p / 0.7) : mix(this.look.glow, 0xffffff, (p - 0.7) / 0.3);
   }
 
@@ -685,7 +849,11 @@ export class LaserSystem {
     const now = this.scene.time.now;
     if (now - this.shotSoundAt < SHOT_SOUND_GAP_MS) return;
     this.shotSoundAt = now;
-    const sag = (laserCadence(this.elapsedMs, remainingMs) - 1) * 600;
+    // A gatling's shots climb as its barrels spin up; anything else sags as it runs out.
+    const sag =
+      this.source === 'stream' && this.held
+        ? this.held.spin * 700
+        : (laserCadence(this.elapsedMs, remainingMs) - 1) * 600;
     if (this.mode === 'swarm') {
       audio.sfx('laser_missile', 0.16, 500 + side * 80 + sag, { x });
     } else {

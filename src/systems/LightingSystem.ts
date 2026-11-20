@@ -298,6 +298,22 @@ const PATCH_PX = 40;
 /** Extra texture pixels a piece borrows from its neighbour, so the grid does not crack open. */
 const PATCH_BLEED = 0.5;
 
+/**
+ * Tints an image's corners from light at the world's corners. A tint belongs to a corner of the
+ * quad, which a flip or a negative scale turns over, so the colours swap sides with it.
+ */
+function tintCorners(
+  o: LitImage,
+  [tl, tr, bl, br]: readonly [number, number, number, number],
+): void {
+  const mx = o.flipX !== o.scaleX < 0;
+  const my = o.flipY !== o.scaleY < 0;
+  if (mx && my) o.setTint(br, bl, tr, tl);
+  else if (mx) o.setTint(tr, tl, br, bl);
+  else if (my) o.setTint(bl, br, tl, tr);
+  else o.setTint(tl, tr, bl, br);
+}
+
 /** A big lit image, standing in for the source so a light can fall inside it. */
 interface LitGrid {
   cols: number;
@@ -1083,8 +1099,7 @@ export class LightingSystem {
     for (const o of this.lit) {
       // A gridded image is hidden; its pieces are lit in `placeGrid`.
       if (!o.visible || this.grids.has(o)) continue;
-      const [tl, tr, bl, br] = this.cornerTints(o, this.fgRGB);
-      o.setTint(tl, tr, bl, br);
+      tintCorners(o, this.cornerTints(o, this.fgRGB));
     }
     const p = this.paddle;
     if (p) {
@@ -1195,6 +1210,14 @@ export class LightingSystem {
     const sin = Math.sin(rotation);
     const ox = fw * image.originX;
     const oy = fh * image.originY;
+    // Phaser mirrors a flipped image's crop as well as its quad, which puts each piece's half of
+    // the picture on the wrong side. A piece turns over by a negative scale instead, which leaves
+    // its crop alone. That turns about the origin where a flip turns about the frame's middle, so
+    // the pieces shift by the difference.
+    const dx = flipX ? (fw - 2 * ox) * scaleX : 0;
+    const dy = flipY ? (fh - 2 * oy) * scaleY : 0;
+    const px = image.x + dx * cos - dy * sin;
+    const py = image.y + dx * sin + dy * cos;
     const box = this.patchBox;
     for (let r = 0; r < rows; r++) {
       const y0 = Math.max(0, Math.round((r * fh) / rows) - (r > 0 ? PATCH_BLEED : 0));
@@ -1203,26 +1226,23 @@ export class LightingSystem {
         const cell = cells[r * cols + c]!;
         const x0 = Math.max(0, Math.round((c * fw) / cols) - (c > 0 ? PATCH_BLEED : 0));
         const x1 = Math.min(fw, Math.round(((c + 1) * fw) / cols) + (c < cols - 1 ? PATCH_BLEED : 0));
-        cell.setPosition(image.x, image.y).setRotation(rotation).setFlip(flipX, flipY);
+        cell.setPosition(px, py).setRotation(rotation).setFlip(false, false);
         if (cell.frame !== frame) cell.setFrame(frame.name);
         cell
-          .setScale(scaleX, scaleY)
+          .setScale(flipX ? -scaleX : scaleX, flipY ? -scaleY : scaleY)
           .setAlpha(image.alpha)
           .setDepth(image.depth)
           .setCrop(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
         // The crop stays where it sat in the whole frame, which is where this piece is drawn.
-        let lx = (x0 + x1) / 2 - ox;
-        let ly = (y0 + y1) / 2 - oy;
-        if (flipX) lx = -lx;
-        if (flipY) ly = -ly;
-        const wx = lx * scaleX;
-        const wy = ly * scaleY;
+        const cx = (x0 + x1) / 2;
+        const cy = (y0 + y1) / 2;
+        const wx = (flipX ? fw - ox - cx : cx - ox) * scaleX;
+        const wy = (flipY ? fh - oy - cy : cy - oy) * scaleY;
         box.x = image.x + wx * cos - wy * sin;
         box.y = image.y + wx * sin + wy * cos;
         box.displayWidth = (x1 - x0) * Math.abs(scaleX);
         box.displayHeight = (y1 - y0) * Math.abs(scaleY);
-        const [tl, tr, bl, br] = this.cornerTints(box, this.fgRGB);
-        cell.setTint(tl, tr, bl, br);
+        tintCorners(cell, this.cornerTints(box, this.fgRGB));
       }
     }
   }

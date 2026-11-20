@@ -8,12 +8,14 @@ import {
   type AbilityId,
   type AbilityTiers,
 } from './Abilities';
+import { MEDALS, type Medal } from './Bonus';
 import { MAX_UPGRADE_LEVEL, canPurchase, upgradeCost, type PurchaseResult } from './Economy';
 import { GOAL_KINDS, RUN_LOOPS, type GoalKind, type RunLoop } from './Run';
 import { SKILL_IDS, type SkillId } from './Skills';
 import {
   SESSION_ABILITY_COST,
   SESSION_POWERUP_COST,
+  MAX_ABILITY_STOCK,
   emptyStock,
   normalizeStock,
   stockAbilityResult,
@@ -39,6 +41,12 @@ export interface RunBest {
   bestScore: number;
   /** Waves cleared, or rows survived in Descent. */
   bestReach: number;
+}
+
+/** A bonus stage's best: its score and the best medal it has given. */
+export interface BonusBest {
+  bestScore: number;
+  medal: Medal;
 }
 
 /** The Arcade mode the menu's Play button starts. */
@@ -83,6 +91,8 @@ export interface SaveData {
   unlocked: number;
   /** Arcade bests, keyed by loop and goal, e.g. "waves-endless". */
   runs: Record<string, RunBest>;
+  /** Bonus stage bests, keyed by stage id, e.g. "gallery". */
+  bonus: Record<string, BonusBest>;
   /** The last Arcade loop and goal picked. */
   arcade: ArcadeChoice;
   settings: Settings;
@@ -111,6 +121,7 @@ export function defaultSave(): SaveData {
     levels: {},
     unlocked: 1,
     runs: {},
+    bonus: {},
     arcade: { loop: 'waves', goal: 'endless' },
     settings: {
       music: true,
@@ -158,6 +169,12 @@ export function normalizeSave(raw: unknown): SaveData {
   if (r.runs && typeof r.runs === 'object') {
     for (const [k, v] of Object.entries(r.runs)) {
       d.runs[k] = { bestScore: nonNegInt(v?.bestScore, 0), bestReach: nonNegInt(v?.bestReach, 0) };
+    }
+  }
+  if (r.bonus && typeof r.bonus === 'object') {
+    for (const [k, v] of Object.entries(r.bonus)) {
+      const medal = MEDALS.find((m) => m === v?.medal) ?? 'none';
+      d.bonus[k] = { bestScore: nonNegInt(v?.bestScore, 0), medal };
     }
   }
   if (RUN_LOOPS.includes(r.arcade?.loop as RunLoop)) d.arcade.loop = r.arcade!.loop;
@@ -316,6 +333,29 @@ export class SaveStore {
       d.stock.abilities.shift();
     });
     return id;
+  }
+
+  /** Stocks an ability charge for free, as a reward. False when the stock is full or it is locked. */
+  grantStockAbility(id: AbilityId): boolean {
+    if (this.data.abilities[id] <= 0 || this.data.stock.abilities.length >= MAX_ABILITY_STOCK) return false;
+    this.update((d) => {
+      d.stock.abilities.push(id);
+    });
+    return true;
+  }
+
+  /** Records a bonus stage's score and medal; returns true if it is a new best score. */
+  recordBonus(id: string, score: number, medal: Medal): boolean {
+    const prev = this.data.bonus[id] ?? { bestScore: 0, medal: 'none' };
+    const isBest = score > prev.bestScore;
+    const rank = (m: Medal) => (m === 'none' ? 0 : MEDALS.indexOf(m) + 1);
+    this.update((d) => {
+      d.bonus[id] = {
+        bestScore: Math.max(prev.bestScore, Math.max(0, Math.floor(score))),
+        medal: rank(medal) > rank(prev.medal) ? medal : prev.medal,
+      };
+    });
+    return isBest;
   }
 
   /** Puts an unused stocked ability back, for example when a level is abandoned. */

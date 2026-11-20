@@ -556,7 +556,9 @@ export class WingPlates {
     scene.add
       .zone(this.rx + this.w / 2, y, this.w - 12, SLOT_ROW - 4)
       .setInteractive({ useHandCursor: true })
-      .on(Phaser.Input.Events.POINTER_DOWN, () => this.play.useSkill(id));
+      .on(Phaser.Input.Events.POINTER_DOWN, () => this.play.useSkill(id))
+      .on(Phaser.Input.Events.POINTER_UP, () => this.play.releaseSkill(id))
+      .on(Phaser.Input.Events.POINTER_OUT, () => this.play.releaseSkill(id));
     return { ring: ringTimer, glyph, name, hint, ready: false, lit: false };
   }
 

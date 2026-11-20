@@ -357,6 +357,10 @@ export const IMAGE_ASSETS: ImageAsset[] = [
   { key: 'star_big', path: 'images/ui/star-big.png' },
   { key: 'lock', path: 'images/ui/lock.png' },
   { key: 'coin_icon', path: 'images/ui/coin-icon.png' },
+  ...['target_duck', 'target_bag', 'target_cat', 'medal_bronze', 'medal_silver', 'medal_gold'].map((key) => ({
+    key,
+    path: `images/bonus/${key}.png`,
+  })),
 ];
 
 export const AUDIO_ASSETS: ImageAsset[] = [
@@ -444,6 +448,12 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'breach', path: 'audio/breach.mp3' },
   { key: 'thunder', path: 'audio/storm/thunder.mp3' },
   { key: 'flicker', path: 'audio/storm/flicker.mp3' },
+  // The shooting gallery. Placeholders written by scripts/build-gallery-audio.py.
+  { key: 'gallery_peck', path: 'audio/bonus/peck.mp3' },
+  { key: 'gallery_quack', path: 'audio/bonus/quack.mp3' },
+  { key: 'gallery_spill', path: 'audio/bonus/spill.mp3' },
+  { key: 'gallery_jackpot', path: 'audio/bonus/jackpot.mp3' },
+  { key: 'gallery_meow', path: 'audio/bonus/meow.mp3' },
   // Boss fights. Every one is a placeholder written by scripts/build-boss-audio.py.
   { key: 'boss_stomp', path: 'audio/boss/stomp.mp3' },
   { key: 'boss_growl', path: 'audio/boss/growl.mp3' },

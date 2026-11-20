@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BOSS_TRACK } from '../src/art/bossMusic';
+import { GALLERY_TRACK } from '../src/art/galleryMusic';
 import { MUSIC_TRACK } from '../src/art/music';
 import { BOSS_MOODS, BOSS_MOOD_FALLBACK } from '../src/core/Boss';
 import {
@@ -170,6 +171,21 @@ describe('music track', () => {
     const file = join(__dirname, '..', 'public', 'assets', BOSS_TRACK.path);
     expect(existsSync(file), BOSS_TRACK.path).toBe(true);
     // 128 kbit/s or more is 16 kB a second: a file that holds every section is at least this big.
+    expect(statSync(file).size).toBeGreaterThan(end * 16_000 * 0.5);
+  });
+
+  it('loops the gallery bed as one bar-aligned section after its sync click', () => {
+    expect(GALLERY_TRACK.beat).toBeCloseTo(60 / GALLERY_TRACK.bpm, 9);
+    const loop = GALLERY_TRACK.segments.loop!;
+    expect(loop.at).toBeGreaterThan(GALLERY_TRACK.click);
+    expect(loop.beats % 4).toBe(0);
+    for (const list of Object.values(GALLERY_TRACK.moods)) {
+      expect(list.play).toEqual(['loop']);
+      expect(list.loop).toBe(0);
+    }
+    const end = loop.at + loop.beats * GALLERY_TRACK.beat;
+    const file = join(__dirname, '..', 'public', 'assets', GALLERY_TRACK.path);
+    expect(existsSync(file), GALLERY_TRACK.path).toBe(true);
     expect(statSync(file).size).toBeGreaterThan(end * 16_000 * 0.5);
   });
 

@@ -1,3 +1,4 @@
+import type { BonusId } from './Bonus';
 import type { BossId } from './Boss';
 import type { LevelLightingSpec, LightSpec } from './Lighting';
 
@@ -58,6 +59,8 @@ export interface LevelSpec {
   lighting: LevelLightingSpec;
   /** From the map property `boss`: the level is a boss fight and ends when the boss dies. */
   boss?: BossId;
+  /** From the map property `bonus`: the level is a bonus stage and ends with its tally. */
+  bonus?: BonusId;
 }
 
 export const FIELD_WIDTH = 600;

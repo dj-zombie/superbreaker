@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { worldForLevel, worldForRun, type WorldId } from '../art/backdrops';
 import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
+import { GALLERY_MUSIC_KEY, GALLERY_TRACK } from '../art/galleryMusic';
 import {
   ARENA_MID,
   COLORS,
@@ -64,22 +65,29 @@ import {
   type SkillId,
   type SkillView,
 } from '../core/Skills';
-import { abilitiesCarryOver, runCarry, type SessionPowerupId } from '../core/Session';
+import {
+  SESSION_ABILITY_COST,
+  abilitiesCarryOver,
+  runCarry,
+  type SessionPowerupId,
+} from '../core/Session';
 import { stepAfter, stepKey, type CampaignStep } from '../core/Campaign';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BOSSES } from '../bosses';
+import { BONUSES } from '../bonus';
 import { BOSS_IDS } from '../core/Boss';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
 import { celebrate, gameplayStart, gameplayStop, reportProgress } from '../platform/crazygames';
-import { controlDevice, onPadButton, PadButton } from '../platform/gamepad';
+import { controlDevice, onPadButton, padHeld, PadButton } from '../platform/gamepad';
 import { skillKeyLabel } from '../platform/keyboard';
 import { haptic } from '../platform/haptics';
 import { onAppBackground } from '../platform/lifecycle';
 import { save } from '../services';
 import { AbilitySystem, SLOT_COUNT, type SlotState } from '../systems/AbilitySystem';
 import { audio } from '../systems/AudioSystem';
+import { BonusDirector, type BonusHost, type BonusHud, type BonusResult } from '../systems/BonusDirector';
 import { BossBody } from '../systems/BossBody';
 import {
   BossDirector,
@@ -179,6 +187,8 @@ export interface HudState {
   coachSkill: SkillId | null;
   /** A boss's health bar while its fight runs. */
   boss: BossHud | null;
+  /** A bonus stage's timer, intro card and tally while it runs. */
+  bonus: BonusHud | null;
 }
 
 /** Shield bar center, just under the paddle and above the deck panel. */
@@ -192,6 +202,11 @@ function pickBall(a: unknown, b: unknown): Ball {
 /** Dev builds only: the running boss is `window.boss`, the way main.ts sets `window.game`. */
 function exposeBoss(boss: BossDirector | undefined): void {
   if (import.meta.env.DEV) (window as unknown as { boss?: BossDirector }).boss = boss;
+}
+
+/** Dev builds only: the running bonus stage is `window.bonus`. */
+function exposeBonus(bonus: BonusDirector | undefined): void {
+  if (import.meta.env.DEV) (window as unknown as { bonus?: BonusDirector }).bonus = bonus;
 }
 
 /** Resting collision box. Hit flashes scale the sprite without resizing the body. */
@@ -246,6 +261,8 @@ const BREACH_DEATH_DELAY = 0.35;
 const LASER_GLOW_GAP_MS = 80;
 /** Bullet time cools the whole field by multiplying it with this. */
 const SLOWMO_TINT = 0xa8c4ff;
+/** A ball lost in a bonus stage is back on the paddle and away again after this long. */
+const BONUS_SERVE_MS = 600;
 
 export class Play extends BaseScene {
   levelIndex = 1;
@@ -260,6 +277,10 @@ export class Play extends BaseScene {
   private runDirector?: RunDirector;
   /** Set when the level names a boss. */
   private boss?: BossDirector;
+  /** Set when the level names a bonus stage. */
+  private bonus?: BonusDirector;
+  /** A HUD skill button is holding a bonus stage's trigger down. */
+  private hudTrigger = false;
   private diff!: DifficultyConfig;
   private paddle!: Paddle;
   private balls!: Phaser.Physics.Arcade.Group;
@@ -343,6 +364,7 @@ export class Play extends BaseScene {
     this.wallsCheckMs = 0;
     this.serveMs = 0;
     this.countdownShown = 0;
+    this.hudTrigger = false;
   }
 
   /** Campaign: where this level sits, a level or the boss stop after one. */
@@ -357,8 +379,13 @@ export class Play extends BaseScene {
 
   preload(): void {
     ParallaxBackdrop.preload(this, this.world);
+    const level = this.runConfig ? undefined : this.campaignLevel();
+    // The gallery's bed loads with that stage, so the other levels never fetch it.
+    if (level?.bonus && !this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
+      this.load.audio(GALLERY_MUSIC_KEY, `assets/${GALLERY_TRACK.path}`);
+    }
     // A boss's sheet loads with its level, so the levels without one never fetch it.
-    const boss = this.runConfig ? undefined : this.campaignLevel()?.boss;
+    const boss = level?.boss;
     if (!boss) return;
     BossBody.preload(this, BOSSES[boss]);
     // So does the boss track. A second boss level finds it in the cache.
@@ -402,6 +429,7 @@ export class Play extends BaseScene {
       coachSlot: null,
       coachSkill: null,
       boss: null,
+      bonus: null,
     };
 
     this.scenery = new ParallaxBackdrop(this, world);
@@ -452,6 +480,7 @@ export class Play extends BaseScene {
         // A boss's parts are bricks, and only the boss removes them.
         collapseReady: () =>
           !this.boss?.active &&
+          !this.bonus?.active &&
           collapseReady({
             fever: this.fever.active,
             balls: this.freeBallCount,
@@ -460,7 +489,8 @@ export class Play extends BaseScene {
       },
       world,
       // A boss level never collapses: its parts are bricks, and only the boss removes them.
-      { collapse: !this.runDirector?.descent && !this.level.boss },
+      // Nor does a bonus stage, whose targets are bricks too.
+      { collapse: !this.runDirector?.descent && !this.level.boss && !this.level.bonus },
     );
     this.hud.remaining = this.bricks.remaining;
     this.initialBreakables = Math.max(1, this.bricks.remaining);
@@ -557,13 +587,19 @@ export class Play extends BaseScene {
         })
       : undefined;
     exposeBoss(this.boss);
+    // An Arcade run plays its own boards: a bonus stage is a campaign level.
+    const bonus = this.runConfig ? undefined : this.level.bonus;
+    this.bonus = bonus
+      ? new BonusDirector(BONUSES[bonus], this.bonusHost(), { seed: randomSeed() })
+      : undefined;
+    exposeBonus(this.bonus);
     this.runDirector?.attach(this.runHost());
     this.inputSys = new InputSystem(
       this,
       this.paddle,
       () => this.onTap(),
       () => this.requestPause(),
-      () => !this.boss?.cinematic,
+      () => !this.boss?.cinematic && !this.bonus?.cinematic,
     );
 
     const keys = this.inputSys.keys;
@@ -573,10 +609,12 @@ export class Play extends BaseScene {
     // Dev only: with `?laser=<mode>`, L hands out a laser for play-testing that mode.
     const kb = this.input.keyboard;
     if (FORCED_LASER_MODE) kb?.addKey(Phaser.Input.Keyboard.KeyCodes.L).on('down', () => this.devLaser());
-    // Dev only: ] empties the boss's current pool, to reach the next phase or the kill.
+    // Dev only: ] empties the boss's current pool, to reach the next phase or the kill, and runs
+    // a bonus stage's timer out.
     if (import.meta.env.DEV) {
       kb?.addKey(Phaser.Input.Keyboard.KeyCodes.CLOSED_BRACKET).on('down', () => {
         this.boss?.debugHit(this.boss.state.pool);
+        this.bonus?.debugEndTimer();
       });
     }
     const stockButtons: number[] = [PadButton.lb, PadButton.rb, PadButton.lt, PadButton.rt];
@@ -587,8 +625,8 @@ export class Play extends BaseScene {
       else if (button === PadButton.east) this.useSkill('slowmo');
       else if (stockButtons.includes(button)) this.useStock(stockButtons.indexOf(button));
     });
-    // A boss level never runs the tutorial.
-    const noTutorial = save.state.seenInstructions || !!this.level.boss;
+    // A boss level or a bonus stage never runs the tutorial.
+    const noTutorial = save.state.seenInstructions || !!this.level.boss || !!this.bonus;
     this.coach = noTutorial
       ? undefined
       : new OnboardingCoach({
@@ -605,12 +643,13 @@ export class Play extends BaseScene {
         });
     this.wasCoaching = this.coaching;
     this.frozen = false;
-    this.juice.holdWorld = () => !!this.coach?.frozen || !!this.boss?.frozen;
+    this.juice.holdWorld = () => !!this.coach?.frozen || !!this.boss?.frozen || !!this.bonus?.frozen;
 
     this.resetBall();
     // A boss opens its own level: the hint, the name and the music wait for its entrance.
     const bossIntro = !!this.boss?.holdServe;
-    if (bossIntro) {
+    // A bonus stage names itself, and serves once its intro is over.
+    if (bossIntro || this.bonus) {
       // The scene outlives a restart, so the last run's hint is let go here, as showHint would.
       this.clearHint();
     } else {
@@ -627,7 +666,7 @@ export class Play extends BaseScene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdown());
     this.events.on(Phaser.Scenes.Events.RESUME, () => {
       this.juice.particleScale = particleDensity();
-      if (!this.coach?.frozen && !this.boss?.frozen) this.physics.world.resume();
+      if (!this.coach?.frozen && !this.boss?.frozen && !this.bonus?.frozen) this.physics.world.resume();
       audio.duckMusic(false);
       if (!this.finished) {
         this.fillAbilityStock();
@@ -645,7 +684,7 @@ export class Play extends BaseScene {
     const dt = Math.min(delta, 50);
     this.inputSys.update(dt);
     this.paddle.step(dt);
-    if (this.coach?.frozen || this.boss?.frozen) {
+    if (this.coach?.frozen || this.boss?.frozen || this.bonus?.frozen) {
       this.updateFrozen(dt);
       return;
     }
@@ -677,6 +716,11 @@ export class Play extends BaseScene {
       this.syncFreeze();
       this.dropBeatenBoss();
     }
+    if (this.bonus && !this.finished) {
+      this.bonus.update(dt);
+      // The timer running out on this frame stops the world on this frame.
+      this.syncFreeze();
+    }
     // Dev only: the boss counts the frames a ball spends inside one of its parts.
     if (import.meta.env.DEV && this.boss) {
       const free = this.ballList.filter((b) => !b.attached);
@@ -691,8 +735,8 @@ export class Play extends BaseScene {
     this.hud.fever = this.fever.meter.display;
     this.hud.feverActive = this.fever.active;
     this.hud.paddleX = this.paddle.x;
-    // A boss level is won by killing the boss, not by clearing the bricks.
-    if (this.boss?.active) return;
+    // A boss level is won by killing the boss, not by clearing the bricks; a bonus stage by its tally.
+    if (this.boss?.active || this.bonus) return;
     if (this.hud.remaining > 0) return;
     if (this.runDirector) this.runDirector.onBoardEmpty();
     else this.win();
@@ -709,8 +753,11 @@ export class Play extends BaseScene {
     this.updateCoach(dt);
     this.syncFreeze();
     this.boss?.update(dt);
-    // The boss dying ends the level from inside its update.
+    this.bonus?.update(dt);
+    // The boss dying, or a tally ending, ends the level from inside its update.
     if (this.finished) return;
+    // A bonus stage's guns tuck away once its timer is out.
+    if (this.bonus) this.laser.update(dt);
     this.dropBeatenBoss();
     this.updateBossMusic();
     this.syncLights();
@@ -720,7 +767,7 @@ export class Play extends BaseScene {
 
   /** Fires an ability slot (HUD tap, Q/E or pad X/Y). */
   fireSlot(i: number): void {
-    if (this.finished || !this.scene.isActive() || this.boss?.cinematic) return;
+    if (this.finished || !this.scene.isActive() || this.boss?.cinematic || this.bonus?.cinematic) return;
     // The tutorial's ability stop waits on exactly this; the others leave the slots alone.
     if (this.coach?.frozen && this.coach.step !== 'ability') return;
     if (!this.abilities.activate(i)) return;
@@ -733,6 +780,12 @@ export class Play extends BaseScene {
   /** Fires a skill: its HUD button, F or Shift, pad A in flight or B, or a launch with no ball held. */
   useSkill(id: SkillId): void {
     if (this.finished || this.cleared || !this.scene.isActive() || this.boss?.cinematic) return;
+    if (this.bonus?.cinematic) return;
+    // In a bonus stage with guns, the gun button is a trigger: held down, it fires.
+    if (id === 'gun' && this.bonus?.guns) {
+      this.hudTrigger = true;
+      return;
+    }
     // The tutorial's skill stops wait on their own skill; the others leave the skills alone.
     if (this.coach?.frozen && this.coach.step !== id) return;
     if (!this.skillReady(id) || !this.skills[id].use()) return;
@@ -742,16 +795,52 @@ export class Play extends BaseScene {
       this.laser.burst(SKILLS.gun.durationMs, gunBudget(save.state.upgrades.laser));
       haptic('light');
     } else {
-      this.slowmoVeil.setVisible(true);
-      this.tweens.killTweensOf(this.slowmoVeil);
-      this.tweens.add({ targets: this.slowmoVeil, alpha: 1, duration: 180, ease: 'Cubic.Out' });
-      this.juice.ring(this.paddle.x, this.paddle.y, SKILLS.slowmo.color, 140);
-      audio.setDream(true);
-      audio.whoosh(0.4);
-      haptic('medium');
+      this.slowmoOn();
     }
     this.hud.skills = this.skillViews();
     this.coach?.skillUsed(id);
+  }
+
+  /** A skill button let go. A bonus stage's trigger comes up with it. */
+  releaseSkill(id: SkillId): void {
+    if (id === 'gun') this.hudTrigger = false;
+  }
+
+  /** Bullet time's look and sound coming in, however it was started. */
+  private slowmoOn(): void {
+    this.slowmoVeil.setVisible(true);
+    this.tweens.killTweensOf(this.slowmoVeil);
+    this.tweens.add({ targets: this.slowmoVeil, alpha: 1, duration: 180, ease: 'Cubic.Out' });
+    this.juice.ring(this.paddle.x, this.paddle.y, SKILLS.slowmo.color, 140);
+    audio.setDream(true);
+    audio.whoosh(0.4);
+    haptic('medium');
+  }
+
+  /** A bonus stage's bullet time, for `ms`, with the charge left as it is. 0 ends it. */
+  private slowmoFor(ms: number): void {
+    const s = this.skills.slowmo;
+    if (ms <= 0) {
+      if (s.active) this.endSlowmo();
+      return;
+    }
+    if (!s.active) this.slowmoOn();
+    s.remainingMs = Math.max(s.remainingMs, ms);
+  }
+
+  /**
+   * A bonus stage's trigger: the gun key, the HUD's gun button, or with a ball in flight the
+   * launch key, pad A or a held mouse button.
+   */
+  private triggerHeld(): boolean {
+    // The HUD button's release can be missed when the finger slides off the screen.
+    if (this.hudTrigger && !this.input.manager.pointers.some((p) => p.isDown)) this.hudTrigger = false;
+    const keys = this.inputSys.keys;
+    if (this.hudTrigger || keys.held('gun')) return true;
+    if (!this.ballList.some((b) => !b.attached)) return false;
+    if (keys.held('launch') || padHeld(PadButton.south)) return true;
+    const p = this.input.activePointer;
+    return p.isDown && !p.wasTouch;
   }
 
   /** Charged, and for the gun, no laser pickup already firing: that holds its charge. */
@@ -760,7 +849,12 @@ export class Play extends BaseScene {
   }
 
   private skillViews(): SkillView[] {
+    const gatling = this.bonus?.gatling;
     return SKILL_IDS.map((id) => {
+      // A bonus stage's gatling is always ready; its ring shows how far the barrels have spun up.
+      if (id === 'gun' && gatling) {
+        return { id, fraction: gatling.spin, ready: true, active: gatling.firing };
+      }
       const s = this.skills[id];
       return { id, fraction: s.fraction, ready: this.skillReady(id), active: s.active };
     });
@@ -810,6 +904,7 @@ export class Play extends BaseScene {
     if (this.finished || !this.scene.isActive() || this.coach?.frozen || this.boss?.cinematic) {
       return;
     }
+    if (this.bonus?.cinematic) return;
     const id = save.useStockPowerup(i);
     if (!id) return;
     const x = this.paddle.x;
@@ -936,6 +1031,7 @@ export class Play extends BaseScene {
       return;
     }
     if (this.boss?.skip()) return;
+    if (this.bonus?.skip()) return;
     if (this.ballList.some((b) => b.attached)) this.launch();
     else this.useSkill('gun');
   }
@@ -943,6 +1039,7 @@ export class Play extends BaseScene {
   private launch(): void {
     const held = this.ballList.find((b) => b.attached);
     if (!held || this.finished || this.coach?.frozen || this.boss?.cinematic) return;
+    if (this.bonus?.cinematic) return;
     const at = { x: held.x, y: held.y };
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
@@ -953,7 +1050,7 @@ export class Play extends BaseScene {
 
   private updateAttachedBalls(dt: number): void {
     const held = this.ballList.find((b) => b.attached);
-    this.arrow.setVisible(!!held && !this.boss?.cinematic);
+    this.arrow.setVisible(!!held && !this.boss?.cinematic && !this.bonus?.cinematic);
     this.hud.ballHeld = !!held;
     if (!held) return;
     held.setPosition(this.paddle.x + held.attachedOffset!, this.paddle.y - 24);
@@ -962,7 +1059,7 @@ export class Play extends BaseScene {
     if (this.aim < AIM_MIN) this.aimDir = 1;
     this.aim = Phaser.Math.Clamp(this.aim, AIM_MIN, AIM_MAX);
     this.arrow.setPosition(held.x, held.y).setRotation(this.aim);
-    if (!this.coach?.holdServe && !this.boss?.holdServe) this.serveMs -= dt;
+    if (!this.coach?.holdServe && !this.boss?.holdServe && !this.bonus?.holdServe) this.serveMs -= dt;
     if (this.serveMs <= 0) this.launch();
     else this.tickCountdown();
   }
@@ -993,7 +1090,7 @@ export class Play extends BaseScene {
    * player has done their part or the scene is over.
    */
   private syncFreeze(): void {
-    const frozen = !!this.coach?.frozen || !!this.boss?.frozen;
+    const frozen = !!this.coach?.frozen || !!this.boss?.frozen || !!this.bonus?.frozen;
     if (frozen === this.frozen) return;
     this.frozen = frozen;
     if (frozen) this.physics.world.pause();
@@ -1501,13 +1598,15 @@ export class Play extends BaseScene {
     const free = this.ballList.filter((b) => !b.attached);
     const remaining = this.bricks.remaining;
     const step = this.pacing.update(dt, remaining, free.length > 0);
-    if (step) this.intervene(step);
+    // A bonus stage's targets are not a board to clear: nothing steps in to help.
+    const bonus = this.bonus?.active ? this.bonus : undefined;
+    if (step && !bonus) this.intervene(step);
     this.checkWallsDown(dt);
 
     this.nudgeMs = Math.max(0, this.nudgeMs - dt);
     // A boss's few parts are not a level's last few bricks: no endgame homing while it lives.
     const boss = this.boss?.active ? this.boss : undefined;
-    const endgame = !boss && this.pacing.endgameAssist(remaining);
+    const endgame = !boss && !bonus && this.pacing.endgameAssist(remaining);
     const turn = this.nudgeMs > 0 ? NUDGE_TURN : endgame ? ENDGAME_TURN : 0;
     const lock = boss?.lock;
     if (lock) {
@@ -1528,8 +1627,13 @@ export class Play extends BaseScene {
       }
     }
     const hyper = this.powerups.is('hyper');
-    // In a boss fight the ball speeds up as the boss's pools drain, not as bricks clear.
-    const cleared = boss ? boss.progress : 1 - remaining / this.initialBreakables;
+    // In a boss fight the ball speeds up as the boss's pools drain, not as bricks clear, and in a
+    // bonus stage as its timer runs down.
+    const cleared = boss
+      ? boss.progress
+      : bonus
+        ? bonus.progress
+        : 1 - remaining / this.initialBreakables;
     const cruise = cruiseSpeed(this.diff, cleared);
     const target = Math.min(this.diff.maxSpeed, cruise * idleSpeedBoost(this.pacing.idleMs));
     for (const b of free) {
@@ -1541,8 +1645,8 @@ export class Play extends BaseScene {
 
   /** Knocks the steel down, once per board, when the player is stuck outside the bricks it boxes in. */
   private checkWallsDown(dt: number): void {
-    // A boss's steel parts are its own to remove.
-    if (this.boss?.active) return;
+    // A boss's steel parts are its own to remove, and a bonus stage has none.
+    if (this.boss?.active || this.bonus) return;
     if (this.wallsDown || this.pacing.idleMs < WALLS_DOWN_IDLE_MS) return;
     this.wallsCheckMs -= dt;
     if (this.wallsCheckMs > 0) return;
@@ -1560,9 +1664,13 @@ export class Play extends BaseScene {
     haptic('heavy');
   }
 
-  /** Tells the music how hot the moment is. A boss fight plays the boss track instead. */
+  /** The gallery bed is in, and comes back if the music is switched on mid-stage. */
+  private bonusTrack = false;
+
+  /** Tells the music how hot the moment is. A boss fight, or the gallery, plays its own track. */
   private updateMusic(dt: number): void {
     if (this.updateBossMusic()) return;
+    if (this.updateBonusMusic()) return;
     const balls = this.freeBallCount;
     audio.steerMusic(
       this.musicMood.update(dt, {
@@ -1672,6 +1780,14 @@ export class Play extends BaseScene {
   /** A ball was lost, or (`breach`) Descent bricks crossed the line while the ball stays in play. */
   private loseLife(breach = false): void {
     if (this.finished) return;
+    // A bonus stage cannot be failed: the ball costs score or combo and is straight back.
+    if (this.bonus?.active) {
+      this.bonus.onBallLost();
+      this.hud.combo = 0;
+      this.rearm();
+      this.serveMs = BONUS_SERVE_MS;
+      return;
+    }
     if (!save.state.settings.godMode) this.hud.lives--;
     this.hud.combo = 0;
     this.pacing.onLifeLost();
@@ -1704,6 +1820,21 @@ export class Play extends BaseScene {
     if (breach) return;
     this.resetBall();
     this.showHint();
+  }
+
+  /** True while the shooting gallery has the music. The bed stops once, as the stage ends. */
+  private updateBonusMusic(): boolean {
+    const on = !!this.bonus?.active;
+    if (!on) {
+      if (this.bonusTrack) {
+        this.bonusTrack = false;
+        audio.bonusMusic(false);
+      }
+      return false;
+    }
+    this.bonusTrack = true;
+    audio.bonusMusic(true);
+    return true;
   }
 
   /**
@@ -1823,7 +1954,8 @@ export class Play extends BaseScene {
     return PADDLE_Y - 215;
   }
 
-  private win(): void {
+  /** `earned` stands in for the stars the lives left would give, as a bonus stage's medal does. */
+  private win(earned?: number): void {
     if (this.finished) return;
     this.finished = true;
     this.cleared = true;
@@ -1835,7 +1967,7 @@ export class Play extends BaseScene {
     // Worked out before the win is saved: a level's stop is next only while its boss stands.
     const next = stepAfter(here, (i) => !!this.stopAfter(i), (i) => save.bossBeaten(i));
     runCarry.stage(this.abilities.held(), stepKey(next));
-    const stars = starsForLives(this.hud.lives);
+    const stars = earned ?? starsForLives(this.hud.lives);
     const prevBest = save.state.levels[stepKey(here)]?.bestScore ?? 0;
     const total = this.levels.length;
     const isBest = this.atStop
@@ -1845,8 +1977,9 @@ export class Play extends BaseScene {
     reportProgress((save.clearedCount() / Math.max(1, this.levels.length)) * 100);
     // Finishing a world only, so the page confetti stays a rare thing.
     if (finale) celebrate();
-    // A boss ends on its own stinger and the calm after it, so its level skips the fanfare kit.
-    const bossLevel = !!this.level.boss;
+    // A boss ends on its own stinger and the calm after it, and a bonus stage on its tally, so
+    // their levels skip the fanfare kit.
+    const bossLevel = !!this.level.boss || !!this.bonus;
     if (!bossLevel) audio.stopMusic();
     audio.loop('brick_mover', false);
     if (!bossLevel) audio.fanfare();
@@ -2127,6 +2260,63 @@ export class Play extends BaseScene {
     };
   }
 
+  private bonusHost(): BonusHost {
+    return {
+      scene: this,
+      bricks: this.bricks,
+      juice: this.juice,
+      lighting: this.lighting,
+      paddle: this.paddle,
+      timeScale: () => this.physics.world.timeScale,
+      triggerHeld: () => this.triggerHeld(),
+      stream: (held) => this.laser.stream(held),
+      shotsFired: () => this.laser.shots,
+      slowmo: (ms) => this.slowmoFor(ms),
+      credit: () => {
+        this.pacing.onBreak();
+        this.musicMood.onBreak();
+        this.skills.slowmo.onBreak();
+      },
+      addScore: (n) => this.addScore(n),
+      addCoins: (n) => {
+        this.hud.coinsEarned += n;
+        save.addCoins(n);
+      },
+      setLabel: (title, detail) => {
+        this.hud.title = title;
+        this.hud.detail = detail;
+      },
+      setHud: (view) => {
+        this.hud.bonus = view;
+      },
+      titleBand: (kicker, name, holdMs) => this.titleBand(kicker, name, holdMs),
+      serve: () => this.showHint(),
+      finished: (result) => this.bonusFinished(result),
+    };
+  }
+
+  /**
+   * The tally is over: the medal's coins go to the player, its ability charges into the stock
+   * for the next level, and the level is won with a star for each medal tier.
+   */
+  private bonusFinished(result: BonusResult): void {
+    const { reward } = result;
+    if (reward.coins > 0) {
+      this.hud.coinsEarned += reward.coins;
+      save.addCoins(reward.coins);
+    }
+    const owned = unlockedAbilities(save.state.abilities);
+    for (let i = 0; i < reward.abilityCharges && owned.length > 0; i++) {
+      const id = owned[Math.floor(Math.random() * owned.length)]!;
+      // A full stock takes the charge as the coins it would have cost.
+      if (save.grantStockAbility(id)) continue;
+      const coins = SESSION_ABILITY_COST[id];
+      this.hud.coinsEarned += coins;
+      save.addCoins(coins);
+    }
+    this.win(result.stars);
+  }
+
   /**
    * A boss scene's camera: `zoom` times closer than play, centred on a point of the field, and
    * held where the view never leaves the stage. Zoom 1 is the view `setupCamera` gives.
@@ -2189,6 +2379,9 @@ export class Play extends BaseScene {
     this.boss?.destroy();
     this.boss = undefined;
     exposeBoss(undefined);
+    this.bonus?.destroy();
+    this.bonus = undefined;
+    exposeBonus(undefined);
     this.events.off(Phaser.Scenes.Events.RESUME);
     this.input.keyboard?.removeAllKeys(true);
     this.shieldBar = undefined;

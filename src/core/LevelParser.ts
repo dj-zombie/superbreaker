@@ -1,3 +1,4 @@
+import { BONUS_IDS, type BonusId } from './Bonus';
 import { BOSS_IDS, type BossId } from './Boss';
 import {
   COOKIES,
@@ -284,7 +285,18 @@ export function parseLevel(
   };
   const boss = parseBoss(mapProps.boss, warnings);
   if (boss) level.boss = boss;
+  const bonus = parseBonus(mapProps.bonus, warnings);
+  if (bonus) level.bonus = bonus;
+  if (boss && bonus) warnings.push('Map: a level is a boss fight or a bonus stage, not both');
   return { level, warnings };
+}
+
+/** The bonus stage a map names. An empty string, as Tiled writes an unset member, is none. */
+function parseBonus(v: TiledPropValue | undefined, warnings: string[]): BonusId | undefined {
+  if (v === undefined || v === '') return undefined;
+  const bonus = BONUS_IDS.find((id) => id === v);
+  if (!bonus) warnings.push(`Map: unknown bonus stage "${String(v)}"`);
+  return bonus;
 }
 
 /** The boss a map names. Tiled writes an unset class member as an empty string: no boss. */
@@ -464,8 +476,10 @@ export function isBreakable(b: Pick<BrickSpec, 'kind'>): boolean {
 /** Authoring checks, used by tests and logged in dev builds. */
 export function validateLevel(level: LevelSpec): string[] {
   const issues: string[] = [];
-  // A boss level ends when the boss dies, so it needs no bricks of its own.
-  if (!level.boss && !level.bricks.some(isBreakable)) issues.push('Level has no breakable bricks');
+  // A boss level ends when the boss dies, and a bonus stage with its tally: neither needs bricks.
+  if (!level.boss && !level.bonus && !level.bricks.some(isBreakable)) {
+    issues.push('Level has no breakable bricks');
+  }
   for (const b of level.bricks) {
     const minX = Math.min(b.x, b.x + b.moveX);
     const maxX = Math.max(b.x, b.x + b.moveX) + b.width;
