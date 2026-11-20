@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { worldForLevel, worldForRun, type WorldId } from '../art/backdrops';
+import { worldForLevel, worldForRun, type SceneryId, type WorldId } from '../art/backdrops';
 import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
 import { GALLERY_MUSIC_KEY, GALLERY_TRACK } from '../art/galleryMusic';
 import {
@@ -120,6 +120,7 @@ import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/Poweru
 import { RunDirector, type RunHost } from '../systems/RunDirector';
 import { framePanel, glowLineTexture } from '../ui/frames';
 import { slam } from '../ui/fx/motion';
+import { solid } from '../ui/shapes';
 import { onBack } from '../ui/nav';
 import { calm, css, pickWorld, theme, useWorld, worldLevels } from '../ui/theme';
 import { display, glowWord, heading, label } from '../ui/type';
@@ -322,7 +323,7 @@ export class Play extends BaseScene {
    * One scene plays a whole run, so that cooldown carries across waves.
    */
   private skills!: Record<SkillId, SkillCharge>;
-  private slowmoVeil!: Phaser.GameObjects.Rectangle;
+  private slowmoVeil!: Phaser.GameObjects.Image;
   private juice!: JuiceSystem;
   private inputSys!: InputSystem;
   /** The first-play tutorial, until it is finished or skipped. */
@@ -390,9 +391,15 @@ export class Play extends BaseScene {
     return this.levels[this.levelIndex - 1];
   }
 
+  /** A bonus stage can bring its own scenery and scroll it at its own pace; a level shows its world. */
+  private sceneryFor(level: LevelSpec | undefined): { id: SceneryId; pace: number } {
+    const def = level?.bonus && !this.runConfig ? BONUSES[level.bonus] : undefined;
+    return { id: def?.backdrop ?? this.world, pace: def?.pace ?? 1 };
+  }
+
   preload(): void {
-    ParallaxBackdrop.preload(this, this.world);
     const level = this.runConfig ? undefined : this.campaignLevel();
+    ParallaxBackdrop.preload(this, this.sceneryFor(level).id);
     // The gallery's bed loads with that stage, so the other levels never fetch it.
     if (level?.bonus && !this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
       this.load.audio(GALLERY_MUSIC_KEY, `assets/${GALLERY_TRACK.path}`);
@@ -411,6 +418,10 @@ export class Play extends BaseScene {
     this.setupCamera();
     const shade = Phaser.Display.Color.IntegerToColor(theme().palette.base);
     this.cameras.main.fadeIn(300, shade.red, shade.green, shade.blue);
+    // A finished fade-in keeps drawing a clear full-screen fill every frame until it is reset.
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () =>
+      this.cameras.main.fadeEffect.reset(),
+    );
     this.input.enabled = true;
     onBack(this, () => this.requestPause());
     this.runDirector = this.runConfig ? new RunDirector(this.runConfig) : undefined;
@@ -445,7 +456,8 @@ export class Play extends BaseScene {
       bonus: null,
     };
 
-    this.scenery = new ParallaxBackdrop(this, world);
+    const scenery = this.sceneryFor(this.level);
+    this.scenery = new ParallaxBackdrop(this, scenery.id, scenery.pace);
     this.lighting = new LightingSystem(this, world, this.level, this.scenery);
     // The light map replaces the flat dim; without WebGL the old tint still darkens the art.
     this.backdrop = this.lighting.enabled
@@ -517,7 +529,7 @@ export class Play extends BaseScene {
       this.backdrop,
       (active) => {
         this.onEffectsChanged();
-        this.scenery.setPace(active ? 3.5 : 1);
+        this.scenery.setPace((active ? 3.5 : 1) * scenery.pace);
       },
       this.lighting.look.lightsOut ? 0.35 : 1,
     );
@@ -583,8 +595,7 @@ export class Play extends BaseScene {
     this.hud.slots = this.abilities.slots;
     this.loadRunAbilities();
     this.skills = { gun: new SkillCharge(SKILLS.gun, 1), slowmo: new SkillCharge(SKILLS.slowmo, 1) };
-    this.slowmoVeil = this.add
-      .rectangle(WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, SLOWMO_TINT)
+    this.slowmoVeil = solid(this, WIDTH / 2, HEIGHT / 2, STAGE_W * 2, HEIGHT * 2, SLOWMO_TINT)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
       .setDepth(19)
       .setAlpha(0)
@@ -1905,7 +1916,7 @@ export class Play extends BaseScene {
   private titleBand(kicker: string, name: string, holdMs: number): void {
     const t = theme();
     const band = this.add.container(WIDTH / 2, ARENA_MID - 40).setDepth(25);
-    const bg = this.add.rectangle(0, 0, WIDTH, 112, t.palette.base, 0.78);
+    const bg = solid(this, 0, 0, WIDTH, 112, t.palette.base, 0.78);
     const rules = [-56, 56].map((y) =>
       this.add
         .image(0, y, glowLineTexture(this))

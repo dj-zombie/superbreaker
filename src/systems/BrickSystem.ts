@@ -105,6 +105,19 @@ export class BrickSystem {
     this.invalidate();
   }
 
+  /**
+   * Retires owned bricks and takes them off the scene for good, for owners that spawn bricks all
+   * through a stage. Call it outside physics callbacks.
+   */
+  discard(bricks: readonly Brick[]): void {
+    this.retire(bricks);
+    for (const b of bricks) {
+      const i = this.bricks.indexOf(b);
+      if (i >= 0) this.bricks.splice(i, 1);
+      b.destroy();
+    }
+  }
+
   /** Moves every standing brick down by `dy` px over `ms`. */
   shiftDown(dy: number, ms: number): void {
     for (const b of this.bricks) {

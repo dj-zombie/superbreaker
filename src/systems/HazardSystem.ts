@@ -10,6 +10,7 @@ import {
 } from '../core/Boss';
 import type { Ball } from '../entities/Ball';
 import type { Paddle } from '../entities/Paddle';
+import { solid } from '../ui/shapes';
 import { calm, css, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
 import type { JuiceSystem } from './JuiceSystem';
@@ -97,7 +98,6 @@ const SKULL_HIT_SFX = 'breach';
 const SKULL_POP_SFX = 'boss_skull_pop';
 
 type Image = Phaser.GameObjects.Image;
-type Rect = Phaser.GameObjects.Rectangle;
 
 /** One hazard of the armed plan, with everything drawn for it. */
 interface Entry {
@@ -116,12 +116,12 @@ interface Entry {
   /** Closes in on the mark. */
   ring?: Image;
   /** The timing strip: its empty track, and the fill that runs along it. */
-  track?: Rect;
-  fill?: Rect;
+  track?: Image;
+  fill?: Image;
   /** The shot or skull in flight. */
   body?: Image;
   /** A beam's column. */
-  column?: Rect;
+  column?: Image;
   light?: Light;
 }
 
@@ -134,9 +134,9 @@ export class HazardSystem {
   /** The armed plan's hazards. Empty between attacks. */
   private readonly entries: Entry[] = [];
   private readonly idleImages: Image[] = [];
-  private readonly idleRects: Rect[] = [];
+  private readonly idleRects: Image[] = [];
   /** Everything the pools ever made, in use or idle, so it can all be taken off the scene. */
-  private readonly made: Array<Image | Rect> = [];
+  private readonly made: Image[] = [];
   /** Fight-clock time since the wind-up began, in ms. It waits at the wind-up's end for `go`. */
   private elapsed = 0;
   private windupMs = 0;
@@ -224,7 +224,7 @@ export class HazardSystem {
       // The column runs from the top wall down to its strip under the paddle.
       e.column = this.rect(COLUMN_DEPTH, 0.5, 0)
         .setPosition(spec.x, HUD_HEIGHT)
-        .setSize(spec.width, strip - HUD_HEIGHT)
+        .setDisplaySize(spec.width, strip - HUD_HEIGHT)
         .setAlpha(COLUMN_FAINT);
       this.strip(e, spec.x, strip, spec.width);
       return e;
@@ -246,11 +246,11 @@ export class HazardSystem {
   private strip(e: Entry, x: number, y: number, width: number): void {
     e.track = this.rect(MARK_DEPTH, 0.5, 0.5)
       .setPosition(x, y)
-      .setSize(width, STRIP_HEIGHT)
+      .setDisplaySize(width, STRIP_HEIGHT)
       .setAlpha(TRACK_ALPHA);
     e.fill = this.rect(MARK_DEPTH, 0, 0.5)
       .setPosition(x - width / 2, y)
-      .setSize(width, STRIP_HEIGHT)
+      .setDisplaySize(width, STRIP_HEIGHT)
       .setAlpha(FILL_ALPHA);
   }
 
@@ -263,7 +263,7 @@ export class HazardSystem {
   private close(e: Entry): void {
     const whole = this.windupMs + e.due;
     const done = whole > 0 ? Phaser.Math.Clamp(this.elapsed / whole, 0, 1) : 1;
-    e.fill?.setScale(done, 1);
+    if (e.fill && e.track) e.fill.displayWidth = done * e.track.displayWidth;
     if (!e.ring || this.still) return;
     const end = this.ringEnd(e.spec);
     const width = end + RING_LEAD * (1 - done);
@@ -284,7 +284,7 @@ export class HazardSystem {
         e.light = host.lighting.addLight({
           x: spec.x - spec.width / 2,
           y: HUD_HEIGHT,
-          area: { width: spec.width, height: e.column.height },
+          area: { width: spec.width, height: e.column.displayHeight },
           color: this.color,
           intensity: BEAM_LIGHT,
           priority: LIGHT_PRIORITY,
@@ -453,18 +453,17 @@ export class HazardSystem {
       .setVisible(true);
   }
 
-  /** A rectangle from the pool, in the danger colour, with its origin at (`ox`, `oy`). */
-  private rect(depth: number, ox: number, oy: number): Rect {
+  /** A flat rectangle from the pool, in the danger colour, with its origin at (`ox`, `oy`). Size it after. */
+  private rect(depth: number, ox: number, oy: number): Image {
     let rect = this.idleRects.pop();
     if (!rect) {
-      rect = this.host.scene.add.rectangle(0, 0, 1, 1);
+      rect = solid(this.host.scene, 0, 0, 1, 1, this.color);
       this.made.push(rect);
     }
     return rect
-      .setFillStyle(this.color)
+      .setTint(this.color)
       .setOrigin(ox, oy)
       .setDepth(depth)
-      .setScale(1)
       .setAlpha(1)
       .setVisible(true);
   }

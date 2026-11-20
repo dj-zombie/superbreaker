@@ -208,5 +208,75 @@
         ]
       }
     }
+  },
+  "carnival": {
+    "sky": "images/backdrops-hd/carnival/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/carnival/far.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      },
+      "fog1": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/carnival/fog1.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "mid": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/carnival/mid_l.webp",
+            "x": 0,
+            "width": 1256
+          },
+          {
+            "path": "images/backdrops-hd/carnival/mid_r.webp",
+            "x": 1667,
+            "width": 1213
+          }
+        ]
+      },
+      "fog2": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/carnival/fog2.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "near": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/carnival/near_l.webp",
+            "x": 0,
+            "width": 822
+          },
+          {
+            "path": "images/backdrops-hd/carnival/near_r.webp",
+            "x": 2093,
+            "width": 787
+          }
+        ]
+      }
+    }
   }
 }

@@ -208,5 +208,75 @@
         ]
       }
     }
+  },
+  "carnival": {
+    "sky": "images/backdrops/carnival/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 720,
+        "height": 1998,
+        "parts": [
+          {
+            "path": "images/backdrops/carnival/far.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "fog1": {
+        "width": 180,
+        "height": 320,
+        "parts": [
+          {
+            "path": "images/backdrops/carnival/fog1.webp",
+            "x": 0,
+            "width": 180
+          }
+        ]
+      },
+      "mid": {
+        "width": 720,
+        "height": 1998,
+        "parts": [
+          {
+            "path": "images/backdrops/carnival/mid_l.webp",
+            "x": 0,
+            "width": 315
+          },
+          {
+            "path": "images/backdrops/carnival/mid_r.webp",
+            "x": 417,
+            "width": 303
+          }
+        ]
+      },
+      "fog2": {
+        "width": 180,
+        "height": 320,
+        "parts": [
+          {
+            "path": "images/backdrops/carnival/fog2.webp",
+            "x": 0,
+            "width": 180
+          }
+        ]
+      },
+      "near": {
+        "width": 720,
+        "height": 1998,
+        "parts": [
+          {
+            "path": "images/backdrops/carnival/near_l.webp",
+            "x": 0,
+            "width": 181
+          },
+          {
+            "path": "images/backdrops/carnival/near_r.webp",
+            "x": 563,
+            "width": 157
+          }
+        ]
+      }
+    }
   }
 }

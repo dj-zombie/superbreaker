@@ -15,6 +15,7 @@ import {
   partyTier,
   washHue,
 } from '../core/Party';
+import { solid } from '../ui/shapes';
 import { audio } from './AudioSystem';
 import type { Light, LightingSystem } from './LightingSystem';
 import type { ParallaxBackdrop } from './ParallaxBackdrop';
@@ -494,6 +495,7 @@ const BALL_DROP = 64;
 const BALL_HIDE = -40;
 const BALL_KEY = 'party_ball';
 const BALL_SIZE = 40;
+const CORD_W = 1.5;
 /** Specks the mirror ball throws, and how many beats it takes to turn once. */
 const SPECKS = 36;
 const BALL_TURN_BEATS = 32;
@@ -540,7 +542,7 @@ class Party implements MoodFx {
   private floorGlow?: Phaser.GameObjects.Image;
   private beams: Phaser.GameObjects.Image[] = [];
   private ball?: Phaser.GameObjects.Image;
-  private cord?: Phaser.GameObjects.Rectangle;
+  private cord?: Phaser.GameObjects.Image;
   private ballY = HUD_HEIGHT + BALL_HIDE;
   private specks: Array<{ image: Phaser.GameObjects.Image; angle: number; fy: number }> = [];
 
@@ -581,8 +583,7 @@ class Party implements MoodFx {
     for (const px of HEAD_X) {
       this.beams.push(glow(WIDTH * px, HUD_HEIGHT - 6, beam).setOrigin(0.5, 0).setDisplaySize(BEAM_W, BEAM_LEN));
     }
-    this.cord = scene.add
-      .rectangle(WIDTH / 2, 0, 1.5, 1, 0xb4b4c8, 0.8)
+    this.cord = solid(scene, WIDTH / 2, 0, CORD_W, 1, 0xb4b4c8, 0.8)
       .setOrigin(0.5, 0)
       .setDepth(-2);
     this.ball = scene.add.image(WIDTH / 2, this.ballY, ballTexture(scene)).setDepth(-2);
@@ -676,7 +677,7 @@ class Party implements MoodFx {
     this.cord
       ?.setVisible(shown)
       .setY(HUD_HEIGHT)
-      .setScale(1, Math.max(1, this.ballY - BALL_SIZE / 2 - HUD_HEIGHT));
+      .setDisplaySize(CORD_W, Math.max(1, this.ballY - BALL_SIZE / 2 - HUD_HEIGHT));
     const turn = this.sys.calm ? 0 : (Math.PI * 2 * this.beats) / BALL_TURN_BEATS;
     const from = this.ballY + BALL_SIZE;
     const twinkleBeat = Math.floor(this.beats);

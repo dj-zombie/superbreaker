@@ -139,6 +139,23 @@ export function roundOutline(
     .setAlpha(alpha);
 }
 
+/**
+ * Flat filled rectangle centred on (x, y): Phaser's white texture, tinted and stretched. Size it
+ * with setDisplaySize or displayWidth. Rectangle and Graphics draw through a separate batcher, and
+ * on Chrome over Metal every switch between it and images stalls the GPU process, about 0.7 ms each.
+ */
+export function solid(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: number,
+  alpha = 1,
+): Phaser.GameObjects.Image {
+  return scene.add.image(x, y, '__WHITE').setDisplaySize(w, h).setTint(color).setAlpha(alpha);
+}
+
 export function disc(
   scene: Phaser.Scene,
   x: number,

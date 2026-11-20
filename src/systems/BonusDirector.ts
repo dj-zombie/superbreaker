@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { SceneryId } from '../art/backdrops';
 import { LEVEL_OFFSET_Y, PADDLE_Y, WIDTH } from '../config';
 import {
   BonusState,
@@ -206,6 +207,9 @@ export interface BonusDef {
   ballLost: Penalty;
   /** The stage has hold-to-fire guns, which heat up and overheat. Without, the gun skill is as ever. */
   guns?: GunsDef;
+  /** The stage's own scenery, and how fast it scrolls against a level's. The world's when left out. */
+  backdrop?: SceneryId;
+  pace?: number;
   /** Its stats as a medal of that tier would leave them, for `&tally=`. */
   preview?(medal: Medal): BonusStats;
   /**
@@ -846,7 +850,7 @@ export class BonusDirector implements BrickOwner {
     if (!t?.live) return;
     t.live = false;
     this.byBrick.delete(t.brick);
-    this.host.bricks.retire([t.brick]);
+    this.host.bricks.discard([t.brick]);
     const { scene, juice } = this.host;
     const sprite = t.sprite;
     this.host.lighting.removeLit(sprite);

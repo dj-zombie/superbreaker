@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { WORLD_IDS, partKey, worldAssets, worldLayers } from '../src/art/backdrops';
+import { SCENERY_IDS, partKey, worldAssets, worldLayers } from '../src/art/backdrops';
 
 describe('16:9 backdrops', () => {
   it('keeps the phone sheets on their own paths', () => {
-    for (const world of WORLD_IDS) {
+    for (const world of SCENERY_IDS) {
       const assets = worldAssets(world, false);
       expect(assets.length).toBeGreaterThan(0);
       for (const asset of assets) {
@@ -14,7 +14,7 @@ describe('16:9 backdrops', () => {
   });
 
   it('uses a 4x sheet on the wide stage', () => {
-    for (const world of WORLD_IDS) {
+    for (const world of SCENERY_IDS) {
       const sd = worldLayers(world, false);
       const hd = worldLayers(world, true);
       expect(sd && hd).toBeTruthy();

@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import {
-  WORLD_IDS,
+  SCENERY_IDS,
   WORLD_LOOKS,
   partKey,
   worldAssets,
   worldLayers,
   type GlowLook,
   type MoteLook,
+  type SceneryId,
   type TileLook,
-  type WorldId,
 } from '../art/backdrops';
 import { HEIGHT, STAGE_W, WIDTH, WIDE, WING } from '../config';
 import { save } from '../services';
@@ -92,15 +92,15 @@ export class ParallaxBackdrop implements Tintable {
    * Call from a scene's preload(). A phone world's layers take about 18 MB of GPU memory, and
    * the 16:9 set is 4x on a side, so only one world at one resolution stays resident.
    */
-  static preload(scene: Phaser.Scene, world: WorldId): void {
+  static preload(scene: Phaser.Scene, world: SceneryId): void {
     const hd = WIDE && !save.state.settings.batterySaver;
     scene.registry.set(HD_REG, hd);
-    const drop = (id: WorldId, hi: boolean) => {
+    const drop = (id: SceneryId, hi: boolean) => {
       for (const a of worldAssets(id, hi)) {
         if (scene.textures.exists(a.key)) scene.textures.remove(a.key);
       }
     };
-    for (const other of WORLD_IDS) {
+    for (const other of SCENERY_IDS) {
       if (other === world) {
         drop(other, !hd);
         continue;
@@ -131,7 +131,7 @@ export class ParallaxBackdrop implements Tintable {
   /** `pace` scales every scroll speed; menus drift slower than play. */
   constructor(
     private scene: Phaser.Scene,
-    readonly world: WorldId,
+    readonly world: SceneryId,
     pace = 1,
   ) {
     this.still = save.state.settings.reducedMotion;

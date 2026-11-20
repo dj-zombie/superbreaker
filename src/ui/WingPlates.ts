@@ -22,7 +22,7 @@ import { iconButton } from './Button';
 import { framePanel } from './frames';
 import { punch } from './fx/motion';
 import { icon } from './icons';
-import { disc, ring } from './shapes';
+import { disc, ring, solid } from './shapes';
 import { calm, css, type UiTheme } from './theme';
 import { label, worldTitle } from './type';
 import { Meter, RingTimer } from './widgets';
@@ -262,9 +262,9 @@ export class WingPlates {
     const p = this.t.palette;
     const h = HEIGHT - HUD_HEIGHT;
     for (const x of [0, WIDTH]) {
-      this.scene.add.rectangle(x, HUD_HEIGHT, 2, h, p.edge, 0.55).setOrigin(0.5, 0).setDepth(0);
+      solid(this.scene, x, HUD_HEIGHT, 2, h, p.edge, 0.55).setOrigin(0.5, 0).setDepth(0);
     }
-    this.scene.add.rectangle(0, HUD_HEIGHT, WIDTH, 2, p.edge, 0.55).setOrigin(0, 0.5).setDepth(0);
+    solid(this.scene, 0, HUD_HEIGHT, WIDTH, 2, p.edge, 0.55).setOrigin(0, 0.5).setDepth(0);
   }
 
   private hintText(x: number, y: number, text: string): Text {

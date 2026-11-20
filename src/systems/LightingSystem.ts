@@ -970,7 +970,16 @@ export class LightingSystem {
   private drawMap(): void {
     const map = this.map!;
     const amb = this.ambientRGB;
-    map.fill(rgbToColor(amb[0]! * 0.5, amb[1]! * 0.5, amb[2]! * 0.5), 1);
+    // An opaque stamp of the white texture rather than `fill`, which flushes to a separate
+    // batcher (see `solid` in ui/shapes).
+    const white = this.scene.textures.getFrame('__WHITE');
+    map.stamp('__WHITE', undefined, 0, 0, {
+      originX: 0,
+      originY: 0,
+      scaleX: map.width / white.width,
+      scaleY: map.height / white.height,
+      tint: rgbToColor(amb[0]! * 0.5, amb[1]! * 0.5, amb[2]! * 0.5),
+    });
     const flare = 1 + this.flare * 0.6;
     if (this.staticMap && this.staticSig !== -1) {
       map.stamp(STATIC_KEY, undefined, 0, 0, {

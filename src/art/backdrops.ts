@@ -4,6 +4,9 @@ import manifest from './backdrops.json';
 /** Each world covers ten levels of the campaign. */
 export const WORLD_IDS = ['hell', 'crypt', 'mainframe'] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
+/** Every painted backdrop: the worlds, and scenery a stage brings with it. */
+export const SCENERY_IDS = [...WORLD_IDS, 'carnival'] as const;
+export type SceneryId = (typeof SCENERY_IDS)[number];
 
 interface ManifestPart {
   path: string;
@@ -24,9 +27,9 @@ interface ManifestWorld {
 }
 
 /** Written by scripts/build-backdrops.py. */
-const MANIFEST = manifest as Partial<Record<WorldId, ManifestWorld>>;
+const MANIFEST = manifest as Partial<Record<SceneryId, ManifestWorld>>;
 /** 4x sheets for the 16:9 stage. Missing worlds fall back to the phone set. */
-const HD_MANIFEST = hdManifest as Partial<Record<WorldId, ManifestWorld>>;
+const HD_MANIFEST = hdManifest as Partial<Record<SceneryId, ManifestWorld>>;
 
 /** A scrolling painted or fog layer from the manifest. */
 export interface TileLook {
@@ -78,7 +81,7 @@ export interface WorldLook {
   layers: LayerLook[];
 }
 
-export const WORLD_LOOKS: Record<WorldId, WorldLook> = {
+export const WORLD_LOOKS: Record<SceneryId, WorldLook> = {
   hell: {
     skyTint: 0x9a8a88,
     base: 0x1a0606,
@@ -165,9 +168,41 @@ export const WORLD_LOOKS: Record<WorldId, WorldLook> = {
       },
     ],
   },
+  // The Shooting Gallery's: a fairground down the walls of the pit, under a clown-faced moon.
+  carnival: {
+    skyTint: 0x9888a4,
+    base: 0x0e0614,
+    layers: [
+      { kind: 'tiles', name: 'far', speed: 6, sway: 3 },
+      { kind: 'glow', color: 0xffa040, alpha: 0.2, y: 1.05, size: 0.9 },
+      { kind: 'glow', color: 0x40ffd0, alpha: 0.06, y: -0.1, size: 0.8 },
+      {
+        // Confetti, drifting down.
+        kind: 'motes',
+        shape: 'bit',
+        colors: [0xffb040, 0xd83a3a, 0xe8dcc8, 0x40ffd0],
+        rise: [-18, -6],
+        scale: [0.3, 0.5],
+        alpha: 0.35,
+        count: 20,
+      },
+      { kind: 'tiles', name: 'fog1', speed: 11, alpha: 0.9, sway: 5, optional: true },
+      { kind: 'tiles', name: 'mid', speed: 17, sway: 8 },
+      { kind: 'tiles', name: 'fog2', speed: 26, alpha: 0.8, sway: 10, optional: true },
+      { kind: 'tiles', name: 'near', speed: 36, sway: 16 },
+      {
+        kind: 'motes',
+        colors: [0xffc060, 0xffe0a0],
+        rise: [30, 70],
+        scale: [0.2, 0.4],
+        alpha: 0.7,
+        count: 10,
+      },
+    ],
+  },
 };
 
-export function worldLayers(world: WorldId, hd = false): ManifestWorld | undefined {
+export function worldLayers(world: SceneryId, hd = false): ManifestWorld | undefined {
   return (hd ? HD_MANIFEST[world] : undefined) ?? MANIFEST[world];
 }
 
@@ -200,7 +235,7 @@ export function worldForRun(seed: number): WorldId {
 }
 
 /** Texture keys and paths (relative to assets/) for one world. `hd` is the 16:9 set. */
-export function worldAssets(world: WorldId, hd = false): { key: string; path: string }[] {
+export function worldAssets(world: SceneryId, hd = false): { key: string; path: string }[] {
   const w = worldLayers(world, hd);
   if (!w) return [];
   return [

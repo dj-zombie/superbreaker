@@ -250,24 +250,24 @@ function onEscape(s: BonusStage, t: Target): void {
   if (t.kind === 'duck') s.penalty({ combo: 'halve' }, t.x, t.y, '');
 }
 
-/**
- * The rails and the front counter, strung with bulbs for the map's party lights. The backdrop is
- * the world's own, until a gallery plate is approved.
- */
+/** The rails and the front counter, strung with bulbs for the map's party lights. */
 function drawRails(s: BonusStage): void {
   const { scene, field } = s;
   const cx = (field.left + field.right) / 2;
   const w = field.right - field.left;
+  // Tinted images rather than Rectangles, which break the image batch (see `solid` in ui/shapes).
+  const bar = (y: number, h: number, color: number, alpha: number, depth: number) =>
+    s.keep(scene.add.image(cx, y, '__WHITE').setDisplaySize(w, h).setTint(color).setAlpha(alpha).setDepth(depth));
   for (const y of [BACK_Y, MID_Y]) {
     const ry = field.top + y + RAIL_DY;
-    s.keep(scene.add.rectangle(cx, ry + 3, w, 8, 0x2a1608, 0.9).setDepth(0.5));
-    s.keep(scene.add.rectangle(cx, ry, w, 2, 0xc8873a, 0.9).setDepth(0.6));
+    bar(ry + 3, 8, 0x2a1608, 0.9, 0.5);
+    bar(ry, 2, 0xc8873a, 0.9, 0.6);
     s.lighting.hangBulbs(field.left, field.right, ry + 3, 0.6);
   }
   const fy = field.top + FRONT_Y + SIZE.duck.h / 2 + COUNTER_H / 2 - 4;
-  s.keep(scene.add.rectangle(cx, fy, w, COUNTER_H, 0x3a1e0c, 0.96).setDepth(TARGET_OVER));
-  s.keep(scene.add.rectangle(cx, fy - COUNTER_H / 2 + 1, w, 3, 0xe0a050, 1).setDepth(TARGET_OVER + 0.01));
-  s.keep(scene.add.rectangle(cx, fy + COUNTER_H / 2 - 2, w, 3, 0x1a0c04, 1).setDepth(TARGET_OVER + 0.01));
+  bar(fy, COUNTER_H, 0x3a1e0c, 0.96, TARGET_OVER);
+  bar(fy - COUNTER_H / 2 + 1, 3, 0xe0a050, 1, TARGET_OVER + 0.01);
+  bar(fy + COUNTER_H / 2 - 2, 3, 0x1a0c04, 1, TARGET_OVER + 0.01);
   s.lighting.hangBulbs(field.left, field.right, fy, TARGET_OVER + 0.01);
 }
 
@@ -320,6 +320,9 @@ export const gallery: BonusDef = {
   ballLost: { combo: 'reset' },
   // Slower at the top than the default, so the stream stays readable and ducks take a moment.
   guns: { gatling: { fastGapMs: 60 } },
+  // A lazy ride down past the midway, after the boss's dive.
+  backdrop: 'carnival',
+  pace: 0.6,
   preview,
   setup,
   tick: (s) => tick(s),

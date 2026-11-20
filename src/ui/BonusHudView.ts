@@ -3,6 +3,7 @@ import { ARENA_MID, HUD_HEIGHT, WIDTH } from '../config';
 import { envelope } from '../core/Boss';
 import { MEDALS, type Medal } from '../core/Bonus';
 import type { BonusHud, BonusIntroCard } from '../systems/BonusDirector';
+import { solid } from './shapes';
 import { calm, css, theme } from './theme';
 import { display, label } from './type';
 
@@ -57,8 +58,8 @@ export class BonusHudView {
   private readonly coin: Phaser.GameObjects.Sprite;
   private readonly coins: Text;
   private readonly combo: Text;
-  private readonly track: Phaser.GameObjects.Rectangle;
-  private readonly fill: Phaser.GameObjects.Rectangle;
+  private readonly track: Phaser.GameObjects.Image;
+  private readonly fill: Phaser.GameObjects.Image;
   private readonly marks: Phaser.GameObjects.Image[];
   private rules: Shown[] = [];
   private shown = { secs: -1, combo: -1, mult: -1, coins: -1 };
@@ -77,13 +78,8 @@ export class BonusHudView {
       0.5,
     );
     this.combo = label(scene, 14, y + 26, '', 13, { t, color: t.palette.text }).setOrigin(0, 0.5);
-    this.track = scene.add
-      .rectangle(TRACK_LEFT, y, TRACK_W, TRACK_H, 0x000000, 0.55)
-      .setOrigin(0, 0.5);
-    this.fill = scene.add
-      .rectangle(TRACK_LEFT, y, TRACK_W, TRACK_H, t.palette.accent, 1)
-      .setOrigin(0, 0.5)
-      .setScale(0, 1);
+    this.track = solid(scene, TRACK_LEFT, y, TRACK_W, TRACK_H, 0x000000, 0.55).setOrigin(0, 0.5);
+    this.fill = solid(scene, TRACK_LEFT, y, 0, TRACK_H, t.palette.accent).setOrigin(0, 0.5);
     this.marks = MEDALS.map((m) =>
       scene.add.image(0, y, `medal_${m}`).setDisplaySize(MARK_SIZE, MARK_SIZE).setAlpha(0.5),
     );
@@ -144,8 +140,8 @@ export class BonusHudView {
       this.combo.setColor(v.multiplier >= 2 ? css(p.accentHi) : p.text);
     }
     const top = v.medals[2] * TRACK_OVER;
-    this.fill.setScale(Math.min(1, v.medalValue / top), 1);
-    this.fill.setFillStyle(v.medal === 'none' ? p.accent : METAL[v.medal]);
+    this.fill.displayWidth = TRACK_W * Math.min(1, v.medalValue / top);
+    this.fill.setTint(v.medal === 'none' ? p.accent : METAL[v.medal]);
     MEDALS.forEach((m, i) => {
       const reached = v.medalValue >= v.medals[i]!;
       this.marks[i]!.setX(TRACK_LEFT + (TRACK_W * v.medals[i]!) / top).setAlpha(reached ? 1 : 0.5);

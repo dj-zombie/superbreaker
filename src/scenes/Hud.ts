@@ -38,7 +38,7 @@ import {
   rimTexture,
 } from '../ui/frames';
 import { icon } from '../ui/icons';
-import { disc, ring } from '../ui/shapes';
+import { disc, ring, solid } from '../ui/shapes';
 import { calm, theme, type UiTheme } from '../ui/theme';
 import { RingTimer } from '../ui/widgets';
 import { WingPlates, bossPips, easeBossBar, paintBossPips } from '../ui/WingPlates';
@@ -79,17 +79,19 @@ interface SkillButton {
 }
 
 interface FeverView {
-  track: Phaser.GameObjects.Rectangle;
-  fill: Phaser.GameObjects.Rectangle;
+  track: Phaser.GameObjects.Image;
+  fill: Phaser.GameObjects.Image;
   spark: Phaser.GameObjects.Image;
   rainbow: Phaser.GameObjects.TileSprite;
 }
 
 /** A boss's health bar, with a pip for each of its phases at the right end. */
 interface BossBarView {
-  track: Phaser.GameObjects.Rectangle;
-  fill: Phaser.GameObjects.Rectangle;
+  track: Phaser.GameObjects.Image;
+  fill: Phaser.GameObjects.Image;
   pips: Phaser.GameObjects.Image[];
+  /** The fill's full width, in px. */
+  width: number;
   /** The fill's width now, 0..1. It eases toward the boss's health. */
   shown: number;
   /** The phase the pips are lit for. */
@@ -113,7 +115,7 @@ const BOSS_PIP_SPACE = 8;
 /** Thumb zone under the paddle: panel, a slider track that mirrors the paddle, and a hint. */
 interface DeckView {
   panel: Phaser.GameObjects.Image;
-  track: Phaser.GameObjects.Rectangle;
+  track: Phaser.GameObjects.Image;
   knob: Phaser.GameObjects.Image;
   hint: Phaser.GameObjects.Text;
   left: number;
@@ -217,7 +219,7 @@ export class Hud extends BaseScene {
         .image(0, 0, hudStripTexture(this, t))
         .setOrigin(0, 0)
         .setDisplaySize(WIDTH, HUD_HEIGHT);
-      this.add.rectangle(0, HUD_HEIGHT, WIDTH, 1, p.edge, 0.8).setOrigin(0, 0.5);
+      solid(this, 0, HUD_HEIGHT, WIDTH, 1, p.edge, 0.8).setOrigin(0, 0.5);
 
       this.score = this.add.bitmapText(64, HUD_CENTER, HUD_FONT, '0', 24).setOrigin(0, 0.5);
       this.level = this.add
@@ -319,7 +321,7 @@ export class Hud extends BaseScene {
       .image(WIDTH / 2, 0, deckPanelTexture(this, t))
       .setOrigin(0.5, 0)
       .setDepth(1);
-    const track = this.add.rectangle(0, 0, 100, 4, t.palette.edge, 0.5).setDepth(2);
+    const track = solid(this, 0, 0, 100, 4, t.palette.edge, 0.5).setDepth(2);
     const knob = this.add.image(0, 0, deckKnobTexture(this, t)).setDepth(3).setAlpha(0.92);
     knob.setDisplaySize(64, 18);
     const hint = this.add
@@ -560,8 +562,8 @@ export class Hud extends BaseScene {
 
   private makeFever(): FeverView {
     const p = this.t.palette;
-    const track = this.add.rectangle(0, 0, WIDTH, FEVER_H, 0x000000, 0.5).setOrigin(0, 0);
-    const fill = this.add.rectangle(0, 0, WIDTH, FEVER_H, p.accent, 1).setOrigin(0, 0);
+    const track = solid(this, 0, 0, WIDTH, FEVER_H, 0x000000, 0.5).setOrigin(0, 0);
+    const fill = solid(this, 0, 0, 0, FEVER_H, p.accent).setOrigin(0, 0);
     const spark = this.add
       .image(0, 0, glowLineTexture(this))
       .setTint(p.accentHi)
@@ -571,7 +573,6 @@ export class Hud extends BaseScene {
     const rainbow = this.add.tileSprite(0, 0, WIDTH, FEVER_H, 'rainbow_bar').setOrigin(0, 0);
     // One hue cycle across the full bar, like the old segmented rainbow.
     rainbow.setTileScale(WIDTH / 256, FEVER_H / 4).setVisible(false);
-    fill.setScale(0, 1);
     const view = { track, fill, spark, rainbow };
     this.layoutFever(view);
     return view;
@@ -676,8 +677,8 @@ export class Hud extends BaseScene {
       spark.setTint(0xffffff);
     } else if (w > 0) {
       const full = w > 0.8 && Math.floor(this.time.now / 120) % 2 === 0;
-      fill.scaleX = w;
-      fill.fillColor = full ? 0xffffff : this.t.palette.accent;
+      fill.displayWidth = w * WIDTH;
+      fill.setTint(full ? 0xffffff : this.t.palette.accent);
       spark.setTint(this.t.palette.accentHi);
     }
   }
@@ -687,13 +688,9 @@ export class Hud extends BaseScene {
     const [pips, pipsLeft] = bossPips(this, BOSS_BAR_RIGHT, y, phases);
     const w = pipsLeft - BOSS_PIP_SPACE - BOSS_BAR_LEFT;
     // The track is a pixel larger all round, so the fill keeps a dark edge over bright scenery.
-    const track = this.add
-      .rectangle(BOSS_BAR_LEFT - 1, y, w + 2, BOSS_BAR_H + 2, 0x000000, 0.6)
-      .setOrigin(0, 0.5);
-    const fill = this.add
-      .rectangle(BOSS_BAR_LEFT, y, w, BOSS_BAR_H, this.t.palette.danger)
-      .setOrigin(0, 0.5);
-    return { track, fill, pips, shown: 0, phase: -1, visible: false };
+    const track = solid(this, BOSS_BAR_LEFT - 1, y, w + 2, BOSS_BAR_H + 2, 0x000000, 0.6).setOrigin(0, 0.5);
+    const fill = solid(this, BOSS_BAR_LEFT, y, w, BOSS_BAR_H, this.t.palette.danger).setOrigin(0, 0.5);
+    return { track, fill, pips, width: w, shown: 0, phase: -1, visible: false };
   }
 
   private layoutBoss(): void {
@@ -718,7 +715,7 @@ export class Hud extends BaseScene {
     // A bar coming up starts at its value. From then on it eases, so a refill reads as one.
     v.shown = v.visible ? easeBossBar(v.shown, boss.health, delta) : boss.health;
     v.visible = true;
-    v.fill.scaleX = v.shown;
+    v.fill.displayWidth = v.shown * v.width;
     if (boss.phase === v.phase) return;
     v.phase = boss.phase;
     paintBossPips(v.pips, boss.phase, this.t);

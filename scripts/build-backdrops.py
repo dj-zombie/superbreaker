@@ -31,7 +31,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "art-src" / "backdrops"
@@ -39,6 +39,7 @@ OUT = ROOT / "public" / "assets" / "images" / "backdrops"
 MANIFEST = ROOT / "src" / "art" / "backdrops.json"
 REL_ROOT = "images/backdrops"
 BRICKS = ROOT / "public" / "assets" / "images" / "bricks"
+BONUS = ROOT / "public" / "assets" / "images" / "bonus"
 THUMBS = ROOT / "public" / "assets" / "images" / "ui"
 THUMB_SIZE = (540, 960)
 SRC_WIDTH = 720
@@ -87,6 +88,23 @@ WORLDS = {
             {"name": "mid", "haze": 0.08, "gain": 0.85, "speed": 18},
             {"name": "fog2", "fog": (16, 44, 64), "alpha": 0.32, "scale": 0.6, "seed": 6, "speed": 28},
             {"name": "near", "haze": 0.0, "gain": 0.85, "speed": 38},
+        ],
+    },
+    # The Shooting Gallery's own scenery, not a campaign world: it has no carousel card, and the
+    # stage scrolls it at `pace`.
+    "carnival": {
+        "key": "green",
+        "haze": (70, 30, 90),
+        "despill": 0.8,
+        "card": False,
+        "pace": 0.6,
+        "layers": [
+            # Pushed well back, so the targets and rails in front of it carry the screen.
+            {"name": "far", "haze": 0.55, "haze_rgb": (44, 22, 58), "gain": 0.6, "speed": 6},
+            {"name": "fog1", "fog": (120, 70, 150), "alpha": 0.26, "scale": 1.0, "seed": 7, "speed": 11},
+            {"name": "mid", "haze": 0.35, "haze_rgb": (40, 20, 52), "gain": 0.6, "speed": 17},
+            {"name": "fog2", "fog": (60, 28, 80), "alpha": 0.34, "scale": 0.6, "seed": 8, "speed": 26},
+            {"name": "near", "haze": 0.1, "haze_rgb": (20, 10, 26), "gain": 0.55, "speed": 36},
         ],
     },
 }
@@ -345,12 +363,49 @@ def mock_bricks() -> np.ndarray:
     paddle = Image.open(ROOT / "public/assets/images/paddle.png").convert("RGBA").resize((60, 13))
     canvas.alpha_composite(ball, (170, 360))
     canvas.alpha_composite(paddle, (120, PREVIEW_H - 50))
+    return premultiplied(canvas)
+
+
+def mock_gallery() -> np.ndarray:
+    """The Shooting Gallery as src/bonus/gallery.ts lays it out: two rails of ducks, the pop-up row
+    behind its counter, a money bag in the sky lane, the ball and the paddle."""
+    canvas = Image.new("RGBA", (PREVIEW_W, PREVIEW_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    s = PREVIEW_W / 600
+    top = 120 * s  # the field's top on a 600 x 1100 phone
+    sprite = lambda name, size: Image.open(BONUS / f"target_{name}.png").convert("RGBA").resize(
+        (round(size * s), round(size * s)), Image.LANCZOS
+    )
+    duck, cat, bag = sprite("duck", 62), sprite("cat", 62), sprite("bag", 84)
+    at = lambda img, x, y: canvas.alpha_composite(img, (round(x * s - img.width / 2), round(top + y * s - img.height / 2)))
+    for y in (170, 255):
+        ry = top + (y + 31) * s
+        draw.rectangle([0, ry, PREVIEW_W, ry + 4 * s], fill=(42, 22, 8, 230))
+        draw.rectangle([0, ry - 1 * s, PREVIEW_W, ry], fill=(200, 135, 58, 230))
+    at(bag, 420, 84)
+    for x in (90, 230, 370):
+        at(duck, x, 170)
+    for x in (160, 330):
+        at(duck.transpose(Image.FLIP_LEFT_RIGHT), x, 255)
+    for x, img in ((60, duck), (300, cat), (420, duck)):
+        at(img, x, 350)
+    cy = top + (350 + 31 + 11 - 4) * s
+    draw.rectangle([0, cy - 11 * s, PREVIEW_W, cy + 11 * s], fill=(58, 30, 12, 245))
+    draw.rectangle([0, cy - 11 * s, PREVIEW_W, cy - 8 * s], fill=(224, 160, 80, 255))
+    ball = Image.open(ROOT / "public/assets/images/ball.png").convert("RGBA").resize((10, 10))
+    paddle = Image.open(ROOT / "public/assets/images/paddle.png").convert("RGBA").resize((60, 13))
+    canvas.alpha_composite(ball, (200, 420))
+    canvas.alpha_composite(paddle, (120, PREVIEW_H - 50))
+    return premultiplied(canvas)
+
+
+def premultiplied(canvas: Image.Image) -> np.ndarray:
     a = np.asarray(canvas, dtype=np.float32)
     a[..., :3] *= a[..., 3:4] / 255
     return a
 
 
-def render(layers: dict, specs: list, t: float, bricks: np.ndarray, dim: float) -> np.ndarray:
+def render(layers: dict, specs: list, t: float, bricks: np.ndarray, dim: float, pace: float = 1.0) -> np.ndarray:
     sky = Image.fromarray(layers["sky"].astype(np.uint8))
     s = max(PREVIEW_W / sky.width, PREVIEW_H / sky.height)
     sky = sky.resize((round(sky.width * s), round(sky.height * s)), Image.LANCZOS)
@@ -360,7 +415,7 @@ def render(layers: dict, specs: list, t: float, bricks: np.ndarray, dim: float) 
     for spec in specs:
         layer = layers[spec["name"]]
         tile_h = layer.shape[0]
-        rows = (np.arange(PREVIEW_H) + int(spec["speed"] * t * scale)) % tile_h
+        rows = (np.arange(PREVIEW_H) + int(spec["speed"] * pace * t * scale)) % tile_h
         src = layer[rows]
         frame = frame * (1 - src[..., 3:4] / 255) + src[..., :3]
     frame *= 1 - dim
@@ -368,16 +423,19 @@ def render(layers: dict, specs: list, t: float, bricks: np.ndarray, dim: float) 
     return np.clip(frame, 0, 255).astype(np.uint8)
 
 
-def preview(world: str, layers: dict, stills: str | None, video: str | None, dim: float = 0.2) -> None:
+def preview(
+    world: str, layers: dict, stills: str | None, video: str | None, mock: str = "bricks", dim: float = 0.2
+) -> None:
     specs = WORLDS[world]["layers"]
+    pace = WORLDS[world].get("pace", 1.0)
     scaled = {"sky": layers["sky"]}
     for spec in specs:
         name = spec["name"]
         w = PREVIEW_W if "fog" not in spec else PREVIEW_W
         scaled[name] = resize_premul(layers[name], w).astype(np.float32)
-    bricks = mock_bricks()
+    bricks = mock_gallery() if mock == "gallery" else mock_bricks()
     if stills:
-        frames = [render(scaled, specs, t, bricks, dim) for t in (0, 6, 12, 18)]
+        frames = [render(scaled, specs, t, bricks, dim, pace) for t in (0, 6, 12, 18)]
         sheet = np.concatenate([np.pad(f, ((0, 0), (0, 8), (0, 0))) for f in frames], axis=1)
         Image.fromarray(sheet).save(stills, quality=92)
         print("stills:", stills)
@@ -385,7 +443,7 @@ def preview(world: str, layers: dict, stills: str | None, video: str | None, dim
         fps = 30
         with tempfile.TemporaryDirectory() as tmp:
             for i in range(fps * 16):
-                Image.fromarray(render(scaled, specs, i / fps, bricks, dim)).save(f"{tmp}/{i:05d}.png")
+                Image.fromarray(render(scaled, specs, i / fps, bricks, dim, pace)).save(f"{tmp}/{i:05d}.png")
             subprocess.run(
                 ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps), "-i", f"{tmp}/%05d.png",
                  "-pix_fmt", "yuv420p", "-vf", "scale=600:-2", video],
@@ -412,6 +470,10 @@ def main() -> None:
     parser.add_argument("worlds", nargs="*", default=list(WORLDS))
     parser.add_argument("--stills", help="write a sheet of preview frames (one world)")
     parser.add_argument("--video", help="write a 16 s preview video (one world)")
+    parser.add_argument(
+        "--mock", choices=["bricks", "gallery"], default="bricks",
+        help="what the preview draws over the backdrop: sample bricks, or the Shooting Gallery",
+    )
     parser.add_argument("--thumbs-only", action="store_true", help="only write the carousel cards")
     parser.add_argument("--hd", action="store_true", help="write the 2880-wide set for the 16:9 stage")
     parser.add_argument("--src", type=Path, help="parent of the <world>/ source folders (with --hd)")
@@ -432,7 +494,8 @@ def main() -> None:
             )
     else:
         for world in args.worlds:
-            thumbnail(world)
+            if WORLDS[world].get("card", True):
+                thumbnail(world)
     if args.thumbs_only:
         return
     manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
@@ -440,7 +503,7 @@ def main() -> None:
     for world in args.worlds:
         layers, manifest[world] = build(world, keep=keep)
         if keep:
-            preview(world, layers, args.stills, args.video)
+            preview(world, layers, args.stills, args.video, args.mock)
     MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
 
 

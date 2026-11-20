@@ -109,6 +109,20 @@ function requestCoverFullscreen(): void {
   document.addEventListener('pointerdown', go, { once: true });
 }
 
+/**
+ * Phaser builds a separate shader for every texture count a batch happens to use, so a new count
+ * mid-level linked a program on the spot: an 80-350 ms hitch. Multi-texture batches all take the
+ * full-count shader instead, as in Phaser 3, which leaves a couple of variants that the first
+ * frames compile.
+ */
+function pinBatchTextureCount(): void {
+  const proto = Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad.prototype;
+  const finalize = proto.finalizeTextureCount;
+  proto.finalizeTextureCount = function (this: typeof proto, count: number) {
+    finalize.call(this, count > 1 ? this.maxTexturesPerBatch : count);
+  };
+}
+
 /** Median requestAnimationFrame interval over a few frames, to spot 120Hz screens. */
 function measureFrameMs(frames = 8): Promise<number> {
   return new Promise((resolve) => {
@@ -155,6 +169,7 @@ async function start(): Promise<void> {
   const fpsLimit = IS_TOUCH && frameMs < 10 ? 65 : 0;
 
   const size = canvasSize();
+  pinBatchTextureCount();
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
