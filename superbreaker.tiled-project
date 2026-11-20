@@ -95,7 +95,7 @@
       "name": "Mood",
       "type": "enum",
       "storageType": "string",
-      "values": ["world", "none", "forge", "storm", "beat"],
+      "values": ["world", "none", "forge", "storm", "beat", "party"],
       "valuesAsFlags": false
     },
     {

@@ -356,6 +356,7 @@ describe('bonus map property', () => {
     expect(level.bonus).toBe('gallery');
     expect(level.boss).toBeUndefined();
     expect(level.title).toBe('Shooting Gallery');
+    expect(level.lighting?.mood).toBe('party');
     expect(validateLevel(level)).toEqual([]);
   });
 

@@ -22,8 +22,11 @@ export type LightAffects = (typeof LIGHT_AFFECTS)[number];
 export const COOKIES = ['none', 'shaft', 'stained', 'grille'] as const;
 export type Cookie = (typeof COOKIES)[number];
 
-/** World ambience effects. `world` uses the world's own; `none` turns them off. */
-export const MOODS = ['world', 'none', 'forge', 'storm', 'beat'] as const;
+/**
+ * World ambience effects. `world` uses the world's own; `none` turns them off. `party` is a bonus
+ * stage's: it keeps time with the music and gets wilder with the combo.
+ */
+export const MOODS = ['world', 'none', 'forge', 'storm', 'beat', 'party'] as const;
 export type Mood = (typeof MOODS)[number];
 
 /** WCAG 2.3.1: never more than three flashes in any one second. */

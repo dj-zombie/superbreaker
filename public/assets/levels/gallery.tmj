@@ -24,6 +24,12 @@
          "value":"gallery"
         }, 
         {
+         "name":"mood",
+         "propertytype":"Mood",
+         "type":"string",
+         "value":"party"
+        }, 
+        {
          "name":"title",
          "type":"string",
          "value":"Shooting Gallery"

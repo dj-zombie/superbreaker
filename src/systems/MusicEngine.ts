@@ -66,6 +66,16 @@ interface Dream {
   lfo: OscillatorNode;
   /** The play-through's song, silenced while the dream plays over it. */
   awake: GainNode;
+  /** Audio-clock time it took over, and how far into its section it began (s). */
+  at: number;
+  from: number;
+}
+
+/** Seconds of the song a dream has played `s` seconds after it took over, as it glides down. */
+export function dreamSeconds(s: number): number {
+  const k = Math.log(DREAM_RATE);
+  if (s <= DREAM_BEND_S) return (DREAM_BEND_S * (DREAM_RATE ** (s / DREAM_BEND_S) - 1)) / k;
+  return (DREAM_BEND_S * (DREAM_RATE - 1)) / k + DREAM_RATE * (s - DREAM_BEND_S);
 }
 
 /** Holds a param where it is at `t`, so a new ramp starts from there instead of jumping. */
@@ -130,6 +140,19 @@ export class MusicEngine {
 
   get playing(): boolean {
     return this.mood !== undefined;
+  }
+
+  /**
+   * Beats heard since the first downbeat of the section playing, for lights that keep time.
+   * Bullet time's dream slows them with the music. Undefined when nothing is playing.
+   */
+  beats(): number | undefined {
+    if (!this.mood) return undefined;
+    const now = this.ctx.currentTime - (this.ctx.outputLatency || this.ctx.baseLatency || 0);
+    const d = this.dreamer;
+    if (d && now >= d.at) return (d.from + dreamSeconds(now - d.at)) / this.track.beat;
+    const v = this.voiceAt(now);
+    return v ? (now - v.t0) / this.track.beat : undefined;
   }
 
   /**
@@ -262,11 +285,12 @@ export class MusicEngine {
     src.onended = () => {
       for (const n of [gain, filter, wobble, lfo, sweep, wow]) n.disconnect();
     };
-    src.start(at, from + ((at - v.t0) % len));
+    const into = (at - v.t0) % len;
+    src.start(at, from + into);
     lfo.start(at);
     hold(awake.gain, at);
     awake.gain.linearRampToValueAtTime(0, at + DREAM_FADE_S);
-    this.dreamer = { src, gain, lfo, awake };
+    this.dreamer = { src, gain, lfo, awake, at, from: into };
   }
 
   private wake(): void {

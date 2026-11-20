@@ -1,8 +1,20 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 import { sceneryLight, type WorldMood } from '../art/lighting';
 import { LIGHT_TEX } from '../art/lightTextures';
 import { HEIGHT, HUD_HEIGHT, PADDLE_Y, WIDTH } from '../config';
-import { MAX_FLASH_HZ, noise1, sputter, type Blink } from '../core/Lighting';
+import { hash, MAX_FLASH_HZ, noise1, sputter, type Blink } from '../core/Lighting';
+import {
+  BULB_COLORS,
+  PARTY_TINT,
+  PARTY_TOP,
+  barHue,
+  beamAngle,
+  bulbLevel,
+  kick,
+  partyAmbient,
+  partyTier,
+  washHue,
+} from '../core/Party';
 import { audio } from './AudioSystem';
 import type { Light, LightingSystem } from './LightingSystem';
 import type { ParallaxBackdrop } from './ParallaxBackdrop';
@@ -35,6 +47,7 @@ export function createMood(
   if (mood === 'forge') fx = new Forge(sys, scene);
   else if (mood === 'storm') fx = new Storm(sys);
   else if (mood === 'beat') fx = new Beat(sys);
+  else if (mood === 'party') fx = new Party(sys, scene);
   // Lights-out levels only get lightning when the map asks; storms skip it with reduced motion.
   const stormy = mood === 'storm' && !sys.look.lightsOut && !sys.calm;
   const interval = sys.look.lightning ?? (stormy ? STORM_LIGHTNING : undefined);
@@ -46,6 +59,7 @@ export function createMood(
     update: (dt, clock) => {
       sys.ambientScale = 1;
       sys.roomFlicker = 0;
+      sys.roomTintK = 0;
       keyed.update(clock);
       fx?.update(dt, clock);
       lightning?.update(clock);
@@ -457,4 +471,283 @@ class Beat implements MoodFx {
   destroy(): void {
     for (const s of this.scanners) s.light.kill();
   }
+}
+
+// ---------------------------------------------------------------- Bonus stages
+
+/** Bulbs hang about this far apart along a string, in px. */
+const BULB_GAP = 25;
+/** A bulb's glow and its filament, across, in px. */
+const BULB_GLOW = 30;
+const BULB_CORE = 7;
+/** A tier's lights fade in over about this long, and out over about this long (s). */
+const PARTY_IN_S = 0.35;
+const PARTY_OUT_S = 0.7;
+/** With no song to follow, the party keeps this tempo. */
+const PARTY_BPM = 120;
+/** Losing a tier blacks the bulbs out for this long (s). */
+const POWER_CUT_S = 0.3;
+/** The rave's tint: a deep indigo. */
+const RAVE_TINT = 0x4a3ca8;
+/** The mirror ball hangs this far under the HUD, and waits this far above it, in px. */
+const BALL_DROP = 64;
+const BALL_HIDE = -40;
+const BALL_KEY = 'party_ball';
+const BALL_SIZE = 40;
+/** Specks the mirror ball throws, and how many beats it takes to turn once. */
+const SPECKS = 36;
+const BALL_TURN_BEATS = 32;
+const SPECK_COLORS = [0xffffff, 0xffd0ec, 0xd0e8ff] as const;
+
+interface Bulb {
+  glow: Phaser.GameObjects.Image;
+  core: Phaser.GameObjects.Image;
+  i: number;
+  n: number;
+  dir: 1 | -1;
+}
+
+/**
+ * A bonus stage's party: the lights keep time with the music and step up with the combo. Steady
+ * bulbs at first; past each combo step the bulbs chase, colour washes thump in from the sides,
+ * and at the top the room goes dark for moving heads and a mirror ball. Losing a step cuts the
+ * power for a moment. Reduced motion keeps the colour and drops the motion.
+ */
+class Party implements MoodFx {
+  private beats = 0;
+  private tier = 0;
+  /** How far each tier's lights have faded in, 0..1. */
+  private on = new Array<number>(PARTY_TOP + 1).fill(0);
+  private cutUntil = -1;
+  private rows: Bulb[][] = [];
+  private spill: Light[] = [];
+  private washes: Light[] = [];
+  private floor?: Light;
+  private heads: Array<{ light: Light; px: number }> = [];
+  private ball?: Phaser.GameObjects.Image;
+  private cord?: Phaser.GameObjects.Rectangle;
+  private ballY = HUD_HEIGHT + BALL_HIDE;
+  private specks: Array<{ image: Phaser.GameObjects.Image; angle: number; fy: number }> = [];
+
+  constructor(
+    private sys: LightingSystem,
+    private scene: Phaser.Scene,
+  ) {
+    if (sys.budgetInfo.moodLights) {
+      for (const x of [-40, WIDTH + 40]) {
+        this.washes.push(
+          sys.addLight({ x, y: HEIGHT * 0.62, radius: 440, intensity: 1.1, priority: 1 }),
+        );
+      }
+      this.floor = sys.addLight({
+        x: WIDTH / 2,
+        y: PADDLE_Y + 40,
+        radius: 320,
+        intensity: 0.9,
+        affects: 'backdrop',
+        priority: 1,
+      });
+      for (const px of [0.12, 0.37, 0.63, 0.88]) {
+        const light = sys.addLight({
+          area: { width: 70, height: HEIGHT * 0.95, cookie: 'shaft' },
+          intensity: 0.8,
+          priority: 1,
+        });
+        this.heads.push({ light, px });
+      }
+    }
+    this.cord = scene.add
+      .rectangle(WIDTH / 2, 0, 1.5, 1, 0xb4b4c8, 0.8)
+      .setOrigin(0.5, 0)
+      .setDepth(-2);
+    this.ball = scene.add.image(WIDTH / 2, this.ballY, ballTexture(scene)).setDepth(-2);
+    for (let i = 0; i < SPECKS; i++) {
+      const image = scene.add
+        .image(0, 0, LIGHT_TEX.halo)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(-3)
+        .setTint(SPECK_COLORS[i % SPECK_COLORS.length]!)
+        .setVisible(false);
+      this.specks.push({ image, angle: hash(i * 2 + 1) * Math.PI * 2, fy: hash(i * 2 + 2) });
+    }
+  }
+
+  update(dt: number, clock: number): void {
+    const { sys } = this;
+    this.beats = audio.musicBeat() ?? this.beats + (dt * PARTY_BPM) / 60;
+    const tier = partyTier(sys.combo);
+    if (tier < this.tier) this.powerCut(clock);
+    this.tier = tier;
+    for (let t = 1; t <= PARTY_TOP; t++) {
+      const want = tier >= t ? 1 : 0;
+      const step = dt / (want > this.on[t]! ? PARTY_IN_S : PARTY_OUT_S);
+      this.on[t] = Phaser.Math.Clamp(want, this.on[t]! - step, this.on[t]! + step);
+    }
+    const wash = this.on[2]!;
+    const rave = this.on[PARTY_TOP]!;
+    const beat = kick(this.beats);
+    const thump = sys.calm ? 0.3 : beat;
+    sys.ambientScale = partyAmbient(rave, wash, beat, sys.calm);
+    sys.roomTint = RAVE_TINT;
+    sys.roomTintK = PARTY_TINT * rave + 0.2 * wash;
+
+    this.hangNew();
+    const cut = clock < this.cutUntil;
+    for (const [r, row] of this.rows.entries()) {
+      let sum = 0;
+      for (const b of row) {
+        const k = cut ? 0.05 : bulbLevel(b.i, b.n, this.beats, tier, b.dir, sys.calm);
+        sum += k;
+        const color = tier > 0 ? BULB_COLORS[b.i % BULB_COLORS.length]! : BULB_COLORS[0];
+        const size = BULB_GLOW * (0.6 + 0.4 * k);
+        b.glow
+          .setTint(color)
+          .setAlpha(0.85 * k)
+          .setDisplaySize(size, size);
+        b.core.setAlpha(Math.min(1, 0.25 + k));
+      }
+      const spill = this.spill[r];
+      if (spill) spill.gain = row.length ? sum / row.length : 0;
+    }
+
+    for (const [i, w] of this.washes.entries()) {
+      w.color = washHue(this.beats, i);
+      w.gain = wash * (0.45 + 0.55 * thump);
+    }
+    if (this.floor) {
+      this.floor.color = barHue(this.beats, 2);
+      this.floor.gain = wash * (0.3 + 0.7 * thump);
+    }
+    const top = HUD_HEIGHT - 6;
+    for (const [i, h] of this.heads.entries()) {
+      const rot = beamAngle(i, this.beats, sys.calm);
+      const area = h.light.area!;
+      area.rotation = rot;
+      // Pivot at the top center of the beam, not its corner.
+      h.light.x = WIDTH * h.px - Math.cos(rot) * (area.width / 2);
+      h.light.y = top - Math.sin(rot) * (area.width / 2);
+      h.light.color = barHue(this.beats, i % 2);
+      h.light.gain = rave * (0.55 + 0.45 * thump);
+    }
+    this.updateBall(dt, rave, beat);
+  }
+
+  /** The mirror ball drops in for the rave and throws its specks around the room. */
+  private updateBall(dt: number, rave: number, beat: number): void {
+    const want = HUD_HEIGHT + (rave > 0.01 ? BALL_DROP : BALL_HIDE);
+    this.ballY += (want - this.ballY) * Math.min(1, dt * 4);
+    const shown = this.ballY > HUD_HEIGHT + BALL_HIDE + 1;
+    this.ball?.setVisible(shown).setY(this.ballY);
+    if (this.ball && !this.sys.calm) this.ball.rotation = this.beats * 0.15;
+    this.cord
+      ?.setVisible(shown)
+      .setY(HUD_HEIGHT)
+      .setScale(1, Math.max(1, this.ballY - BALL_SIZE / 2 - HUD_HEIGHT));
+    const turn = this.sys.calm ? 0 : (Math.PI * 2 * this.beats) / BALL_TURN_BEATS;
+    const from = this.ballY + BALL_SIZE;
+    const twinkleBeat = Math.floor(this.beats);
+    for (const [i, s] of this.specks.entries()) {
+      const a = s.angle + turn;
+      const front = Math.cos(a);
+      const k = rave * Math.sqrt(Math.max(0, front));
+      s.image.setVisible(k > 0.02);
+      if (k <= 0.02) continue;
+      const twinkle = !this.sys.calm && (i + twinkleBeat) % 5 === 0 ? 0.6 + 0.4 * beat : 0.6;
+      s.image
+        .setPosition(
+          WIDTH / 2 + WIDTH * 0.66 * Math.sin(a) * (0.55 + 0.45 * s.fy),
+          from + (PADDLE_Y - from) * s.fy,
+        )
+        .setAlpha(k * twinkle)
+        .setDisplaySize(12, 12);
+    }
+  }
+
+  /** Bulbs for strings the stage has hung since the last frame. */
+  private hangNew(): void {
+    const { bulbs } = this.sys;
+    while (this.rows.length < bulbs.length) {
+      const s = bulbs[this.rows.length]!;
+      const n = Math.max(2, Math.round((s.x1 - s.x0) / BULB_GAP));
+      const dir = this.rows.length % 2 ? -1 : 1;
+      const row: Bulb[] = [];
+      for (let i = 0; i < n; i++) {
+        const x = s.x0 + ((i + 0.5) * (s.x1 - s.x0)) / n;
+        const glow = this.scene.add
+          .image(x, s.y, LIGHT_TEX.halo)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setDepth(s.depth + 0.01);
+        const core = this.scene.add
+          .image(x, s.y, LIGHT_TEX.halo)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setDepth(s.depth + 0.02)
+          .setTint(0xfff6e0)
+          .setDisplaySize(BULB_CORE, BULB_CORE);
+        row.push({ glow, core, i, n, dir });
+      }
+      this.rows.push(row);
+      if (this.sys.budgetInfo.moodLights) {
+        this.spill.push(
+          this.sys.addLight({
+            x: s.x0,
+            y: s.y - 28,
+            area: { width: s.x1 - s.x0, height: 56 },
+            color: BULB_COLORS[0],
+            intensity: 0.3,
+            priority: 1,
+          }),
+        );
+      }
+    }
+  }
+
+  /** A step of the combo is lost: the bulbs black out for a moment and the room dips. */
+  private powerCut(clock: number): void {
+    if (this.sys.calm) return;
+    this.cutUntil = clock + POWER_CUT_S;
+    if (this.tier >= 2 && this.sys.claimFlash()) this.sys.dip(0.45);
+  }
+
+  destroy(): void {
+    for (const l of [...this.spill, ...this.washes, ...this.heads.map((h) => h.light)]) l.kill();
+    this.floor?.kill();
+    for (const b of this.rows.flat()) {
+      b.glow.destroy();
+      b.core.destroy();
+    }
+    for (const s of this.specks) s.image.destroy();
+    this.ball?.destroy();
+    this.cord?.destroy();
+  }
+}
+
+/** A mirror ball's facets, painted once per game. */
+function ballTexture(scene: Phaser.Scene): string {
+  if (scene.textures.exists(BALL_KEY)) return BALL_KEY;
+  const tex = scene.textures.createCanvas(BALL_KEY, BALL_SIZE, BALL_SIZE);
+  if (!tex) return BALL_KEY;
+  const ctx = tex.getContext();
+  const r = BALL_SIZE / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(r, r, r - 1, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = '#5a5f78';
+  ctx.fillRect(0, 0, BALL_SIZE, BALL_SIZE);
+  for (let j = 0; j < BALL_SIZE / 4; j++) {
+    for (let i = 0; i < BALL_SIZE / 4; i++) {
+      const v = 0.45 + 0.55 * hash(i * 13 + j * 71);
+      ctx.fillStyle = `rgb(${Math.round(200 * v + 40)},${Math.round(205 * v + 40)},${Math.round(225 * v + 30)})`;
+      ctx.fillRect(i * 4 + 0.5, j * 4 + 0.5, 3, 3);
+    }
+  }
+  const shade = ctx.createRadialGradient(r * 0.7, r * 0.7, 2, r, r, r);
+  shade.addColorStop(0, 'rgba(255,255,255,0.25)');
+  shade.addColorStop(0.6, 'rgba(0,0,0,0)');
+  shade.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, BALL_SIZE, BALL_SIZE);
+  ctx.restore();
+  tex.refresh();
+  return BALL_KEY;
 }

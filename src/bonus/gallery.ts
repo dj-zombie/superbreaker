@@ -250,7 +250,10 @@ function onEscape(s: BonusStage, t: Target): void {
   if (t.kind === 'duck') s.penalty({ combo: 'halve' }, t.x, t.y, '');
 }
 
-/** The rails and the front counter. The backdrop is the world's own, until a gallery plate is approved. */
+/**
+ * The rails and the front counter, strung with bulbs for the map's party lights. The backdrop is
+ * the world's own, until a gallery plate is approved.
+ */
 function drawRails(s: BonusStage): void {
   const { scene, field } = s;
   const cx = (field.left + field.right) / 2;
@@ -259,11 +262,13 @@ function drawRails(s: BonusStage): void {
     const ry = field.top + y + RAIL_DY;
     s.keep(scene.add.rectangle(cx, ry + 3, w, 8, 0x2a1608, 0.9).setDepth(0.5));
     s.keep(scene.add.rectangle(cx, ry, w, 2, 0xc8873a, 0.9).setDepth(0.6));
+    s.lighting.hangBulbs(field.left, field.right, ry + 3, 0.6);
   }
   const fy = field.top + FRONT_Y + SIZE.duck.h / 2 + COUNTER_H / 2 - 4;
   s.keep(scene.add.rectangle(cx, fy, w, COUNTER_H, 0x3a1e0c, 0.96).setDepth(TARGET_OVER));
   s.keep(scene.add.rectangle(cx, fy - COUNTER_H / 2 + 1, w, 3, 0xe0a050, 1).setDepth(TARGET_OVER + 0.01));
   s.keep(scene.add.rectangle(cx, fy + COUNTER_H / 2 - 2, w, 3, 0x1a0c04, 1).setDepth(TARGET_OVER + 0.01));
+  s.lighting.hangBulbs(field.left, field.right, fy, TARGET_OVER + 0.01);
 }
 
 function setup(s: BonusStage): void {

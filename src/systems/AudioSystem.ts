@@ -496,6 +496,14 @@ class AudioSystem {
     return (this.bins[0]! + this.bins[1]! + this.bins[2]!) / (3 * 255);
   }
 
+  /** Beats into the section of whichever song is playing, as heard; undefined when none is. */
+  musicBeat(): number | undefined {
+    for (const engine of [this.gallery, this.boss, this.music]) {
+      if (engine?.playing) return engine.beats();
+    }
+    return undefined;
+  }
+
   /** Thunder for a lightning strike, played on its flash and panned toward the bolt. */
   thunder(volume = 0.4, x?: number): void {
     this.sfx('thunder', volume, Math.random() * 300 - 200, { x });

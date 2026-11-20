@@ -279,6 +279,14 @@ function maxBlendMode(renderer: Phaser.Renderer.WebGL.WebGLRenderer): number | n
   return index;
 }
 
+/** A string of bulbs hung across the field. */
+export interface BulbString {
+  x0: number;
+  x1: number;
+  y: number;
+  depth: number;
+}
+
 export interface LightingStats {
   tier: LightingTier;
   lights: number;
@@ -340,6 +348,11 @@ export class LightingSystem {
   ambientScale = 1;
   /** Lights out, set by moods every frame: how far the room lights have sputtered on, 0..1. */
   roomFlicker = 0;
+  /** Set by moods every frame: the ambient leans this far, 0..1, toward `roomTint`. */
+  roomTintK = 0;
+  roomTint = 0xffffff;
+  /** Strings of bulbs a stage hung, for the party mood to light. */
+  readonly bulbs: BulbString[] = [];
   /**
    * Set by the scene every frame: a boss scene has the room, so the world's lightning and failing
    * lights wait rather than spend the flash limit, and make no sound, where nobody sees them.
@@ -383,6 +396,7 @@ export class LightingSystem {
   private staticSig = -1;
   private gloom = 0;
   private boost = 0;
+  private comboNow = 0;
   private comboBoost = 0;
   private feverBoost = 0;
   private celebrating = false;
@@ -576,7 +590,21 @@ export class LightingSystem {
 
   /** Long combos warm the whole scene a little. */
   setCombo(combo: number): void {
+    this.comboNow = combo;
     this.comboBoost = Math.min(0.25, Math.max(0, combo - 4) * 0.02);
+  }
+
+  /** The combo the scene last reported. */
+  get combo(): number {
+    return this.comboNow;
+  }
+
+  /**
+   * Hangs a string of bulbs from `x0` to `x1` at height `y`, drawn at `depth`. Only the party mood
+   * lights them; under any other they stay dark.
+   */
+  hangBulbs(x0: number, x1: number, y: number, depth: number): void {
+    this.bulbs.push({ x0, x1, y, depth });
   }
 
   /** Seconds after the start when a light at height `y` ignites in the opening wave. */
@@ -829,6 +857,7 @@ export class LightingSystem {
       base = mixColor(base, normal.ambient, shown);
       floor += (normal.brickFloor - floor) * shown;
     }
+    if (this.roomTintK > 0) base = mixColor(base, this.roomTint, this.roomTintK);
     // Combos and fever lift the room; in the dark that would give the layout away.
     const boostTarget = this.celebrating
       ? 0.35
