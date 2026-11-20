@@ -14,6 +14,8 @@ type MusicKey = 'menu_music' | 'music';
 const MUSIC_VOLUME: Record<MusicKey, number> = { menu_music: 0.4, music: 0.35 };
 /** Both play the same song: the menus open on its intro, a level on the kick. */
 const MUSIC_START: Record<MusicKey, MusicMood> = { menu_music: 'menu', music: 'calm' };
+/** The gallery's bed takes this long to drift in from afar under a boss's award (s). */
+const GALLERY_AFAR_IN_S = 3;
 /** The same sample retriggered faster than this is inaudible but still costs a voice. */
 const SFX_GAP_MS = 35;
 /** A blast chain breaks dozens of bricks in a frame; a few crunches sound the same as all of them. */
@@ -332,8 +334,27 @@ class AudioSystem {
     this.musicKey = 'music';
     level.stop('fade');
     this.boss?.stop('fade');
+    // A bed already drifting in from afar opens up where it is, so it never restarts.
+    gallery.far(false);
     if (gallery.playing) return;
     gallery.play('groove', MUSIC_VOLUME.music, 0.7);
+  }
+
+  /**
+   * The gallery's bed heard from afar, under a boss's award, while the bonus stage it leads to
+   * is still ahead. It carries across the scene change, and `bonusMusic` opens it up. Without the
+   * bed nothing plays: the level song stays out of the breather either way.
+   */
+  galleryAfar(): void {
+    if (!this.sound || !save.state.settings.music || this.sound.locked) return;
+    this.wantedMusic = 'music';
+    this.musicKey = 'music';
+    this.music?.stop('fade');
+    this.boss?.stop('fade');
+    const gallery = this.musicEngine() && this.galleryEngine();
+    if (!gallery || gallery.playing) return;
+    gallery.far(true);
+    gallery.play('groove', MUSIC_VOLUME.music, GALLERY_AFAR_IN_S);
   }
 
   /**

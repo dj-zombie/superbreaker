@@ -21,6 +21,8 @@ const BLEED = 12;
 /** Set in preload and read in the constructor so both agree on which sheet to use. */
 const HD_REG = 'backdropHd';
 const GLOW_KEY = 'bd_glow';
+/** A scenery switch fades the new layers in over the old ones for this long, in ms. */
+const SWITCH_MS = 900;
 const BIT_KEY = 'bd_bit';
 
 interface TileLayer {
@@ -113,8 +115,9 @@ export class ParallaxBackdrop implements Tintable {
     }
   }
 
-  private sky: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
-  private skyTint: number;
+  private world: SceneryId;
+  private sky!: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  private skyTint = 0xffffff;
   private tiles: TileLayer[] = [];
   private glows: GlowLayer[] = [];
   private motes: MoteLayer[] = [];
@@ -127,18 +130,110 @@ export class ParallaxBackdrop implements Tintable {
   private tint = 0xffffff;
   private readonly still: boolean;
   private lightProbe?: (x: number, y: number) => number;
+  private haze?: { key: string; amount: number };
+  /** How far the current scenery has faded in over the one it replaced, 0..1. */
+  private fade = 1;
+  /** The scenery whose art is loading, to fade to once it is in. */
+  private switching?: SceneryId;
+  private dead = false;
 
   /** `pace` scales every scroll speed; menus drift slower than play. */
   constructor(
     private scene: Phaser.Scene,
-    readonly world: SceneryId,
+    world: SceneryId,
     pace = 1,
   ) {
     this.still = save.state.settings.reducedMotion;
     this.pace = this.paceTarget = this.still ? 0 : pace;
-    const look = WORLD_LOOKS[world];
-    const art = worldLayers(world, scene.registry.get(HD_REG) === true);
+    this.world = world;
+    this.build(world);
+    this.layout();
+    this.applyTint();
+    scene.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
+    scene.events.on(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.dead = true;
+      scene.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      scene.events.off(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
+    });
+  }
+
+  /**
+   * Fades to another scenery mid-scene, as Arcade's bonus round does. Its art loads first while
+   * the current layers stay up; once the fade is over, the old scenery's textures are let go.
+   */
+  switchTo(id: SceneryId, pace = 1): void {
+    this.setPace(pace);
+    if (id === (this.switching ?? this.world)) return;
+    this.switching = id;
+    const scene = this.scene;
+    const hd = scene.registry.get(HD_REG) === true;
+    const go = () => {
+      if (this.dead) return;
+      if (this.switching !== id) {
+        // Called off while it loaded: nothing shows it, so it need not stay resident.
+        if (id !== this.world && id !== this.switching) this.drop(id);
+        return;
+      }
+      this.crossTo(id);
+    };
+    const missing = worldAssets(id, hd).filter((a) => !scene.textures.exists(a.key));
+    if (missing.length === 0) return go();
+    for (const a of missing) scene.load.image(a.key, `assets/${a.path}`);
+    scene.load.once(Phaser.Loader.Events.COMPLETE, go);
+    scene.load.start();
+  }
+
+  private crossTo(id: SceneryId): void {
+    const from = this.world;
+    const old = this.objects();
+    this.switching = undefined;
+    this.world = id;
+    this.build(id);
+    this.layout();
+    this.fade = 0;
+    this.applyTint();
+    this.applyFade();
+    this.scene.tweens.add({ targets: old, alpha: 0, duration: SWITCH_MS });
+    this.scene.tweens.add({
+      targets: this,
+      fade: 1,
+      duration: SWITCH_MS,
+      onUpdate: () => this.applyFade(),
+      onComplete: () => {
+        for (const o of old) o.destroy();
+        if (from !== this.world && from !== this.switching) this.drop(from);
+      },
+    });
+  }
+
+  /** Lets go of one scenery's textures, at both resolutions. */
+  private drop(id: SceneryId): void {
+    for (const hi of [false, true]) {
+      for (const a of worldAssets(id, hi)) {
+        if (this.scene.textures.exists(a.key)) this.scene.textures.remove(a.key);
+      }
+    }
+  }
+
+  private objects(): Array<Phaser.GameObjects.GameObject & { alpha: number }> {
+    return [
+      this.sky,
+      ...this.tiles.flatMap((t) => t.parts.map((p) => p.sprite)),
+      ...this.glows.map((g) => g.image),
+      ...this.motes.map((m) => m.emitter),
+    ];
+  }
+
+  /** The layers of `id`, from the sky forward. */
+  private build(id: SceneryId): void {
+    const scene = this.scene;
+    const look = WORLD_LOOKS[id];
+    const art = worldLayers(id, scene.registry.get(HD_REG) === true);
     const skyKey = art ? partKey(art.sky) : '';
+    this.tiles = [];
+    this.glows = [];
+    this.motes = [];
     this.skyTint = look.skyTint;
     this.sky = scene.textures.exists(skyKey)
       ? scene.add.image(WIDTH / 2, HEIGHT / 2, skyKey)
@@ -187,15 +282,7 @@ export class ParallaxBackdrop implements Tintable {
         this.motes.push(this.addMotes(layer, depth));
       }
     });
-
-    this.layout();
-    this.applyTint();
-    scene.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
-    scene.events.on(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      scene.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
-      scene.events.off(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
-    });
+    if (this.haze) this.hazeNear(this.haze.key, this.haze.amount);
   }
 
   /** Multiply tint from Backdrop (dim, Fever hue, Black Hole dark) over each layer's own grade. */
@@ -230,6 +317,11 @@ export class ParallaxBackdrop implements Tintable {
    * which the caller scrolls. Costs a full-layer pass, so the lighting system only asks on High.
    */
   addHaze(noiseKey: string, amount: number): void {
+    this.haze = { key: noiseKey, amount };
+    this.hazeNear(noiseKey, amount);
+  }
+
+  private hazeNear(noiseKey: string, amount: number): void {
     const near = this.tiles[this.tiles.length - 1];
     if (!near) return;
     for (const p of near.parts) {
@@ -280,7 +372,15 @@ export class ParallaxBackdrop implements Tintable {
     }
     for (const g of this.glows) g.image.setTint(multiply(g.look.color, this.tint));
     const light = luminance(this.tint);
-    for (const m of this.motes) m.emitter.setAlpha(light);
+    for (const m of this.motes) m.emitter.setAlpha(light * this.fade);
+  }
+
+  /** The layers' own opacity, scaled by how far a scenery switch has faded in. */
+  private applyFade(): void {
+    this.sky.setAlpha(this.fade);
+    for (const t of this.tiles) for (const p of t.parts) p.sprite.setAlpha((t.look.alpha ?? 1) * this.fade);
+    const light = luminance(this.tint);
+    for (const m of this.motes) m.emitter.setAlpha(light * this.fade);
   }
 
   /**
@@ -338,7 +438,9 @@ export class ParallaxBackdrop implements Tintable {
     const flicker = this.still
       ? 1
       : 1 + 0.1 * Math.sin(this.clock * 1.7) + 0.06 * Math.sin(this.clock * 4.3 + 1.3);
-    for (const g of this.glows) g.image.setAlpha(Math.min(1, g.look.alpha * flicker + this.flare));
+    for (const g of this.glows) {
+      g.image.setAlpha(Math.min(1, g.look.alpha * flicker + this.flare) * this.fade);
+    }
     for (const m of this.motes) m.emitter.timeScale = Math.max(0.2, this.pace);
   }
 }

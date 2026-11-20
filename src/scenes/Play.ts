@@ -85,7 +85,7 @@ import type { LevelSpec, PowerupId } from '../core/types';
 import { BOSSES } from '../bosses';
 import { BONUSES } from '../bonus';
 import type { BonusId } from '../core/Bonus';
-import { BOSS_IDS } from '../core/Boss';
+import { BOSS_IDS, type BossMood } from '../core/Boss';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
@@ -250,6 +250,9 @@ const FIRST_SERVE_MS = 5_000;
 const MAGNET_HOLD_MS = 2_500;
 /** The level-clear banner moves on to the next level by itself after this long. */
 const CLEAR_ADVANCE_MS = 3_500;
+/** The slower wipe from a beaten boss into its bonus stage: out of the banner, and into the stage. */
+const BONUS_WIPE_OUT_MS = 700;
+const BONUS_WIPE_IN_MS = 600;
 /** Taps are ignored this long, so the tap that broke the last brick can't skip the banner. */
 const CLEAR_TAP_GUARD_MS = 700;
 /** The last level and an Arcade win wait this long before the results screen comes up. */
@@ -304,6 +307,7 @@ export class Play extends BaseScene {
   private fever!: FeverSystem;
   private backdrop!: Backdrop;
   private scenery!: ParallaxBackdrop;
+  private sceneryPace = 1;
   private lighting!: LightingSystem;
   private ballLights = new Map<Ball, Light>();
   private brickLights: Array<{ brick: Brick; light: Light }> = [];
@@ -391,6 +395,12 @@ export class Play extends BaseScene {
     return this.levels[this.levelIndex - 1];
   }
 
+  /** A beaten boss here leads into a bonus stage: every Arcade boss, and a campaign stop with one. */
+  private get bonusAhead(): boolean {
+    if (this.runConfig) return true;
+    return this.atStop === 'boss' && !!this.stopAfter(this.levelIndex)?.bonus;
+  }
+
   /** A bonus stage can bring its own scenery and scroll it at its own pace; a level shows its world. */
   private sceneryFor(level: LevelSpec | undefined): { id: SceneryId; pace: number } {
     const def = level?.bonus && !this.runConfig ? BONUSES[level.bonus] : undefined;
@@ -400,8 +410,9 @@ export class Play extends BaseScene {
   preload(): void {
     const level = this.runConfig ? undefined : this.campaignLevel();
     ParallaxBackdrop.preload(this, this.sceneryFor(level).id);
-    // The gallery's bed loads with that stage, so the other levels never fetch it.
-    if (level?.bonus && !this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
+    // The gallery's bed loads with that stage, and with the boss before it, whose award it drifts
+    // in under. The other levels never fetch it.
+    if ((level?.bonus || this.bonusAhead) && !this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
       this.load.audio(GALLERY_MUSIC_KEY, `assets/${GALLERY_TRACK.path}`);
     }
     // A boss's sheet loads with its level, so the levels without one never fetch it.
@@ -417,7 +428,12 @@ export class Play extends BaseScene {
   create(): void {
     this.setupCamera();
     const shade = Phaser.Display.Color.IntegerToColor(theme().palette.base);
-    this.cameras.main.fadeIn(300, shade.red, shade.green, shade.blue);
+    this.cameras.main.fadeIn(
+      this.atStop === 'bonus' ? BONUS_WIPE_IN_MS : 300,
+      shade.red,
+      shade.green,
+      shade.blue,
+    );
     // A finished fade-in keeps drawing a clear full-screen fill every frame until it is reset.
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () =>
       this.cameras.main.fadeEffect.reset(),
@@ -457,6 +473,7 @@ export class Play extends BaseScene {
     };
 
     const scenery = this.sceneryFor(this.level);
+    this.sceneryPace = scenery.pace;
     this.scenery = new ParallaxBackdrop(this, scenery.id, scenery.pace);
     this.lighting = new LightingSystem(this, world, this.level, this.scenery);
     // The light map replaces the flat dim; without WebGL the old tint still darkens the art.
@@ -529,7 +546,7 @@ export class Play extends BaseScene {
       this.backdrop,
       (active) => {
         this.onEffectsChanged();
-        this.scenery.setPace((active ? 3.5 : 1) * scenery.pace);
+        this.scenery.setPace((active ? 3.5 : 1) * this.sceneryPace);
       },
       this.lighting.look.lightsOut ? 0.35 : 1,
     );
@@ -1872,8 +1889,17 @@ export class Play extends BaseScene {
     const boss = this.boss;
     if (!boss?.active) return false;
     const mood = boss.music;
-    if (mood) audio.bossMusic(mood);
+    if (mood) this.playBossMood(mood);
     return true;
+  }
+
+  /**
+   * The boss track at `mood`. The calm after a boss that leads into a bonus stage is that stage's
+   * bed, heard from afar, so the fight's intensity never comes back between the two.
+   */
+  private playBossMood(mood: BossMood): void {
+    if (mood === 'rest' && this.bonusAhead) audio.galleryAfar();
+    else audio.bossMusic(mood);
   }
 
   private showHint(): void {
@@ -2106,7 +2132,10 @@ export class Play extends BaseScene {
       gone = true;
       this.skipBanner = undefined;
       const c = Phaser.Display.Color.IntegerToColor(t.palette.base);
-      this.cameras.main.fadeOut(220, c.red, c.green, c.blue);
+      // From a boss into its bonus stage the wipe takes its time, as the fight lets go.
+      const intoBonus = d.stop === 'boss' && next.stop === 'bonus';
+      if (intoBonus) audio.whoosh();
+      this.cameras.main.fadeOut(intoBonus ? BONUS_WIPE_OUT_MS : 220, c.red, c.green, c.blue);
       this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
         this.scene.restart({ index: next.index, stop: next.stop }),
       );
@@ -2266,8 +2295,15 @@ export class Play extends BaseScene {
   /** Arcade: the bonus round after a boss, on the field the boss left. */
   private startBonus(seed: number): void {
     this.clearHint();
-    this.bonus = new BonusDirector(BONUSES[ARCADE_BONUS], this.bonusHost(), { seed });
+    const def = BONUSES[ARCADE_BONUS];
+    this.bonus = new BonusDirector(def, this.bonusHost(), { seed });
     exposeBonus(this.bonus);
+    this.switchScenery(def.backdrop ?? this.world, def.pace ?? 1);
+  }
+
+  private switchScenery(id: SceneryId, pace: number): void {
+    this.sceneryPace = pace;
+    this.scenery.switchTo(id, pace);
   }
 
   /** Arcade: the bonus round leaves once its tally is over, and the run's music comes back. */
@@ -2278,6 +2314,7 @@ export class Play extends BaseScene {
     exposeBonus(undefined);
     this.hudTrigger = false;
     audio.playMusic('music');
+    this.switchScenery(this.world, 1);
   }
 
   private bossHost(): BossHost {
@@ -2306,7 +2343,7 @@ export class Play extends BaseScene {
       defeated: () => {
         // A tap can end the award before the calm came in, and Results must not play in silence.
         const mood = this.boss?.music;
-        if (mood) audio.bossMusic(mood);
+        if (mood) this.playBossMood(mood);
         if (this.runDirector) this.runDirector.onBossDefeated();
         else this.win();
       },

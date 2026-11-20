@@ -61,7 +61,7 @@ the way the tutorial freezes play.
 | `fight` | both | live | The hint appears and the serve clock runs. Phases, attacks, openings. The track follows the phase's intensity. | a pool empties |
 | `transition` | boss | frozen | A hit-stop on the kill shot. Hazards clear. The bars close and the camera pushes in. The next phase's `enter` cutscene plays, then its `setup` runs and its pose applies. | after the cutscene's length |
 | `finale` | boss | frozen | A hit-stop, hazards clear, the music cuts dead, the bars close and the camera pushes in. The `death` animation and cutscene play. | after the cutscene's length |
-| `aftermath` | framework | frozen | Every part is retired and the arena is cleared. The ending theme plays out alone; `AWARD_BREAK_MS` later the award card shows the trophy, the score bonus and the coins. The level song comes back at `rest` once the award's chime has rung out. | a tap `AWARD_GUARD_MS` after the award goes up, or `AFTERMATH_MS` after it |
+| `aftermath` | framework | frozen | Every part is retired and the arena is cleared. The ending theme plays out alone; `AWARD_BREAK_MS` later the award card shows the trophy, the score bonus and the coins. Once the award's chime has rung out the music comes back at `rest`: the level song, or, when a bonus stage follows, that stage's bed heard from afar. | a tap `AWARD_GUARD_MS` after the award goes up, or `AFTERMATH_MS` after it |
 | `done` | | | `host.defeated()` | |
 
 A step whose length is zero is passed through without stopping. A tap during `hush`, `entrance`
@@ -75,6 +75,13 @@ After `done`, `Play.win()` runs as it does today, except that it does not stop t
 the fanfare or flash the camera. The clear banner and results play over `rest`. The next level
 calls `audio.playMusic('music')`, finds the song already playing and leaves it, and
 `MusicIntensity` steers it up from there. That is the ramp back into the action.
+
+A boss that leads into a bonus stage (every Arcade boss, and a campaign stop with a bonus) plays
+`rest` as `audio.galleryAfar()` instead: the gallery's bed fades in quiet and muffled
+(`MusicEngine.far`) and the level song stays out, so the player gets a breather between the two.
+`Play.preload` loads the bed with such a boss stop. The bed carries across the scene change, the
+banner's wipe into the stage is slower and has a whoosh, and the stage's `audio.bonusMusic(true)`
+opens the bed up where it is instead of restarting it.
 
 ## Existing code this rests on
 
@@ -571,8 +578,9 @@ setting toggled mid-fight recovers by itself. The director stops the music itsel
 
 The boss track is `BOSS_TRACK` in `src/art/bossMusic.ts`, played by a second `MusicEngine` on the
 level song's bus and analyser (P5). `Play.preload` loads it for boss levels only. Its playlists
-are keyed by `BOSS_MOOD_FALLBACK[mood]`; `rest` always plays on the level song's engine, and so
-does every mood when the boss track is not loaded. The file is a placeholder cut from a recording
+are keyed by `BOSS_MOOD_FALLBACK[mood]`; `rest` plays on the level song's engine, or on the
+gallery's when a bonus stage follows, and every mood plays on the level song's engine when the
+boss track is not loaded. The file is a placeholder cut from a recording
 by `scripts/build-boss-music.py`: one song played through, so every mood has the same playlist
 and a change of phase does not change what is heard. The stinger is `boss_victory`, a
 synthesized placeholder, played as a sound effect.

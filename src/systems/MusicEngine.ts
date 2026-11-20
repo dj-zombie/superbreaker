@@ -25,6 +25,10 @@ const RISER_FLOOR_HZ = 20;
 const RISER_TOP_HZ = 600;
 /** Volume while paused. */
 const DUCK = 0.35;
+/** Volume and low-pass corner (Hz) of music heard from afar, and how slowly it opens back up (s). */
+const FAR = 0.45;
+const FAR_HZ = 700;
+const FAR_OPEN_TC = 0.6;
 /** The tape stop slows to a crawl over this long (s). */
 const TAPE_S = 0.9;
 /** A stopped play-through is silent and released after this long (s). */
@@ -113,6 +117,7 @@ export class MusicEngine {
   private readonly lead: number;
   private volume = 0;
   private ducked = false;
+  private distant = false;
   private held = false;
   private riser = 0;
   private dipUntil = 0;
@@ -219,6 +224,19 @@ export class MusicEngine {
     this.ducked = on;
     this.level();
     this.tone();
+  }
+
+  /**
+   * Heard from a distance: quieter and muffled, for music that waits in the wings of a scene.
+   * Coming back opens slowly, so the song swells up instead of snapping in. The pause duck
+   * outranks it, and a stop leaves it as it is.
+   */
+  far(on: boolean): void {
+    if (on === this.distant) return;
+    this.distant = on;
+    const tc = on ? undefined : FAR_OPEN_TC;
+    this.level(tc);
+    this.tone(tc);
   }
 
   /**
@@ -435,23 +453,23 @@ export class MusicEngine {
 
   // ---------------------------------------------------------------- tone
 
-  private level(): void {
+  private level(tc = 0.08): void {
     const g = this.output.gain;
     const now = this.ctx.currentTime;
     g.cancelScheduledValues(now);
-    g.setTargetAtTime(this.volume * (this.ducked ? DUCK : 1), now, 0.08);
+    g.setTargetAtTime(this.volume * (this.ducked ? DUCK : this.distant ? FAR : 1), now, tc);
   }
 
-  private tone(): void {
+  private tone(tc = 0.12): void {
     const now = this.ctx.currentTime;
     // A dip in progress holds before it opens to the new corner.
     const from = Math.max(now, this.dipUntil);
     const lp = this.lowpass.frequency;
     lp.cancelScheduledValues(from);
     lp.setTargetAtTime(
-      this.ducked ? DUCK_HZ : this.held ? HELD_HZ : OPEN_HZ,
+      this.ducked ? DUCK_HZ : this.distant ? FAR_HZ : this.held ? HELD_HZ : OPEN_HZ,
       from,
-      from > now ? this.dipRelease : 0.12,
+      from > now ? this.dipRelease : tc,
     );
     const hp = this.highpass.frequency;
     hp.cancelScheduledValues(now);
