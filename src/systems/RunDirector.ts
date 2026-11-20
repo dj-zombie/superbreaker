@@ -50,6 +50,8 @@ export interface RunHost {
   relook(lighting: LevelLightingSpec): void;
   /** A boss fight begins on the field as it stands. Its plans draw from `seed`. */
   startBoss(tier: number, seed: number): void;
+  /** A bonus stage begins on the field the boss left. Its layout draws from `seed`. */
+  startBonus(seed: number): void;
 }
 
 const MECHANIC_NAMES: Record<Mechanic, string> = {
@@ -73,6 +75,8 @@ const LIT: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS };
 const DARK: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS, lightsOut: true, previewTime: DARK_PREVIEW_S };
 /** A boss round is lit the way the boss lab is: lights out, with lightning. */
 const BOSS_ROOM: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS, lightsOut: true, lightning: true };
+/** The bonus round after a boss is lit the way the gallery map is: a party. */
+const BONUS_ROOM: LevelLightingSpec = { ...LEVEL_LIGHTING_DEFAULTS, mood: 'party' };
 
 /** Runs an Arcade run inside Play: wave transitions, Descent steps, the clock and the end. */
 export class RunDirector {
@@ -91,8 +95,10 @@ export class RunDirector {
   private fullCount = 1;
   /** Field clear: the bonus is paid once until bricks are back. */
   private clearPaid = false;
-  /** A boss fight has the field: no steps, no clock, no danger line. */
+  /** A boss fight, or the bonus round after it, has the field: no steps, no clock, no danger line. */
   private bossing = false;
+  /** The bonus round after a boss is on. */
+  private bonusing = false;
   /** How the room is lit now, so a round that keeps the light leaves it alone. */
   private room: LevelLightingSpec = LIT;
   /** Screen y of brick row 0, captured at the start so a resize can't misalign new rows. */
@@ -145,12 +151,25 @@ export class RunDirector {
     this.refreshLabel();
   }
 
-  /** The boss's award is over: Waves counts the wave as cleared, Descent rushes rows back in. */
+  /** The boss's award is over: a bonus round plays on the field it left, with the clock still held. */
   onBossDefeated(): void {
     const host = this.host;
-    if (!host || !this.bossing) return;
+    if (!host || !this.bossing || this.bonusing) return;
+    this.bonusing = true;
+    this.relight(host, BONUS_ROOM);
+    host.rearm();
+    host.startBonus(hashSeed(this.config.seed, 'bonus', this.state.tier));
+  }
+
+  /** The bonus round's tally is over: Waves counts the wave as cleared, Descent rushes rows back in. */
+  onBonusDone(): void {
+    const host = this.host;
+    if (!host || !this.bonusing) return;
+    this.bonusing = false;
     this.bossing = false;
     if (!this.descent) {
+      // The party ends with the round, not with the next wave's drop.
+      this.relight(host, LIT);
       this.waveCleared(host);
       return;
     }

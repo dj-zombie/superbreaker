@@ -238,6 +238,11 @@ export function bossStopId(after: number): string {
   return `boss${String(after).padStart(2, '0')}`;
 }
 
+/** The save key of the bonus stage that follows the boss stop after level `after`. */
+export function bonusStopId(after: number): string {
+  return `bonus${String(after).padStart(2, '0')}`;
+}
+
 export class SaveStore {
   private data: SaveData = defaultSave();
   private writeChain: Promise<void> = Promise.resolve();
@@ -388,6 +393,11 @@ export class SaveStore {
   /** Records a beaten boss stop and opens the level after it; true if it is a new best score. */
   recordBoss(after: number, stars: number, score: number, totalLevels: number): boolean {
     return this.record(bossStopId(after), stars, score, after + 1, totalLevels);
+  }
+
+  /** Records a played bonus stage after a boss; true if it is a new best score. */
+  recordBonusStop(after: number, stars: number, score: number, totalLevels: number): boolean {
+    return this.record(bonusStopId(after), stars, score, after + 1, totalLevels);
   }
 
   /** The boss stop after level `after` has been beaten. */

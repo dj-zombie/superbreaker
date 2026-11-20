@@ -607,6 +607,11 @@ export class LightingSystem {
     this.bulbs.push({ x0, x1, y, depth });
   }
 
+  /** Takes every string of bulbs down, as the stage that hung them leaves. */
+  takeDownBulbs(): void {
+    this.bulbs.length = 0;
+  }
+
   /** Seconds after the start when a light at height `y` ignites in the opening wave. */
   igniteTime(y: number): number {
     return 0.25 + Math.max(0, HEIGHT - y) * 0.0012;

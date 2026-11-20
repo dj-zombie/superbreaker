@@ -34,7 +34,8 @@
   "bosses": [
     {
       "after": 5,
-      "map": "boss05.tmj"
+      "map": "boss05.tmj",
+      "bonus": "gallery.tmj"
     }
   ]
 }

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { worldForLevel } from '../art/backdrops';
 import { HEIGHT, SAFE_TOP, SCENES, STAGE_W, WIDTH } from '../config';
-import { stepKey, type CampaignStep } from '../core/Campaign';
+import { clearedLabel, stepKey, stepLabel, type CampaignStep } from '../core/Campaign';
 import { randomSeed } from '../core/Rng';
 import { GOAL_LABELS, LOOP_LABELS, reachLabel } from '../core/Run';
 import { runCarry } from '../core/Session';
@@ -78,7 +78,7 @@ export class Results extends Overlay {
     root.setAlpha(0).setScale(0.92);
     this.tweens.add({ targets: root, alpha: 1, scale: 1, duration: 320, ease: 'Back.Out' });
 
-    const cleared = d.stop ? 'Boss beaten' : 'Level clear';
+    const cleared = d.stop ? clearedLabel({ index: d.index, stop: d.stop }) : 'Level clear';
     const title = d.run ? runHeading(d.run) : d.win ? (hasNext ? cleared : 'All clear') : 'Game over';
     const head = heading(this, 0, top + 62, title, 52, lost ? { color: css(t.palette.danger) } : {});
     root.add(head);
@@ -203,7 +203,7 @@ export class Results extends Overlay {
         this,
         0,
         y,
-        next ? (next.stop ? 'Boss fight' : 'Next level') : d.win ? 'Play again' : 'Retry',
+        next ? (next.stop ? stepLabel(next) : 'Next level') : d.win ? 'Play again' : 'Retry',
         () => this.goPlay(next ?? here),
         { width: 320, height: 70, hero: true, icon: next ? 'next' : 'retry', variant: lost ? 'danger' : 'primary' },
       );

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { WORLD_IDS, type WorldId } from '../art/backdrops';
 import { HEIGHT, IS_TOUCH, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
-import { stepKey } from '../core/Campaign';
+import { stepKey, type CampaignStep, type StopKind } from '../core/Campaign';
 import { levelId } from '../core/SaveStore';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
@@ -26,8 +26,8 @@ interface PathData {
 
 interface Node {
   index: number;
-  /** The boss stop after level `index`. */
-  stop: boolean;
+  /** A stop after level `index`, rather than the level. */
+  stop?: StopKind;
   /** The world's last level, drawn larger. */
   big: boolean;
   x: number;
@@ -84,7 +84,8 @@ export class WorldPath extends BaseScene {
 
     const nodes = this.layoutNodes(first, header.bottom + 56, HEIGHT - Math.max(SAFE_BOTTOM, 0) - 74);
     for (let i = 0; i < nodes.length - 1; i++) this.link(nodes[i]!, nodes[i + 1]!, i);
-    const current = (this.current = nodes.find((n) => n.state === 'open'));
+    // A bonus stage holds nothing shut, so the path's marker waits on the next level instead.
+    const current = (this.current = nodes.find((n) => n.state === 'open' && n.stop !== 'bonus'));
     nodes.forEach((n, i) => this.node(n, i, n === current));
 
     this.toast = label(this, WIDTH / 2, HEIGHT - Math.max(SAFE_BOTTOM + 18, 26), '', 13, {
@@ -96,10 +97,12 @@ export class WorldPath extends BaseScene {
   }
 
   private layoutNodes(first: number, top: number, bottom: number): Node[] {
-    const places: Array<{ index: number; stop: boolean }> = [];
+    const places: CampaignStep[] = [];
     for (let index = first; index < first + 10; index++) {
-      places.push({ index, stop: false });
-      if (this.stopAfter(index)) places.push({ index, stop: true });
+      places.push({ index });
+      const stop = this.stopAfter(index);
+      if (stop) places.push({ index, stop: 'boss' });
+      if (stop?.bonus) places.push({ index, stop: 'bonus' });
     }
     const step = (bottom - top) / (places.length - 1);
     return places.map(({ index, stop }, i) => {
@@ -109,12 +112,17 @@ export class WorldPath extends BaseScene {
     });
   }
 
-  private nodeState(index: number, stop: boolean): NodeState {
+  private nodeState(index: number, stop: StopKind | undefined): NodeState {
     if (save.state.levels[stepKey({ index, stop })]) return 'cleared';
-    // A boss stop opens with its level's clear, or when the path is already open past it.
-    const open = stop
-      ? !!save.state.levels[levelId(index)] || save.state.unlocked > index
-      : index <= save.state.unlocked;
+    // A boss stop opens with its level's clear, and its bonus stage with the boss beaten. Either
+    // is open when the path already is past it, as unlocking every level leaves it.
+    const past = save.state.unlocked > index;
+    const open =
+      stop === 'boss'
+        ? !!save.state.levels[levelId(index)] || past
+        : stop === 'bonus'
+          ? save.bossBeaten(index) || past
+          : index <= save.state.unlocked;
     return open ? 'open' : 'locked';
   }
 
@@ -173,7 +181,7 @@ export class WorldPath extends BaseScene {
     c.add(plate);
     if (n.stop) {
       const tint = n.state === 'locked' ? 0x8a8a8a : t.palette.accentHi;
-      c.add(icon(this, 0, 0, 'skull', 34, tint));
+      c.add(icon(this, 0, 0, n.stop === 'boss' ? 'skull' : 'gun', 34, tint));
     } else {
       const num = display(this, 0, 1, String(n.index), big ? 30 : 24, {
         color: n.state === 'locked' ? t.palette.textDim : n.state === 'cleared' ? t.palette.textOnAccent : t.palette.text,
@@ -200,7 +208,8 @@ export class WorldPath extends BaseScene {
     }
     if (n.stop) {
       // Below the plate: above it, the path's tight bends put the label on the previous level's stars.
-      c.add(label(this, 0, size / 2 + (rec ? 26 : 12), 'Boss', 12, { color: t.palette.textDim }));
+      const name = n.stop === 'boss' ? 'Boss' : 'Bonus';
+      c.add(label(this, 0, size / 2 + (rec ? 26 : 12), name, 12, { color: t.palette.textDim }));
     } else if (big) {
       c.add(label(this, 0, -size / 2 - (current ? 46 : 12), 'Finale', 12, { color: t.palette.textDim }));
     }

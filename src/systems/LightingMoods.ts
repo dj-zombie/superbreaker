@@ -663,9 +663,10 @@ class Party implements MoodFx {
     }
   }
 
-  /** Bulbs for strings the stage has hung since the last frame. */
+  /** Bulbs for strings the stage has hung since the last frame; none for strings taken down. */
   private hangNew(): void {
     const { bulbs } = this.sys;
+    if (this.rows.length > bulbs.length) this.takeDown();
     while (this.rows.length < bulbs.length) {
       const s = bulbs[this.rows.length]!;
       const n = Math.max(2, Math.round((s.x1 - s.x0) / BULB_GAP));
@@ -708,13 +709,20 @@ class Party implements MoodFx {
     if (this.tier >= 2 && this.sys.claimFlash()) this.sys.dip(0.45);
   }
 
-  destroy(): void {
-    for (const l of [...this.spill, ...this.washes, ...this.heads.map((h) => h.light)]) l.kill();
-    this.floor?.kill();
+  private takeDown(): void {
+    for (const l of this.spill) l.kill();
     for (const b of this.rows.flat()) {
       b.glow.destroy();
       b.core.destroy();
     }
+    this.spill = [];
+    this.rows = [];
+  }
+
+  destroy(): void {
+    this.takeDown();
+    for (const l of [...this.washes, ...this.heads.map((h) => h.light)]) l.kill();
+    this.floor?.kill();
     for (const s of this.specks) s.image.destroy();
     this.ball?.destroy();
     this.cord?.destroy();

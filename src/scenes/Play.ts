@@ -71,10 +71,20 @@ import {
   runCarry,
   type SessionPowerupId,
 } from '../core/Session';
-import { stepAfter, stepKey, type CampaignStep } from '../core/Campaign';
+import {
+  clearedLabel,
+  stepAfter,
+  stepKey,
+  stepLabel,
+  stopLevel,
+  stopOf,
+  type CampaignStep,
+  type StopKind,
+} from '../core/Campaign';
 import type { LevelSpec, PowerupId } from '../core/types';
 import { BOSSES } from '../bosses';
 import { BONUSES } from '../bonus';
+import type { BonusId } from '../core/Bonus';
 import { BOSS_IDS } from '../core/Boss';
 import { BALL_SIZE, Ball } from '../entities/Ball';
 import type { Brick, HitResult } from '../entities/Brick';
@@ -119,8 +129,8 @@ import { BaseScene } from './BaseScene';
 export interface PlayData {
   /** Campaign level, 1-based. */
   index?: number;
-  /** The boss stop after level `index`, rather than the level. */
-  stop?: boolean;
+  /** A stop after level `index`, rather than the level. */
+  stop?: StopKind;
   /** Starts an Arcade run instead of a campaign level. */
   run?: RunConfig;
 }
@@ -136,8 +146,8 @@ export interface RunResults {
 export interface ResultsData {
   win: boolean;
   index: number;
-  /** The boss stop after level `index` was played. */
-  stop?: boolean;
+  /** The stop after level `index` that was played, if it was one. */
+  stop?: StopKind;
   /** Where a win leads in the campaign; unset past the last level. */
   next?: CampaignStep;
   score: number;
@@ -263,11 +273,13 @@ const LASER_GLOW_GAP_MS = 80;
 const SLOWMO_TINT = 0xa8c4ff;
 /** A ball lost in a bonus stage is back on the paddle and away again after this long. */
 const BONUS_SERVE_MS = 600;
+/** Arcade: the bonus round played after every boss. */
+const ARCADE_BONUS: BonusId = 'gallery';
 
 export class Play extends BaseScene {
   levelIndex = 1;
-  /** Campaign: this is the boss stop after level `levelIndex`. */
-  atStop = false;
+  /** Campaign: this is a stop after level `levelIndex`, the boss fight or its bonus stage. */
+  atStop?: StopKind;
   /** Set when this is an Arcade run rather than a campaign level. */
   runConfig?: RunConfig;
   hud!: HudState;
@@ -348,7 +360,7 @@ export class Play extends BaseScene {
     this.levelIndex = data.run
       ? 0
       : Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
-    this.atStop = !data.run && !!data.stop && !!this.stopAfter(this.levelIndex);
+    this.atStop = data.run ? undefined : stopOf(this.stopAfter(this.levelIndex), data.stop);
     this.world = data.run ? worldForRun(data.run.seed) : worldForLevel(this.levelIndex);
     useWorld(this.world);
     if (!data.run) pickWorld(this.world);
@@ -367,14 +379,15 @@ export class Play extends BaseScene {
     this.hudTrigger = false;
   }
 
-  /** Campaign: where this level sits, a level or the boss stop after one. */
+  /** Campaign: where this level sits, a level or one of the stops after one. */
   get campaignStep(): CampaignStep {
-    return this.atStop ? { index: this.levelIndex, stop: true } : { index: this.levelIndex };
+    return this.atStop ? { index: this.levelIndex, stop: this.atStop } : { index: this.levelIndex };
   }
 
   /** Campaign: the map this scene plays. */
   private campaignLevel(): LevelSpec | undefined {
-    return this.atStop ? this.stopAfter(this.levelIndex)?.level : this.levels[this.levelIndex - 1];
+    if (this.atStop) return stopLevel(this.stopAfter(this.levelIndex), this.atStop);
+    return this.levels[this.levelIndex - 1];
   }
 
   preload(): void {
@@ -407,7 +420,7 @@ export class Play extends BaseScene {
     const base = DIFFICULTY[save.state.difficulty];
     this.diff = this.runConfig ? base : scaleSpeeds(base, campaignSpeedScale(this.levelIndex));
     this.hud = {
-      title: this.atStop ? 'BOSS' : `LEVEL ${this.levelIndex}`,
+      title: this.atStop === 'boss' ? 'BOSS' : this.atStop === 'bonus' ? 'BONUS' : `LEVEL ${this.levelIndex}`,
       detail: null,
       clockMs: null,
       score: 0,
@@ -587,7 +600,7 @@ export class Play extends BaseScene {
         })
       : undefined;
     exposeBoss(this.boss);
-    // An Arcade run plays its own boards: a bonus stage is a campaign level.
+    // An Arcade run plays its own boards: its bonus rounds come after its bosses.
     const bonus = this.runConfig ? undefined : this.level.bonus;
     this.bonus = bonus
       ? new BonusDirector(BONUSES[bonus], this.bonusHost(), { seed: randomSeed() })
@@ -720,6 +733,7 @@ export class Play extends BaseScene {
       this.bonus.update(dt);
       // The timer running out on this frame stops the world on this frame.
       this.syncFreeze();
+      this.dropFinishedBonus();
     }
     // Dev only: the boss counts the frames a ball spends inside one of its parts.
     if (import.meta.env.DEV && this.boss) {
@@ -759,6 +773,7 @@ export class Play extends BaseScene {
     // A bonus stage's guns tuck away once its timer is out.
     if (this.bonus) this.laser.update(dt);
     this.dropBeatenBoss();
+    this.dropFinishedBonus();
     this.updateBossMusic();
     this.syncLights();
     this.hud.slots = this.abilities.slots;
@@ -1965,14 +1980,23 @@ export class Play extends BaseScene {
     if (this.skills.slowmo.active) this.endSlowmo();
     const here = this.campaignStep;
     // Worked out before the win is saved: a level's stop is next only while its boss stands.
-    const next = stepAfter(here, (i) => !!this.stopAfter(i), (i) => save.bossBeaten(i));
+    const next = stepAfter(
+      here,
+      (i) => !!this.stopAfter(i),
+      (i) => save.bossBeaten(i),
+      (i) => !!this.stopAfter(i)?.bonus,
+    );
     runCarry.stage(this.abilities.held(), stepKey(next));
     const stars = earned ?? starsForLives(this.hud.lives);
     const prevBest = save.state.levels[stepKey(here)]?.bestScore ?? 0;
     const total = this.levels.length;
-    const isBest = this.atStop
-      ? save.recordBoss(this.levelIndex, stars, this.hud.score, total)
-      : save.recordWin(this.levelIndex, stars, this.hud.score, total, !!next.stop);
+    const { score } = this.hud;
+    const isBest =
+      this.atStop === 'boss'
+        ? save.recordBoss(this.levelIndex, stars, score, total)
+        : this.atStop === 'bonus'
+          ? save.recordBonusStop(this.levelIndex, stars, score, total)
+          : save.recordWin(this.levelIndex, stars, score, total, next.stop === 'boss');
     const finale = !this.atStop && worldLevels(this.world).last === this.levelIndex;
     reportProgress((save.clearedCount() / Math.max(1, this.levels.length)) * 100);
     // Finishing a world only, so the page confetti stays a rare thing.
@@ -2022,7 +2046,7 @@ export class Play extends BaseScene {
     const t = theme();
     const root = this.add.container(WIDTH / 2, ARENA_MID).setDepth(30);
     root.add(framePanel(this, 0, 0, 440, 340, t, { ornament: true }));
-    const head = heading(this, 0, -122, d.stop ? 'Boss beaten' : `Level ${d.index} clear`, 36, { t });
+    const head = heading(this, 0, -122, clearedLabel(d), 36, { t });
     root.add(head);
     slam(this, head, { delay: 120 });
     root.add(
@@ -2058,7 +2082,7 @@ export class Play extends BaseScene {
 
     const bar = new Meter(this, 0, 120, 320, 10, 0, t.palette.accent);
     root.add(bar);
-    const ahead = next.stop ? 'Boss fight' : `Level ${next.index}`;
+    const ahead = stepLabel(next);
     root.add(label(this, 0, 146, `${ahead}  ·  tap to go`, 14, { t, color: t.palette.text }));
 
     root.setScale(0.6).setAlpha(0);
@@ -2190,14 +2214,21 @@ export class Play extends BaseScene {
         this.fever.edgeAlpha = this.lighting.look.lightsOut ? 0.35 : 1;
       },
       startBoss: (tier, seed) => this.startBoss(tier, seed),
+      startBonus: (seed) => this.startBonus(seed),
     };
   }
 
-  /** Arcade: a run meets bosses later on, so their sheets and the boss track load behind play. */
+  /**
+   * Arcade: a run meets bosses later on, so their sheets, the boss track and the bonus round's bed
+   * load behind play.
+   */
   private loadBosses(): void {
     for (const def of Object.values(BOSSES)) BossBody.preload(this, def);
     if (!this.cache.audio.exists(BOSS_MUSIC_KEY)) {
       this.load.audio(BOSS_MUSIC_KEY, `assets/${BOSS_TRACK.path}`);
+    }
+    if (!this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
+      this.load.audio(GALLERY_MUSIC_KEY, `assets/${GALLERY_TRACK.path}`);
     }
     this.load.start();
   }
@@ -2216,6 +2247,24 @@ export class Play extends BaseScene {
     this.boss.destroy();
     this.boss = undefined;
     exposeBoss(undefined);
+    // The bonus round that follows brings its own bed.
+    if (!this.bonus) audio.playMusic('music');
+  }
+
+  /** Arcade: the bonus round after a boss, on the field the boss left. */
+  private startBonus(seed: number): void {
+    this.clearHint();
+    this.bonus = new BonusDirector(BONUSES[ARCADE_BONUS], this.bonusHost(), { seed });
+    exposeBonus(this.bonus);
+  }
+
+  /** Arcade: the bonus round leaves once its tally is over, and the run's music comes back. */
+  private dropFinishedBonus(): void {
+    if (!this.runDirector || !this.bonus || this.bonus.active) return;
+    this.bonus.destroy();
+    this.bonus = undefined;
+    exposeBonus(undefined);
+    this.hudTrigger = false;
     audio.playMusic('music');
   }
 
@@ -2296,8 +2345,9 @@ export class Play extends BaseScene {
   }
 
   /**
-   * The tally is over: the medal's coins go to the player, its ability charges into the stock
-   * for the next level, and the level is won with a star for each medal tier.
+   * The tally is over: the medal's coins go to the player and its ability charges out. A campaign
+   * level stocks them for the next level and is won with a star for each medal tier; an Arcade
+   * run spins them into its slots and goes on.
    */
   private bonusFinished(result: BonusResult): void {
     const { reward } = result;
@@ -2305,16 +2355,20 @@ export class Play extends BaseScene {
       this.hud.coinsEarned += reward.coins;
       save.addCoins(reward.coins);
     }
+    const run = this.runDirector;
     const owned = unlockedAbilities(save.state.abilities);
-    for (let i = 0; i < reward.abilityCharges && owned.length > 0; i++) {
+    for (let i = 0; i < reward.abilityCharges; i++) {
+      if (run && this.abilities.grant()) continue;
+      if (owned.length === 0) break;
       const id = owned[Math.floor(Math.random() * owned.length)]!;
-      // A full stock takes the charge as the coins it would have cost.
-      if (save.grantStockAbility(id)) continue;
+      // A full stock, or full slots, take the charge as the coins it would have cost.
+      if (!run && save.grantStockAbility(id)) continue;
       const coins = SESSION_ABILITY_COST[id];
       this.hud.coinsEarned += coins;
       save.addCoins(coins);
     }
-    this.win(result.stars);
+    if (run) run.onBonusDone();
+    else this.win(result.stars);
   }
 
   /**

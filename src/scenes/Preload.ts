@@ -18,7 +18,7 @@ import {
   type TiledTemplate,
   type TiledTileset,
 } from '../core/LevelParser';
-import { validStops, type BossStop } from '../core/Campaign';
+import { validStops, type BossStop, type CampaignStep } from '../core/Campaign';
 import { randomSeed } from '../core/Rng';
 import { GOAL_KINDS, RUN_LOOPS, goalFor, type RunConfig } from '../core/Run';
 import type { LevelSpec } from '../core/types';
@@ -31,7 +31,7 @@ import { BaseScene } from './BaseScene';
 
 const LEVEL_INDEX = 'levels-index';
 
-/** `levels/index.json`: the campaign's levels in order, and the boss stops between them. */
+/** `levels/index.json`: the campaign's levels in order, and the boss and bonus stops between them. */
 interface LevelIndex {
   levels: string[];
   bosses?: unknown;
@@ -60,11 +60,14 @@ function devLevel(levels: LevelSpec[]): number | undefined {
   return Number.isInteger(n) && n >= 1 && n <= levels.length ? n : undefined;
 }
 
-/** Dev only: `?stop=5` starts the boss stop after level 5. */
-function devStop(stops: BossStop[]): number | undefined {
+/** Dev only: `?stop=5` starts the boss stop after level 5, and `?stop=5b` the bonus stage after it. */
+function devStop(stops: BossStop[]): CampaignStep | undefined {
   if (!import.meta.env.DEV) return undefined;
-  const n = Number(new URLSearchParams(location.search).get('stop'));
-  return stops.some((s) => s.after === n) ? n : undefined;
+  const m = /^(\d+)(b?)$/.exec(new URLSearchParams(location.search).get('stop') ?? '');
+  const stop = stops.find((s) => s.after === Number(m?.[1]));
+  if (!m || !stop) return undefined;
+  if (!m[2]) return { index: stop.after, stop: 'boss' };
+  return stop.bonus ? { index: stop.after, stop: 'bonus' } : undefined;
 }
 
 /**
@@ -123,11 +126,15 @@ export class Preload extends BaseScene {
       }
       if (key !== LEVEL_INDEX) return;
       const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex;
-      const stops = validStops(index.bosses, index.levels.length).map((s) => s.map);
+      const entries = validStops(index.bosses, index.levels.length);
+      const stops = entries.map((s) => s.map);
+      const bonuses = entries.flatMap((s) => (s.bonus ? [s.bonus] : []));
       // A map opened from Tiled that isn't in the campaign yet is played as an extra level.
       const map = devMap();
       if (map && !index.levels.includes(map) && !stops.includes(map)) index.levels.push(map);
-      for (const file of [...index.levels, ...stops]) this.load.json(`level:${file}`, `levels/${file}`);
+      for (const file of new Set([...index.levels, ...stops, ...bonuses])) {
+        this.load.json(`level:${file}`, `levels/${file}`);
+      }
     });
   }
 
@@ -161,7 +168,7 @@ export class Preload extends BaseScene {
     const stop = devStop(stops);
     const run = devRun();
     if (run) this.scene.start(SCENES.play, { run });
-    else if (stop) this.scene.start(SCENES.play, { index: stop, stop: true });
+    else if (stop) this.scene.start(SCENES.play, stop);
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
     // A new player lands in level 1 with no clicks, and the tutorial runs over real play.
@@ -183,14 +190,22 @@ export class Preload extends BaseScene {
     return levels;
   }
 
-  /** The boss stops between levels. A stop whose map is missing or names no boss is left out. */
+  /**
+   * The boss stops between levels. A stop whose map is missing or names no boss is left out, and
+   * a bonus map that names no bonus stage is dropped from its stop.
+   */
   private parseStops(levelCount: number): BossStop[] {
     const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex | undefined;
     const stops: BossStop[] = [];
-    for (const { after, map } of validStops(index?.bosses, levelCount)) {
+    for (const { after, map, bonus } of validStops(index?.bosses, levelCount)) {
       const level = this.parseMap(map);
-      if (level?.boss) stops.push({ after, level });
-      else if (level) console.warn(`[levels] boss stop ${map} names no boss`);
+      if (!level?.boss) {
+        if (level) console.warn(`[levels] boss stop ${map} names no boss`);
+        continue;
+      }
+      const stage = bonus ? this.parseMap(bonus) : undefined;
+      if (stage && !stage.bonus) console.warn(`[levels] bonus stop ${bonus} names no bonus stage`);
+      stops.push(stage?.bonus ? { after, level, bonus: stage } : { after, level });
     }
     return stops;
   }

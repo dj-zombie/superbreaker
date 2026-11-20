@@ -554,6 +554,7 @@ export class BonusDirector implements BrickOwner {
     this.items.destroy();
     for (const obj of this.kept) obj.destroy();
     this.kept.length = 0;
+    this.host.lighting.takeDownBulbs();
     if (TALLY_DUCK && this.state.step === 'tally') audio.duckMusic(false);
     if (BonusDirector.current === this) BonusDirector.current = undefined;
   }
