@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import { WORLD_IDS, type SceneryId, type WorldId } from '../art/backdrops';
 import { fgTexture } from '../art/foreground';
-import { ABILITY_INFO, BRICK_COLORS, BRICK_TINT, HEIGHT, SCENES, WIDTH } from '../config';
+import { ABILITY_INFO, BRICK_COLORS, BRICK_TINT, HEIGHT, POWERUP_INFO, SCENES, WIDTH } from '../config';
 import { FX_LIBRARY, FxEngine, Vortex, type FxHandle } from '../fx';
 import { fxDef } from '../fx/FxEngine';
 import { backdropTint } from '../systems/Backdrop';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { pinFxTier, type LightingTier } from '../systems/Quality';
 import { Button } from '../ui/Button';
-import { Segmented, Tabs } from '../ui/controls';
+import { Segmented } from '../ui/controls';
 import { onBack } from '../ui/nav';
 import { useWorld } from '../ui/theme';
 import { label } from '../ui/type';
@@ -20,6 +20,43 @@ const GROUPS = Object.keys(FX_LIBRARY) as Array<keyof typeof FX_LIBRARY>;
 const UI_DEPTH = 30;
 const BRICK_W = 30;
 const BRICK_H = 16;
+/** Attached effects that only read on a moving target. */
+const MOVING = /trail|tracer|aura|exhaust/;
+
+/** The color the game would pass for `id`, so the lab previews it in context. */
+function labTint(id: string): number | undefined {
+  const ability = ABILITY_INFO;
+  const powerup = POWERUP_INFO;
+  const map: Array<[RegExp, number]> = [
+    [/^ability\.(blackhole)/, ability.blackhole.color],
+    [/^ability\.meteor/, ability.meteor.color],
+    [/^ability\.(lightning|chain)/, ability.lightning.color],
+    [/^ability\.bomb/, ability.bomb.color],
+    [/^ability\.sweep/, ability.sweep.color],
+    [/^ability\.frenzy/, ability.frenzy.color],
+    [/^powerup\.coin/, powerup.coin.color],
+    [/^powerup\.life/, powerup.extraLife.color],
+    [/^powerup\.shield/, powerup.shield.color],
+    [/^powerup\.multiball/, powerup.balls.color],
+    [/^powerup\.hyper/, powerup.hyper.color],
+    [/^powerup\.mystery/, powerup.mystery.color],
+    [/^powerup\.bad/, powerup.smaller.color],
+    [/^powerup\.magnet/, powerup.magnet.color],
+    [/^powerup\./, powerup.fireball.color],
+    [/^weapon\.rail/, 0x7fe9ff],
+    [/^weapon\./, 0xffd27a],
+    [/^impact\.laser/, powerup.laser.color],
+    [/^impact\.pierce/, powerup.pierce.color],
+  ];
+  return map.find(([re]) => re.test(id))?.[1];
+}
+
+/** Aim for one-shot aimed presets: up for guns and cannons, sideways for casings, else a random normal. */
+function labAngle(id: string): number {
+  if (id.startsWith('fanfare') || /muzzle|hyper/.test(id)) return -90;
+  if (id === 'weapon.casing') return Math.random() < 0.5 ? -20 : -160;
+  return Phaser.Math.Between(-150, -30);
+}
 
 interface LabData {
   world?: SceneryId;
@@ -50,8 +87,9 @@ export class FxLab extends BaseScene {
   private stats!: Phaser.GameObjects.Text;
   private looping = false;
   private loopTimer?: Phaser.Time.TimerEvent;
-  private attached: Array<{ handle: FxHandle; stop: () => void }> = [];
+  private attached: Array<{ id: string; handle: FxHandle; stop: () => void }> = [];
   private showTimers: Phaser.Time.TimerEvent[] = [];
+  private movers: Array<(delta: number) => void> = [];
   private frameMs = 16.7;
 
   constructor() {
@@ -65,6 +103,7 @@ export class FxLab extends BaseScene {
     this.selected = data.fx ?? 'brick.explode';
     this.bricks = [];
     this.attached = [];
+    this.movers = [];
     this.looping = false;
   }
 
@@ -112,14 +151,36 @@ export class FxLab extends BaseScene {
       clear: () => this.clearAll(),
       count: () => this.fx.aliveCount(),
       ids: () => GROUPS.flatMap((g) => Object.keys(FX_LIBRARY[g])),
+      def: (id: string) => fxDef(id),
     };
   }
 
   override update(_t: number, delta: number): void {
+    for (const m of [...this.movers]) m(delta);
     this.frameMs += (delta - this.frameMs) * 0.05;
     this.stats.setText(
       `${this.fx.aliveCount()} particles   ${Math.round(1000 / this.frameMs)} fps   ${this.selected}`,
     );
+  }
+
+  /**
+   * Calls `step` each frame with an angle that runs 0..2π every `periodMs`, for `laps` laps.
+   * Driven by the scene's update rather than a tween, so stepped captures move too.
+   */
+  private move(periodMs: number, laps: number, step: (a: number) => void, done?: () => void): () => void {
+    let t = 0;
+    const m = (delta: number) => {
+      t += delta;
+      if (t >= periodMs * laps) {
+        stop();
+        done?.();
+        return;
+      }
+      step((t / periodMs) * Math.PI * 2);
+    };
+    const stop = () => Phaser.Utils.Array.Remove(this.movers, m);
+    this.movers.push(m);
+    return stop;
   }
 
   private get brickTop(): number {
@@ -174,11 +235,6 @@ export class FxLab extends BaseScene {
       .setDepth(UI_DEPTH)
       .setShadow(1, 1, '#000', 2);
 
-    const top = this.fieldBottom + 18;
-    new Tabs(this, WIDTH / 2, top, GROUPS, this.group, (i) => {
-      this.group = i;
-      this.showButtons();
-    }, { width: 560, fontSize: 13 }).setDepth(UI_DEPTH);
     this.showButtons();
 
     const y = HEIGHT - 34;
@@ -194,19 +250,31 @@ export class FxLab extends BaseScene {
     new Button(this, WIDTH - 90, y, 'Clear', () => this.clearAll(), { width: 140, height: 44, variant: 'ghost' }).setDepth(UI_DEPTH);
   }
 
+  /** Two rows of group buttons, then the group's effects in four columns. */
   private showButtons(): void {
     this.buttons?.destroy();
     const c = (this.buttons = this.add.container(0, 0).setDepth(UI_DEPTH));
+    const groupW = 112;
+    GROUPS.forEach((name, i) => {
+      const col = i % 5;
+      const row = Math.floor(i / 5);
+      const b = new Button(this, WIDTH / 2 + (col - 2) * (groupW + 2), this.fieldBottom + 20 + row * 32, name, () => {
+        this.group = i;
+        this.showButtons();
+      }, { width: groupW, height: 28, fontSize: 11, variant: i === this.group ? 'primary' : 'ghost' });
+      c.add(b);
+    });
     const ids = Object.keys(FX_LIBRARY[GROUPS[this.group]!]);
-    const top = this.fieldBottom + 64;
-    const colW = 186;
+    const top = this.fieldBottom + 96;
+    const colW = 140;
     ids.forEach((id, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const b = new Button(this, WIDTH / 2 + (col - 1) * (colW + 4), top + row * 48, id, () => this.select(id), {
+      const col = i % 4;
+      const row = Math.floor(i / 4);
+      const short = id.slice(id.indexOf('.') + 1);
+      const b = new Button(this, WIDTH / 2 + (col - 1.5) * (colW + 4), top + row * 38, short, () => this.select(id), {
         width: colW,
-        height: 42,
-        fontSize: 12,
+        height: 34,
+        fontSize: 10,
         variant: id === this.selected ? 'primary' : 'secondary',
       });
       c.add(b);
@@ -224,52 +292,91 @@ export class FxLab extends BaseScene {
     return (fxDef(id)?.layers ?? []).some((l) => l.rate !== undefined);
   }
 
-  /** Fires `id` at (x, y): bursts play once, attached effects toggle. */
+  /** Fires `id` at (x, y): bursts play once, attached effects and weather toggle. */
   private fire(id: string, x: number, y: number, tint?: number): void {
-    if (id === 'fanfare.celebrate') {
-      this.fx.play(id, WIDTH / 2, this.fieldBottom - 380);
+    tint ??= labTint(id);
+    if (id === 'fanfare.celebrate' || id === 'fanfare.levelclear' || id === 'fanfare.fever') {
+      this.fx.play(id, WIDTH / 2, this.fieldBottom - 380, { tint, floor: this.fieldBottom - 6 });
+      return;
+    }
+    if (id.startsWith('screen.')) {
+      const centered = id === 'screen.flash' || id === 'screen.speedlines';
+      this.fx.play(id, centered ? WIDTH / 2 : x, centered ? (150 + this.fieldBottom) / 2 : y, { tint });
+      return;
+    }
+    if (fxDef(id)?.spawn) {
+      this.toggleWeather(id);
+      return;
+    }
+    if (id === 'ability.chain_link') {
+      const a = Phaser.Math.FloatBetween(-Math.PI, Math.PI);
+      const len = Phaser.Math.Between(110, 200);
+      const tx = x + Math.cos(a) * len;
+      const ty = y + Math.sin(a) * len;
+      this.fx.play(id, (x + tx) / 2, (y + ty) / 2, { tint, angle: (a * 180) / Math.PI, scale: len / 120 });
+      this.fx.play('electric.crackle', tx, ty, { tint });
       return;
     }
     if (this.isAttached(id)) {
-      this.toggleAttached(id, x, y);
+      this.toggleAttached(id, x, y, tint);
       return;
     }
-    const aimed = (fxDef(id)?.layers ?? []).some((l) => l.aim);
+    const aimed = (fxDef(id)?.layers ?? []).some((l) => l.aim) || (fxDef(id)?.sprites ?? []).some((s) => s.aim);
     this.fx.play(id, x, y, {
       tint: tint ?? (id.startsWith('brick.') ? BRICK_TINT.brick_explosive : undefined),
-      angle: aimed ? (id.startsWith('fanfare') ? -90 : Phaser.Math.Between(-150, -30)) : undefined,
+      angle: aimed ? labAngle(id) : undefined,
       floor: this.fieldBottom - 6,
     });
   }
 
-  private toggleAttached(id: string, x: number, y: number): void {
-    const near = this.attached.findIndex((a) => a.handle.alive);
-    if (near >= 0 && id !== 'ability.blackhole') {
-      this.attached.splice(near, 1)[0]!.stop();
+  private toggleWeather(id: string): void {
+    const live = this.attached.findIndex((a) => a.id === id && a.handle.alive);
+    if (live >= 0) {
+      this.attached.splice(live, 1)[0]!.stop();
+      return;
+    }
+    const handle = this.fx.weather(id, { x: 0, y: 150, width: WIDTH, height: this.fieldBottom - 150 });
+    this.attached.push({ id, handle, stop: () => handle.stop() });
+  }
+
+  private toggleAttached(id: string, x: number, y: number, tint?: number): void {
+    const same = this.attached.findIndex((a) => a.id === id && a.handle.alive);
+    if (same >= 0 && id !== 'ability.blackhole') {
+      this.attached.splice(same, 1)[0]!.stop();
+      return;
+    }
+    if (MOVING.test(id)) {
+      // Trails only read on something moving: send the target round an ellipse.
+      const pos = { x, y };
+      const back = /exhaust|meteor/.test(id);
+      const handle = this.fx.attach(id, pos, { tint, angle: back ? 180 : -90 });
+      const stop = this.move(2400, Infinity, (a) => {
+        pos.x = x + Math.sin(a) * 130;
+        pos.y = y + Math.sin(a * 2) * 50;
+        if (back) {
+          const dx = Math.cos(a) * 130;
+          const dy = Math.cos(a * 2) * 100;
+          handle.set({ tint, angle: (Math.atan2(-dy, -dx) * 180) / Math.PI });
+        }
+      });
+      this.attached.push({ id, handle, stop: () => (handle.stop(), stop()) });
       return;
     }
     if (id === 'ability.blackhole') {
       const pos = { x, y };
       const pull = new Vortex(x, y, 400, 320, 200, 22);
       const handle = this.fx.attach(id, pos, { tint: ABILITY_INFO.blackhole.color, forces: [pull] });
-      const spin = { a: 0 };
-      const orbit = this.tweens.add({
-        targets: spin,
-        a: Math.PI * 2,
-        duration: 4200,
-        onUpdate: () => {
-          pos.x = x + Math.sin(spin.a) * 40;
-          pos.y = y + (1 - Math.cos(spin.a)) * 16;
-          pull.x = pos.x;
-          pull.y = pos.y;
-        },
-        onComplete: () => handle.stop(),
-      });
-      this.attached.push({ handle, stop: () => (handle.stop(), orbit.remove()) });
+      const stop = this.move(4200, 1, (a) => {
+        pos.x = x + Math.sin(a) * 40;
+        pos.y = y + (1 - Math.cos(a)) * 16;
+        pull.x = pos.x;
+        pull.y = pos.y;
+      }, () => handle.stop());
+      this.attached.push({ id, handle, stop: () => (handle.stop(), stop()) });
       return;
     }
-    const handle = this.fx.attach(id, { x, y });
-    this.attached.push({ handle, stop: () => handle.stop() });
+    const handle = this.fx.attach(id, { x, y }, { tint, angle: -90 });
+    this.attached.push({ id, handle, stop: () => handle.stop() });
   }
 
   private hitBrick(b: LabBrick): void {
