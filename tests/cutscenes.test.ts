@@ -100,9 +100,9 @@ describe('cutscenes in levels/index.json', () => {
     }
   });
 
-  it('plays Chapter II between the piñata and Level 11', () => {
+  it('plays Chapter II between the Warden and Level 11', () => {
     const scenes = validScenes(index.scenes);
-    expect(sceneBetween({ index: 10, stop: 'bonus' }, { index: 11 }, scenes, () => false)).toBe(
+    expect(sceneBetween({ index: 10, stop: 'boss' }, { index: 11 }, scenes, () => false)).toBe(
       'chapter-2',
     );
   });

@@ -45,8 +45,8 @@ const img = (key: string, ext = 'png'): AssetRef => ({
 const snd = (key: string): AssetRef => ({ key, path: `audio/cutscenes/${key}.mp3` });
 
 /**
- * Chapter II: The Crypt. Plays between the piñata after the Warden and Level 11. It takes over
- * the carnival's backdrop, crossfades back to the broken Foundry, lets the Warden have his last
+ * Chapter II: The Crypt. Plays between the Warden's defeat and Level 11. It takes over the
+ * arena's backdrop, crossfades to the broken Foundry, lets the Warden have his last
  * word, drops through the floor into the Crypt and hands the scrolling shaft to Level 11.
  */
 export const CHAPTER_2 = cutscene(
@@ -90,7 +90,7 @@ export const CHAPTER_2 = cutscene(
     },
   },
   [
-    // 1. The carnival settles and the Foundry comes back, quiet.
+    // 1. The arena settles into the Foundry, quiet.
     label('open'),
     together(
       letterbox(1, 900),
