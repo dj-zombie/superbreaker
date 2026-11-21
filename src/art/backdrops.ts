@@ -5,7 +5,7 @@ import manifest from './backdrops.json';
 export const WORLD_IDS = ['hell', 'crypt', 'mainframe'] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
 /** Every painted backdrop: the worlds, and scenery a stage brings with it. */
-export const SCENERY_IDS = [...WORLD_IDS, 'carnival'] as const;
+export const SCENERY_IDS = [...WORLD_IDS, 'carnival', 'crucible'] as const;
 export type SceneryId = (typeof SCENERY_IDS)[number];
 
 interface ManifestPart {
@@ -18,6 +18,8 @@ interface ManifestPart {
 export interface ManifestLayer {
   width: number;
   height: number;
+  /** A still layer's top row in its source plate, in source pixels: the rows above were empty. */
+  y?: number;
   parts: ManifestPart[];
 }
 
@@ -71,7 +73,25 @@ export interface MoteLook {
   count: number;
 }
 
-export type LayerLook = TileLook | GlowLook | MoteLook;
+/**
+ * A painted plate that does not scroll: a room the descent stops in. It waits below the view
+ * while the layers scroll, and rises into place as they stop (ParallaxBackdrop.land).
+ */
+export interface StillLook {
+  kind: 'still';
+  name: string;
+  /** Width on the field, in playfield units, centred on the board. */
+  width: number;
+  /** Its source plate's top edge, in playfield units under the top of the bricks' area. */
+  top: number;
+  tint?: number;
+  /** How near it is, 0..1, for the fall's perspective: the far layers 0.2, the near ones 1. */
+  depth: number;
+  /** Light behind its openings, in the plate's own pixels: pulses with `pulse`. */
+  glows?: Array<{ color: number; alpha: number; x: number; y: number; width: number; height: number }>;
+}
+
+export type LayerLook = TileLook | GlowLook | MoteLook | StillLook;
 
 export interface WorldLook {
   skyTint: number;
@@ -197,6 +217,49 @@ export const WORLD_LOOKS: Record<SceneryId, WorldLook> = {
         scale: [0.2, 0.4],
         alpha: 0.7,
         count: 10,
+      },
+    ],
+  },
+  // The Crucible's: an iron shaft a level under Hell, lit by the forge below, ending in the
+  // furnace room the boss hangs in.
+  crucible: {
+    skyTint: 0x8c7068,
+    base: 0x140404,
+    layers: [
+      { kind: 'tiles', name: 'far', speed: 6, tint: 0xc8aca4, sway: 3 },
+      { kind: 'glow', color: 0xff4810, alpha: 0.42, y: 1.08, size: 1 },
+      {
+        kind: 'motes',
+        colors: [0xff7a2a, 0xffa040],
+        rise: [14, 32],
+        scale: [0.12, 0.25],
+        alpha: 0.6,
+        count: 40,
+      },
+      { kind: 'tiles', name: 'fog1', speed: 11, alpha: 0.85, sway: 5, optional: true },
+      { kind: 'tiles', name: 'mid', speed: 17, tint: 0xc8b8b4, sway: 8 },
+      {
+        kind: 'still',
+        name: 'chamber',
+        width: 680,
+        top: -40,
+        tint: 0xe8dcd8,
+        depth: 0.7,
+        glows: [
+          // Between the furnace doors, and the molten floor in front of them.
+          { color: 0xff6a18, alpha: 0.55, x: 360, y: 410, width: 300, height: 320 },
+          { color: 0xff8a2a, alpha: 0.45, x: 360, y: 560, width: 460, height: 90 },
+        ],
+      },
+      { kind: 'tiles', name: 'fog2', speed: 26, alpha: 0.7, sway: 10, optional: true },
+      { kind: 'tiles', name: 'near', speed: 36, sway: 16 },
+      {
+        kind: 'motes',
+        colors: [0xffb050, 0xff6020, 0xffe0a0],
+        rise: [50, 110],
+        scale: [0.25, 0.5],
+        alpha: 0.85,
+        count: 22,
       },
     ],
   },

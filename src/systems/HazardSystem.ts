@@ -4,6 +4,7 @@ import {
   SHOT_RADIUS,
   SKULL_POP_RADIUS,
   SKULL_RADIUS,
+  SLAG_RADIUS,
   type AttackPlan,
   type HazardSpec,
   type PaddleEffect,
@@ -28,6 +29,19 @@ export interface HazardHost {
   balls(): readonly Ball[];
   /** A skull landed on the paddle. */
   hurt(): void;
+  /** A caught glob of slag struck part `id` for `hits`. False when the part could not take it. */
+  returned(id: string, hits: number): boolean;
+  /** Textures a boss brings for its hazards, in place of the plain ones. */
+  readonly looks?: HazardLooks;
+}
+
+/** A boss's own pictures for its hazards. Each is a loaded texture key. */
+export interface HazardLooks {
+  /** A shot, drawn pointing down. */
+  shot?: string;
+  /** A glob of slag, and its splash on a miss. */
+  slag?: string;
+  splash?: string;
 }
 
 /** Beam columns draw over the aim arrow (4) and under everything else here. */
@@ -87,6 +101,24 @@ const HIT_LIGHT_MS = 260;
 /** The word a hit pops over the paddle: how far above the line, in px, and its size, in px. */
 const WORD_LIFT = 34;
 const WORD_SIZE = 20;
+/** Slag is gold, the one colour on the field that is safe to touch. */
+export const SLAG_COLOR = 0xffc23a;
+/** A glob on screen, in px, and how fast it tumbles, in turns a second. */
+const SLAG_SIZE = 34;
+const SLAG_SPIN = 0.6;
+/** A caught glob flies back at its part this fast, in ms, and drops a spark this often, in ms. */
+const SLAG_RETURN_MS = 380;
+const SLAG_TRAIL_MS = 70;
+/** A splash on a miss, in px, and how long it takes to fade, in ms. */
+const SPLASH_SIZE = 46;
+const SPLASH_MS = 420;
+/** Brightness and reach of a glob's light. */
+const SLAG_LIGHT = 0.6;
+const SLAG_LIGHT_RADIUS = 90;
+const SLAG_TOSS_SFX = 'boss_slag_toss';
+const SLAG_CATCH_SFX = 'boss_slag_catch';
+const SLAG_RETURN_SFX = 'boss_slag_return';
+const SLAG_SPLASH_SFX = 'boss_slag_splash';
 /** Placeholder sounds, all from AUDIO_ASSETS, until hazards get their own. */
 const JAM_SFX = 'ui_locked';
 const SHRINK_SFX = 'sfx_smaller';
@@ -99,13 +131,29 @@ const SKULL_POP_SFX = 'boss_skull_pop';
 
 type Image = Phaser.GameObjects.Image;
 
+/** Half-width of a hazard on the paddle line, in px. */
+function radiusOf(spec: HazardSpec): number {
+  if (spec.kind === 'skull') return SKULL_RADIUS;
+  if (spec.kind === 'slag') return SLAG_RADIUS;
+  return SHOT_RADIUS;
+}
+
 /** One hazard of the armed plan, with everything drawn for it. */
 interface Entry {
   spec: HazardSpec;
   /** When its warning completes, in ms after the live window opens: it lands, or the beam fires. */
   due: number;
-  /** `warned` until its `at`, then `out` (in flight, or firing) until it is `done`. */
-  stage: 'warned' | 'out' | 'done';
+  /**
+   * `warned` until its `at`, then `out` (in flight, or firing) until it is `done`. Caught slag is
+   * `back` while it flies home.
+   */
+  stage: 'warned' | 'out' | 'back' | 'done';
+  /** Caught slag: when it was caught, in ms into the live window, where from, and at which part. */
+  caughtAt?: number;
+  caughtX?: number;
+  target?: string;
+  /** When the glob last dropped a spark, in ms into the live window. */
+  trailAt?: number;
   /** Where a shot or skull set off from. */
   fromX: number;
   fromY: number;
@@ -188,7 +236,7 @@ export class HazardSystem {
       this.close(e);
       if (!this.live) continue;
       if (e.stage === 'warned' && now >= e.spec.at) this.launch(e);
-      if (e.stage === 'out') this.advance(e, now);
+      if (e.stage === 'out' || e.stage === 'back') this.advance(e, now);
     }
   }
 
@@ -230,13 +278,25 @@ export class HazardSystem {
       return e;
     }
     const skull = spec.kind === 'skull';
+    const slag = spec.kind === 'slag';
     const size = skull ? SKULL_MARK_SIZE : SHOT_MARK_SIZE;
-    e.mark = this.image(skull ? 'hazard_skull' : 'hazard_mark', MARK_DEPTH)
-      .setPosition(spec.x, line)
-      .setDisplaySize(size, size)
-      .setAlpha(MARK_ALPHA);
+    if (slag) {
+      // Where a glob lands is marked with the glob itself, faint, so gold always means "catch".
+      e.mark = this.image(this.host.looks?.slag ?? 'hazard_shot', MARK_DEPTH)
+        .setTint(SLAG_COLOR)
+        .setPosition(spec.x, line)
+        .setDisplaySize(SLAG_SIZE * 0.55, SLAG_SIZE * 0.55)
+        .setAlpha(MARK_ALPHA * 0.8);
+      if (this.host.looks?.slag) e.mark.clearTint();
+    } else {
+      e.mark = this.image(skull ? 'hazard_skull' : 'hazard_mark', MARK_DEPTH)
+        .setPosition(spec.x, line)
+        .setDisplaySize(size, size)
+        .setAlpha(MARK_ALPHA);
+    }
     const end = this.ringEnd(spec);
     e.ring = this.image('ring', MARK_DEPTH).setPosition(spec.x, line).setDisplaySize(end, end);
+    if (slag) e.ring.setTint(SLAG_COLOR);
     // A ring that holds still says where but not when, so a strip says when.
     if (this.still) this.strip(e, spec.x, strip, end);
     return e;
@@ -256,7 +316,7 @@ export class HazardSystem {
 
   /** Width of a shot's or skull's warning ring as it completes, in px. */
   private ringEnd(spec: HazardSpec): number {
-    return 2 * ((spec.kind === 'skull' ? SKULL_RADIUS : SHOT_RADIUS) + RING_MARGIN);
+    return 2 * (radiusOf(spec) + RING_MARGIN);
   }
 
   /** Closes a warning in: it completes exactly as its hazard lands, or its beam fires. */
@@ -266,6 +326,7 @@ export class HazardSystem {
     if (e.fill && e.track) e.fill.displayWidth = done * e.track.displayWidth;
     if (!e.ring || this.still) return;
     const end = this.ringEnd(e.spec);
+    if (e.stage === 'back') return;
     const width = end + RING_LEAD * (1 - done);
     e.ring
       .setDisplaySize(width, width)
@@ -300,9 +361,41 @@ export class HazardSystem {
       e.fromY = from.y;
     }
     const skull = spec.kind === 'skull';
-    const body = this.image(skull ? 'hazard_skull' : 'hazard_shot', HAZARD_DEPTH);
+    if (spec.kind === 'slag') {
+      const key = host.looks?.slag;
+      const glob = this.image(key ?? 'hazard_shot', HAZARD_DEPTH)
+        .setPosition(e.fromX, e.fromY)
+        .setDisplaySize(SLAG_SIZE * 0.8, SLAG_SIZE);
+      if (key) glob.clearTint();
+      else glob.setTint(SLAG_COLOR);
+      e.body = glob;
+      e.trailAt = spec.at;
+      audio.sfx(SLAG_TOSS_SFX, 0.4, 0, { x: e.fromX });
+      if (this.lit < MAX_LIGHTS) {
+        e.light = host.lighting.addLight({
+          follow: glob,
+          radius: SLAG_LIGHT_RADIUS,
+          color: SLAG_COLOR,
+          intensity: SLAG_LIGHT,
+          priority: LIGHT_PRIORITY,
+        });
+        this.lit++;
+      }
+      return;
+    }
+    const shotKey = skull ? undefined : host.looks?.shot;
+    const body = this.image(skull ? 'hazard_skull' : (shotKey ?? 'hazard_shot'), HAZARD_DEPTH);
     body.setPosition(e.fromX, e.fromY);
     e.body = body;
+    if (shotKey) {
+      // A boss's own dart is drawn pointing down, and is red already: it keeps a little of its paint.
+      body
+        .setTint(0xff9a8a)
+        .setDisplaySize(2 * SHOT_RADIUS * 1.1, SHOT_LENGTH * 1.25)
+        .setRotation(Math.atan2(host.paddle.y - e.fromY, spec.x - e.fromX) - Math.PI / 2);
+      audio.sfx(SHOT_SFX, 0.35, 0, { x: e.fromX });
+      return;
+    }
     if (!skull) {
       // A dart faces where it flies. It is set once, so nothing turns in flight.
       body
@@ -342,6 +435,10 @@ export class HazardSystem {
       this.apply(spec.onPaddle, Phaser.Math.Clamp(paddle.x, spec.x - half, spec.x + half));
       return;
     }
+    if (spec.kind === 'slag') {
+      this.advanceSlag(e, spec, now);
+      return;
+    }
     const flown = (now - spec.at) / spec.flightMs;
     if (flown < 1) {
       const x = Phaser.Math.Linear(e.fromX, spec.x, flown);
@@ -358,7 +455,7 @@ export class HazardSystem {
     }
     // It has landed. Its pictures go back first: what it does next may clear every hazard.
     this.finish(e);
-    const radius = spec.kind === 'skull' ? SKULL_RADIUS : SHOT_RADIUS;
+    const radius = radiusOf(spec);
     if (Math.abs(spec.x - paddle.x) > paddle.halfWidth + radius) {
       juice.sparkle(spec.x, paddle.y, this.color, MISS_SPARKS);
       return;
@@ -370,6 +467,96 @@ export class HazardSystem {
     juice.burst(spec.x, paddle.y, this.color, SKULL_SPARKS);
     audio.sfx(SKULL_HIT_SFX, 0.5);
     this.host.hurt();
+  }
+
+  /**
+   * A glob of slag: it falls tumbling with a trail of sparks, then is caught or splashes. A
+   * caught one flies back up at its part and strikes it.
+   */
+  private advanceSlag(e: Entry, spec: Extract<HazardSpec, { kind: 'slag' }>, now: number): void {
+    const { paddle, juice } = this.host;
+    const body = e.body;
+    if (e.stage === 'back') {
+      const target = e.target ? this.host.partPos(e.target) : undefined;
+      const t = (now - e.caughtAt!) / SLAG_RETURN_MS;
+      if (!target) {
+        this.finish(e);
+        return;
+      }
+      if (t < 1) {
+        const k = t * t;
+        const x = Phaser.Math.Linear(e.caughtX!, target.x, k);
+        const y = Phaser.Math.Linear(paddle.y, target.y, k);
+        body?.setPosition(x, y).setRotation(body.rotation - 0.4);
+        this.trail(e, now, x, y);
+        return;
+      }
+      this.finish(e);
+      if (!this.host.returned(e.target!, spec.hits)) return;
+      juice.burst(target.x, target.y, SLAG_COLOR, POP_SPARKS);
+      juice.ring(target.x, target.y, SLAG_COLOR, POP_RING);
+      juice.popText(target.x, target.y - WORD_LIFT, 'CRACK!', css(SLAG_COLOR), WORD_SIZE + 4, 1.3);
+      audio.sfx(SLAG_RETURN_SFX, 0.55, 0, { x: target.x });
+      return;
+    }
+    const flown = (now - spec.at) / spec.flightMs;
+    if (flown < 1) {
+      // A lob: it drops slow, then fast, as a thrown thing falls.
+      const k = flown * flown * 0.35 + flown * 0.65;
+      const x = Phaser.Math.Linear(e.fromX, spec.x, flown);
+      const y = Phaser.Math.Linear(e.fromY, paddle.y, k);
+      body?.setPosition(x, y);
+      if (body && !this.still) body.setRotation(2 * Math.PI * SLAG_SPIN * ((now - spec.at) / 1000));
+      this.trail(e, now, x, y);
+      return;
+    }
+    if (Math.abs(spec.x - paddle.x) > paddle.halfWidth + SLAG_RADIUS) {
+      this.finish(e);
+      this.splash(spec.x, paddle.y);
+      return;
+    }
+    // Caught: it goes back at the first part that still stands.
+    const target = spec.returnTo.find((id) => this.host.partPos(id));
+    juice.sparkle(spec.x, paddle.y, SLAG_COLOR, HIT_SPARKS);
+    audio.sfx(SLAG_CATCH_SFX, 0.5, 0, { x: spec.x });
+    if (!target) {
+      this.finish(e);
+      return;
+    }
+    e.stage = 'back';
+    e.target = target;
+    e.caughtAt = now;
+    e.caughtX = spec.x;
+    for (const img of [e.mark, e.ring]) img?.setVisible(false);
+  }
+
+  /** A spark off a glob in flight, every SLAG_TRAIL_MS. */
+  private trail(e: Entry, now: number, x: number, y: number): void {
+    if (this.still || now - (e.trailAt ?? 0) < SLAG_TRAIL_MS) return;
+    e.trailAt = now;
+    this.host.juice.sparkle(x, y, SLAG_COLOR, 1);
+  }
+
+  /** A missed glob splashes on the paddle line and is gone. Harmless. */
+  private splash(x: number, y: number): void {
+    const { scene, juice, looks } = this.host;
+    juice.sparkle(x, y, SLAG_COLOR, MISS_SPARKS + 2);
+    audio.sfx(SLAG_SPLASH_SFX, 0.4, 0, { x });
+    if (!looks?.splash || !scene.textures.exists(looks.splash)) return;
+    const img = scene.add
+      .image(x, y, looks.splash)
+      .setDepth(MARK_DEPTH)
+      .setDisplaySize(SPLASH_SIZE, SPLASH_SIZE)
+      .setOrigin(0.5, 0.75);
+    scene.tweens.add({
+      targets: img,
+      alpha: 0,
+      scaleX: img.scaleX * 1.25,
+      scaleY: img.scaleY * 0.7,
+      duration: SPLASH_MS,
+      ease: 'Sine.In',
+      onComplete: () => img.destroy(),
+    });
   }
 
   /** Whether a ball in flight is within reach of a skull at this point. */

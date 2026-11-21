@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { SCENERY_IDS, partKey, worldAssets, worldLayers } from '../src/art/backdrops';
+import { SCENERY_IDS, partKey, worldAssets, worldLayers, type SceneryId } from '../src/art/backdrops';
+
+/** Scenery with no upscaled masters: the wide stage stretches the phone sheet. */
+const PHONE_ONLY: readonly SceneryId[] = ['crucible'];
 
 describe('16:9 backdrops', () => {
   it('keeps the phone sheets on their own paths', () => {
@@ -13,8 +16,15 @@ describe('16:9 backdrops', () => {
     }
   });
 
+  it('falls back to the phone sheet for scenery painted without a 4x set', () => {
+    for (const world of PHONE_ONLY) {
+      expect(worldLayers(world, true)).toBe(worldLayers(world, false));
+      expect(worldAssets(world, true)).toEqual(worldAssets(world, false));
+    }
+  });
+
   it('uses a 4x sheet on the wide stage', () => {
-    for (const world of SCENERY_IDS) {
+    for (const world of SCENERY_IDS.filter((w) => !PHONE_ONLY.includes(w))) {
       const sd = worldLayers(world, false);
       const hd = worldLayers(world, true);
       expect(sd && hd).toBeTruthy();

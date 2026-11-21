@@ -8,9 +8,10 @@ import {
   type GlowLook,
   type MoteLook,
   type SceneryId,
+  type StillLook,
   type TileLook,
 } from '../art/backdrops';
-import { HEIGHT, STAGE_W, WIDTH, WIDE, WING } from '../config';
+import { HEIGHT, LEVEL_OFFSET_Y, STAGE_W, WIDTH, WIDE, WING } from '../config';
 import { save } from '../services';
 import type { Tintable } from './Backdrop';
 import { particleDensity } from './Quality';
@@ -24,6 +25,21 @@ const GLOW_KEY = 'bd_glow';
 /** A scenery switch fades the new layers in over the old ones for this long, in ms. */
 const SWITCH_MS = 900;
 const BIT_KEY = 'bd_bit';
+/** A still plate rises into place over this long as the descent stops, in ms. */
+const LAND_MS = 2200;
+/** How far below its place a still plate waits while the layers scroll, as a share of the view. */
+const LAND_DROP = 1.05;
+/** The fall: how much nearer the nearest layer comes, the roll at its widest, in radians, and the
+ * pace the shaft scrolls at once the room has gone. Every layer swells a little, so a roll never
+ * shows an edge. */
+const FALL_ZOOM = 0.35;
+const FALL_SWELL = 0.08;
+const FALL_ROLL = 0.045;
+const FALL_PACE = 2.6;
+/** The fall's vanishing point, as a share of the view's height. */
+const FALL_FOCUS_Y = 0.55;
+/** A pulse dies away at this rate, per second. */
+const PULSE_DECAY = 5;
 
 interface TileLayer {
   look: TileLook;
@@ -36,6 +52,25 @@ interface TileLayer {
   /** Height of one repeat in playfield units. */
   period: number;
   offset: number;
+}
+
+interface StillLayer {
+  look: StillLook;
+  image: Phaser.GameObjects.Image;
+  glows: Array<{ image: Phaser.GameObjects.Image; spec: NonNullable<StillLook['glows']>[number] }>;
+  /** Rows of the source plate trimmed off above the image, in source pixels. */
+  srcY: number;
+  /** Playfield units per source pixel. */
+  scale: number;
+}
+
+/** Where a still plate is drawn now: its top-centre, its scale, and how solid it is. */
+export interface StillFrame {
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  alpha: number;
 }
 
 interface GlowLayer {
@@ -119,10 +154,25 @@ export class ParallaxBackdrop implements Tintable {
   private sky!: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
   private skyTint = 0xffffff;
   private tiles: TileLayer[] = [];
+  private stills: StillLayer[] = [];
+  /**
+   * Where the still plates are: below the view while the layers scroll, rising, in place, or
+   * gone after a fall. `landMs` counts through the rise.
+   */
+  private landing: 'away' | 'rising' | 'landed' | 'gone' = 'away';
+  private landMs = 0;
+  private landPace = 1;
+  /** How far through a fall the scenery is, 0..1. */
+  private falling = 0;
+  /** The heartbeat on the still plates' lights, 0..1. */
+  private pulsing = 0;
+  private readonly frame: StillFrame = { x: 0, y: 0, scale: 1, rotation: 0, alpha: 0 };
   private glows: GlowLayer[] = [];
   private motes: MoteLayer[] = [];
   private pace: number;
   private paceTarget: number;
+  /** The pace last asked for: a landed room holds the layers still until a new scenery comes. */
+  private wantPace: number;
   private sway = 0;
   private swayTarget = 0;
   private flare = 0;
@@ -145,6 +195,7 @@ export class ParallaxBackdrop implements Tintable {
   ) {
     this.still = save.state.settings.reducedMotion;
     this.pace = this.paceTarget = this.still ? 0 : pace;
+    this.wantPace = pace;
     this.world = world;
     this.build(world);
     this.layout();
@@ -220,6 +271,7 @@ export class ParallaxBackdrop implements Tintable {
     return [
       this.sky,
       ...this.tiles.flatMap((t) => t.parts.map((p) => p.sprite)),
+      ...this.stills.flatMap((s) => [s.image, ...s.glows.map((g) => g.image)]),
       ...this.glows.map((g) => g.image),
       ...this.motes.map((m) => m.emitter),
     ];
@@ -232,6 +284,10 @@ export class ParallaxBackdrop implements Tintable {
     const art = worldLayers(id, scene.registry.get(HD_REG) === true);
     const skyKey = art ? partKey(art.sky) : '';
     this.tiles = [];
+    this.stills = [];
+    this.landing = 'away';
+    this.falling = 0;
+    if (!this.still) this.paceTarget = this.wantPace;
     this.glows = [];
     this.motes = [];
     this.skyTint = look.skyTint;
@@ -278,6 +334,21 @@ export class ParallaxBackdrop implements Tintable {
           .setAlpha(layer.alpha)
           .setDepth(depth);
         this.glows.push({ look: layer, image });
+      } else if (layer.kind === 'still') {
+        const src = art?.layers[layer.name];
+        const part = src?.parts[0];
+        if (!src || !part || !scene.textures.exists(partKey(part.path))) return;
+        ensureGlowTexture(scene);
+        const image = scene.add.image(0, 0, partKey(part.path)).setOrigin(0.5, 0).setDepth(depth);
+        const glows = (layer.glows ?? []).map((spec) => ({
+          spec,
+          image: scene.add
+            .image(0, 0, GLOW_KEY)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setTint(spec.color)
+            .setDepth(depth),
+        }));
+        this.stills.push({ look: layer, image, glows, srcY: src.y ?? 0, scale: 1 });
       } else if (!this.still) {
         this.motes.push(this.addMotes(layer, depth));
       }
@@ -294,7 +365,8 @@ export class ParallaxBackdrop implements Tintable {
 
   /** Scroll speed multiplier, eased so Fever feels like the floor dropping away. */
   setPace(multiplier: number): void {
-    if (!this.still) this.paceTarget = multiplier;
+    this.wantPace = multiplier;
+    if (!this.still && this.landing !== 'rising' && this.landing !== 'landed') this.paceTarget = multiplier;
   }
 
   /** Horizontal focus, usually the paddle: nearer layers slide the other way. */
@@ -319,6 +391,60 @@ export class ParallaxBackdrop implements Tintable {
   addHaze(noiseKey: string, amount: number): void {
     this.haze = { key: noiseKey, amount };
     this.hazeNear(noiseKey, amount);
+  }
+
+  /**
+   * The descent stops: the layers ease to a halt as the still plates rise into place. `now`
+   * puts them there at once, as a skipped scene or a fight started part-way needs.
+   */
+  land(now = false): void {
+    if (this.landing === 'landed' || this.landing === 'gone') return;
+    if (this.landing === 'rising' && !now) return;
+    if (now || this.still) {
+      this.landing = 'landed';
+      this.pace = this.paceTarget = 0;
+    } else {
+      this.landing = 'rising';
+      this.landMs = 0;
+      this.landPace = this.pace;
+    }
+    this.placeStills();
+  }
+
+  /**
+   * The floor gives way, `k` from 0 to 1: each layer swells toward the view as fast as it is near,
+   * the view rolls, the room drops past and the shaft scrolls again, faster. Under reduced motion
+   * the room fades out instead. At 1 the room is gone for good.
+   */
+  fall(k: number): void {
+    if (this.landing === 'gone') return;
+    this.falling = Phaser.Math.Clamp(k, 0, 1);
+    if (!this.still) this.paceTarget = this.pace = FALL_PACE * this.falling * this.falling;
+    if (this.falling >= 1) {
+      this.landing = 'gone';
+      this.falling = 0;
+      if (!this.still) this.paceTarget = FALL_PACE;
+    }
+    this.place();
+  }
+
+  /** A heartbeat on the still plates' lights, and a little on the rest. */
+  pulse(amount: number): void {
+    this.pulsing = Math.min(1, this.pulsing + amount);
+    this.flare = Math.min(0.6, this.flare + amount * 0.25);
+  }
+
+  /** Where a still plate is drawn now, for props that ride on it. Undefined when it isn't shown. */
+  stillFrame(name: string): Readonly<StillFrame> | undefined {
+    const s = this.stills.find((p) => p.look.name === name);
+    if (!s || !s.image.visible) return undefined;
+    const f = this.frame;
+    f.x = s.image.x;
+    f.y = s.image.y - s.srcY * s.image.scaleY;
+    f.scale = s.image.scaleX;
+    f.rotation = s.image.rotation;
+    f.alpha = s.image.alpha;
+    return f;
   }
 
   private hazeNear(noiseKey: string, amount: number): void {
@@ -371,6 +497,10 @@ export class ParallaxBackdrop implements Tintable {
       for (const p of t.parts) p.sprite.setTint(color);
     }
     for (const g of this.glows) g.image.setTint(multiply(g.look.color, this.tint));
+    for (const s of this.stills) {
+      s.image.setTint(multiply(s.look.tint ?? 0xffffff, this.tint));
+      for (const g of s.glows) g.image.setTint(multiply(g.spec.color, this.tint));
+    }
     const light = luminance(this.tint);
     for (const m of this.motes) m.emitter.setAlpha(light * this.fade);
   }
@@ -407,6 +537,9 @@ export class ParallaxBackdrop implements Tintable {
       this.sky.setPosition(WIDTH / 2, HEIGHT / 2).setSize(STAGE_W, HEIGHT);
     }
     for (const t of this.tiles) this.fitTiles(t);
+    for (const s of this.stills) {
+      s.scale = s.look.width / s.image.frame.width;
+    }
     for (const g of this.glows) {
       const size = HEIGHT * g.look.size;
       g.image.setPosition(WIDTH / 2, HEIGHT * g.look.y).setDisplaySize(size * 1.3, size);
@@ -416,12 +549,70 @@ export class ParallaxBackdrop implements Tintable {
   }
 
   private place(): void {
+    const k = this.still ? 0 : this.falling;
+    const arc = Math.sin(Math.PI * k);
+    const roll = FALL_ROLL * arc * Math.sin(k * 9);
+    const vx = WIDTH / 2;
+    const vy = HEIGHT * FALL_FOCUS_Y;
+    const cos = Math.cos(roll);
+    const sin = Math.sin(roll);
     for (const t of this.tiles) {
       const reach = t.look.sway ?? 0;
       const left = -WING - reach - this.sway * reach;
+      // Nearer layers scroll faster: their speed says how near they are.
+      const near = Math.min(1, t.look.speed / 36);
+      const zoom = 1 + (FALL_SWELL + FALL_ZOOM * near) * arc;
       for (const p of t.parts) {
-        p.sprite.x = left + p.x * t.scale;
         p.sprite.tilePositionY = t.offset / t.scale;
+        const x = left + p.x * t.scale - vx;
+        const y = -BLEED - vy;
+        p.sprite
+          .setPosition(vx + zoom * (x * cos - y * sin), vy + zoom * (x * sin + y * cos))
+          .setScale(zoom)
+          .setRotation(roll);
+      }
+    }
+    this.placeStills();
+  }
+
+  /** The still plates: below the view, rising, in place, or dropping away in a fall. */
+  private placeStills(): void {
+    const k = this.falling;
+    const rise = this.landing === 'rising' ? 1 - Phaser.Math.Easing.Cubic.Out(this.landMs / LAND_MS) : 0;
+    const shown = this.landing === 'rising' || this.landing === 'landed';
+    const vx = WIDTH / 2;
+    const vy = HEIGHT * FALL_FOCUS_Y;
+    const beat = this.pulsing;
+    const flicker = this.still ? 1 : 1 + 0.08 * Math.sin(this.clock * 2.3) + 0.05 * Math.sin(this.clock * 5.1);
+    for (const s of this.stills) {
+      const top = LEVEL_OFFSET_Y + s.look.top + rise * HEIGHT * LAND_DROP;
+      let zoom = 1;
+      let y = top + s.srcY * s.scale;
+      let x = vx;
+      let alpha = 1;
+      if (k > 0) {
+        if (this.still) {
+          alpha = 1 - k;
+        } else {
+          // The room drops away under the view, swelling as it passes.
+          zoom = 1 + 1.6 * k * k * s.look.depth;
+          y = vy + (y - vy) * zoom - HEIGHT * 0.7 * k * k;
+          x = vx;
+          alpha = 1 - Phaser.Math.Clamp((k - 0.55) / 0.4, 0, 1);
+        }
+      }
+      s.image
+        .setVisible(shown)
+        .setPosition(x, y)
+        .setScale(s.scale * zoom)
+        .setAlpha(alpha * this.fade);
+      for (const g of s.glows) {
+        const { spec } = g;
+        g.image
+          .setVisible(shown)
+          .setPosition(x + (spec.x - s.image.frame.width / 2) * s.scale * zoom, y + (spec.y - s.srcY) * s.scale * zoom)
+          .setDisplaySize(spec.width * s.scale * zoom * 1.3, spec.height * s.scale * zoom * 1.3)
+          .setAlpha(Math.min(1, spec.alpha * flicker * (0.7 + 0.6 * beat) + this.flare) * alpha * this.fade);
       }
     }
   }
@@ -431,6 +622,14 @@ export class ParallaxBackdrop implements Tintable {
     this.clock += dt;
     this.pace += (this.paceTarget - this.pace) * Math.min(1, dt * 2.2);
     this.sway += (this.swayTarget - this.sway) * Math.min(1, dt * 3);
+    if (this.landing === 'rising') {
+      this.landMs += dt * 1000;
+      const t = Math.min(1, this.landMs / LAND_MS);
+      // The scroll brakes with the room's rise, so they come to rest together.
+      this.pace = this.paceTarget = this.landPace * (1 - t) * (1 - t);
+      if (t >= 1) this.landing = 'landed';
+    }
+    this.pulsing *= Math.exp(-dt * PULSE_DECAY);
     for (const t of this.tiles) t.offset = (t.offset + t.look.speed * this.pace * dt) % t.period;
     this.place();
 

@@ -453,6 +453,200 @@ def beam(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return (buzz + 0.12 * sizzle) * swell(t, 0.008)
 
 
+# ---------------------------------------------------------------- slag, for any boss that lobs it
+
+
+def sizzle(rng: np.random.Generator, t: np.ndarray, rate) -> np.ndarray:
+    """Molten metal on something cold: bright hiss that crackles, `rate` pops a second."""
+    return 0.5 * hiss(rng, t, 3000, 12000) * (0.6 + 0.4 * wander(rng, t, 40)) + crackle(rng, t, rate)
+
+
+def slag_toss(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A glob of slag thrown up: a wet, heavy bloop rising, with a hiss trailing it."""
+    bloop = sine(settle(90, 210, t, 0.06), t) * strike(t, 0.09)
+    whoosh = hiss(rng, t, 300, 2500) * swell(t, 0.05) * decay(t, 0.15)
+    return drive(bloop + 0.3 * whoosh, 2) + 0.2 * sizzle(rng, t, 60) * decay(t, 0.25)
+
+
+def slag_catch(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Slag caught on the paddle: a hot tink on metal and a bright sizzle."""
+    tink = sum(level * sine(f, t) * strike(t, tau) for f, tau, level in ((1850, 0.09, 1.0), (4390, 0.05, 0.5)))
+    thud = sine(settle(220, 110, t, 0.02), t) * strike(t, 0.04)
+    return 0.5 * tink + 0.6 * thud + 0.5 * sizzle(rng, t, 120) * strike(t, 0.12)
+
+
+def slag_return(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Caught slag flung back up: a fiery whoosh climbing in pitch."""
+    cutoff = glide(500, 5000, t)
+    rush = sweep_lowpass(noise(rng, t), cutoff) * swell(t, 0.04) * decay(t, 0.3)
+    tone = sine(glide(240, 700, t), t) * swell(t, 0.02) * decay(t, 0.25)
+    return full(rush) + 0.25 * tone
+
+
+def slag_splash(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Slag missed: it splats on the floor and hisses out."""
+    splat = lowpass(noise(rng, t), 1400) * strike(t, 0.05)
+    thump = sine(settle(120, 60, t, 0.03), t) * strike(t, 0.07)
+    return drive(full(splat) + thump, 2) + 0.35 * sizzle(rng, t, 90) * swell(t, 0.03) * decay(t, 0.3)
+
+
+# ---------------------------------------------------------------- the Crucible
+#
+# A furnace with a heart in it: everything is iron, steam and fire, and under it all something wet
+# and alive.
+
+
+def clang(rng: np.random.Generator, t: np.ndarray, base: float, tau: float) -> np.ndarray:
+    """A struck slab of iron: inharmonic partials, the high ones dying first."""
+    ratios = (1.0, 1.59, 2.14, 2.83, 3.61, 4.93, 6.1)
+    return chime(rng, t, [(base * r, tau / r**0.6, 1 / r**0.7) for r in ratios])
+
+
+def heartbeat(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """One beat of the heart in the furnace: a deep wet lub and a softer dub, each with a dull
+    knock of iron, and a breath of steam after."""
+    out = np.zeros((2, len(t)))
+    for at, level in ((ONSET, 1.0), (0.2, 0.6)):
+        since = t - at
+        lub = sine(settle(78, 38, np.maximum(since, 0), 0.05), t) * strike(t, 0.12, at)
+        wet = lowpass(hiss(rng, t, 40, 600), 400) * strike(t, 0.04, at)
+        knock = sine(settle(190, 120, np.maximum(since, 0), 0.02), t) * strike(t, 0.035, at)
+        out += level * (drive(lub + 0.35 * wet, 2.5) + 0.3 * knock)
+    breath = hiss(rng, t, 2500, 9000) * swell(t - 0.3, 0.1) * decay(np.maximum(t - 0.3, 0), 0.15)
+    return out + 0.03 * breath
+
+
+def rib_crack(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A rib of the cage cracking under a hit: a dry snap, a hot ring and a few sparks."""
+    snap = hiss(rng, t, 2000, 12000) * strike(t, 0.005)
+    thock = sine(settle(320, 150, t, 0.015), t) * strike(t, 0.04)
+    ring = clang(rng, t, 640, 0.25)
+    return drive(0.5 * snap + 0.6 * thock, 1.5) + 0.35 * ring + 0.15 * crackle(rng, t, 140 * decay(t, 0.12))
+
+
+def rib_break(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A rib torn off the cage: a bar of iron snapping, ringing down as it falls, a heavy thud."""
+    snap = hiss(rng, t, 1200, 14000) * strike(t, 0.01)
+    boom = sine(settle(140, 45, t, 0.05), t) * strike(t, 0.25)
+    base = glide(420, 300, t)
+    ring = sum(level * sine(base * r, t, rng.random()) * strike(t, tau) for r, tau, level in
+               ((1.0, 0.7, 1.0), (2.76, 0.4, 0.5), (5.4, 0.2, 0.3)))
+    debris = crackle(rng, t, 120 * swell(t - 0.05, 0.05) * decay(t, 0.4))
+    return drive(0.5 * snap + boom, 2) + 0.4 * ring + 0.2 * debris
+
+
+def stoke(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The furnace stoked: its door clanks and the fire swells up with a whoomph."""
+    latch = clang(rng, t, 380, 0.18) * swell(t, 0.002)
+    cutoff = 200 + 2600 * swell(t, 0.25) * decay(t, 0.5)
+    fire = sweep_lowpass(noise(rng, t), cutoff) * swell(t, 0.15) * decay(t, 0.45)
+    whoomph = sine(settle(50, 80, t, 0.2), t) * swell(t, 0.12) * decay(t, 0.35)
+    return 0.4 * latch + full(fire) + 0.6 * whoomph
+
+
+def vent(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Steam building in a vent: hiss climbing, a valve whistle rising to a shriek, then it blows."""
+    rise = np.clip(t / (t[-1] * 0.8), 0, 1)
+    centre = 700 * 6 ** rise
+    steam = bandpass(noise(rng, t), 600, 9000)
+    steam = sweep_lowpass(steam, 800 + 9000 * rise) * (0.3 + 0.7 * rise)
+    whistle = sine(centre * (1 + 0.006 * sine(7, t)), t) * swell(t, 0.3) * rise**1.5
+    blow = hiss(rng, t, 300, 12000) * strike(t, 0.18, t[-1] * 0.8)
+    return full(steam) * 0.6 + 0.12 * whistle + 0.8 * blow
+
+
+def doors(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The furnace doors grinding open: iron dragging on iron in jerks, a low rumble, a last clunk."""
+    jerk = 0.5 + 0.5 * np.sin(TAU * cycles(9 + 6 * wander(rng, t, 2), t))
+    grind = bandpass(stack(48 * (1 + 0.04 * wander(rng, t, 8)), t, 3, 0.02), 60, 2400)
+    grind = formants(drive(full(grind) * jerk, 3), ((310, 0.4, 2.0), (870, 0.3, 1.5)))
+    scrape = hiss(rng, t, 1500, 6000) * jerk**3
+    rumble = hiss(rng, t, 20, 120)
+    stop = t[-1] - 0.45
+    clunk = sine(settle(110, 50, np.maximum(t - stop, 0), 0.04), t) * strike(t, 0.2, stop)
+    body = swell(t, 0.2) * np.clip((stop - t) / 0.08 + 1, 0, 1)
+    return (full(grind) + 0.15 * scrape) * body * 0.6 + 0.35 * rumble * body + clunk + 0.3 * clang(rng, t, 160, 0.5) * strike(t, 1, stop)
+
+
+def groan(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Iron under strain: a slow, deep groan of the hull whose pitch sags, and creaks above it."""
+    pitch = 62 * 2 ** (3 * wander(rng, t, 0.8) / 12) * glide(1, 0.85, t)
+    body = stack(pitch, t, 3, 0.01)
+    # Two hollows of the hull, each swelling and fading on its own, so the groan seems to shift.
+    low = formants(bandpass(body, 50, 2200), ((260, 0.35, 2.5),))
+    high = formants(bandpass(body, 50, 2200), ((720, 0.3, 1.8),))
+    hull = low * (0.6 + 0.4 * wander(rng, t, 0.7)) + high * (0.5 + 0.5 * wander(rng, t, 0.5))
+    creak_rate = 6 * (0.5 + 0.5 * wander(rng, t, 1))
+    creaks = bandpass(crackle(rng, t, creak_rate * 10), 600, 3000)
+    return drive(full(hull) * hold(t, 0.4, 0.6), 2) + 0.4 * creaks
+
+
+def clank(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The descent stops dead: a sub boom, the whole room ringing like a struck bell, chains rattling."""
+    boom = sine(settle(70, 28, t, 0.1), t) * strike(t, 0.5)
+    hit = lowpass(noise(rng, t), 2500) * strike(t, 0.03)
+    ring = clang(rng, t, 110, 1.4)
+    rattle = crackle(rng, t, 220 * swell(t - 0.08, 0.05) * decay(t, 0.35))
+    return drive(boom + 0.5 * hit, 2.5) + 0.6 * ring + 0.25 * rattle
+
+
+def snap(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A cable snapping: a whip-crack and a twang that drops and wobbles as the end flies loose."""
+    crack = hiss(rng, t, 2500, 15000) * strike(t, 0.004)
+    pitch = settle(520, 140, t, 0.12) * (1 + 0.03 * sine(28, t) * decay(t, 0.2))
+    twang = (saw(pitch, t) * 0.4 + sine(pitch, t)) * strike(t, 0.18)
+    return 0.7 * crack + 0.6 * lowpass(twang, 3500)
+
+
+def floor_crack(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The floor gives way: a deep rumble swelling, stone and iron cracking and falling away below."""
+    rumble = lowpass(noise(rng, t), 140) * swell(t, 0.6) * decay(np.maximum(t - 1.2, 0), 0.6)
+    sub = sine(32 + 6 * wander(rng, t, 2), t) * swell(t, 0.4)
+    debris = crackle(rng, t, 300 * swell(t, 0.3) * decay(np.maximum(t - 0.6, 0), 0.8))
+    out = full(rumble) + 0.6 * sub + 0.35 * debris
+    for at in ONSET + np.sort(rng.uniform(0.0, 1.4, 5)):
+        out = out + 0.5 * sine(settle(150, 50, np.maximum(t - at, 0), 0.04), t) * strike(t, 0.12, at)
+    return drive(out, 1.8)
+
+
+def furnace_roar(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The heart roars: a monster's voice sliding down, with the furnace's fire roaring under it."""
+    pitch = glide(150, 72, t) * 2 ** (0.8 * wander(rng, t, 6) / 12)
+    body = swell(t, 0.03) * np.minimum(1, decay(t - 0.6, 0.8))
+    voice = drive(bellow(rng, t, pitch) * body, 4)
+    fire = lowpass(noise(rng, t), 900) * body
+    return voice + 0.5 * full(fire)
+
+
+def scream(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The bare heart screams: a high, torn voice and a screech of metal over it."""
+    pitch = glide(620, 380, t) * 2 ** (1.2 * wander(rng, t, 9) / 12)
+    body = swell(t, 0.02) * np.minimum(1, decay(t - 0.5, 0.5))
+    voice = drive(bellow(rng, t, pitch) * body, 3)
+    screech = formants(hiss(rng, t, 2000, 9000), ((3200, 0.12, 6.0),)) * body
+    return voice + 0.12 * full(screech)
+
+
+def meltdown(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """It goes white-hot: a scream climbing over a pressure tone rising, the fire hissing louder."""
+    rise = t / t[-1]
+    pitch = glide(160, 520, t) * 2 ** (wander(rng, t, 8) / 12)
+    voice = drive(bellow(rng, t, pitch) * swell(t, 0.1), 3) * (0.5 + 0.5 * rise)
+    tone = stack(glide(55, 220, t), t, 3, 0.01) * rise
+    fizz = hiss(rng, t, 2500, 13000) * rise**2
+    return voice + 0.4 * lowpass(tone, 2000) + 0.35 * fizz
+
+
+def cool(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """What is left cools: a long burst of steam dying away, crackling, and the lump settling."""
+    steam = sweep_lowpass(bandpass(noise(rng, t), 400, 12000), 9000 * decay(t, 1.2) + 600)
+    steam = steam * swell(t, 0.03) * decay(t, 0.9)
+    tick = crackle(rng, t, 80 * decay(t, 1.0))
+    settle_at = 0.5
+    thunk = sine(settle(90, 45, np.maximum(t - settle_at, 0), 0.05), t) * strike(t, 0.2, settle_at)
+    return full(steam) + 0.3 * tick + 0.6 * thunk
+
+
 # File name, length (s), fade-out (s), synth. The fade-out is also the release of a held sound.
 EFFECTS = (
     ("stomp", 0.9, 0.1, stomp),
@@ -468,6 +662,24 @@ EFFECTS = (
     ("skull-pop", 0.5, 0.08, skull_pop),
     ("shot", 0.35, 0.05, shot),
     ("beam", 0.9, 0.2, beam),
+    ("slag-toss", 0.5, 0.1, slag_toss),
+    ("slag-catch", 0.4, 0.08, slag_catch),
+    ("slag-return", 0.55, 0.1, slag_return),
+    ("slag-splash", 0.7, 0.15, slag_splash),
+    ("crucible/heartbeat", 0.75, 0.1, heartbeat),
+    ("crucible/rib-crack", 0.6, 0.1, rib_crack),
+    ("crucible/rib-break", 1.3, 0.2, rib_break),
+    ("crucible/stoke", 1.1, 0.2, stoke),
+    ("crucible/vent", 1.5, 0.2, vent),
+    ("crucible/doors", 2.2, 0.2, doors),
+    ("crucible/groan", 2.4, 0.4, groan),
+    ("crucible/clank", 2.0, 0.4, clank),
+    ("crucible/snap", 0.6, 0.1, snap),
+    ("crucible/crack", 2.6, 0.5, floor_crack),
+    ("crucible/roar", 2.6, 0.4, furnace_roar),
+    ("crucible/scream", 1.5, 0.3, scream),
+    ("crucible/meltdown", 2.4, 0.3, meltdown),
+    ("crucible/cool", 2.8, 0.6, cool),
 )
 
 
@@ -529,6 +741,7 @@ def main() -> None:
         tmp = Path(d)
         for i, (name, *_) in enumerate(EFFECTS):
             path = SFX_OUT / f"{name}.mp3"
+            path.parent.mkdir(parents=True, exist_ok=True)
             save(effect(i), path, SFX_BITRATE, tmp)
             written.append(path)
     for path in written:

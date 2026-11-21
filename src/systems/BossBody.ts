@@ -4,7 +4,9 @@ import { BH, BRICK_HEALTH, BW } from '../core/procgen/grid';
 import type { BrickSpec } from '../core/types';
 import type { Brick, BrickOwner } from '../entities/Brick';
 import { calm } from '../ui/theme';
+import { audio } from './AudioSystem';
 import type { ArenaBrick, BossDef, BossHost, PartDef, Pose } from './BossDirector';
+import type { BossRig } from './BossRig';
 import type { Light } from './LightingSystem';
 
 /** These animations loop. The others play once and hold their last frame. */
@@ -87,6 +89,10 @@ export class BossBody {
   /** The pose the parts are moving to. */
   private posed: Pose = {};
   private sprite?: Phaser.GameObjects.Sprite;
+  /** The picture in pieces, for a boss drawn by a rig instead of a sheet. */
+  private rig?: BossRig;
+  /** Where every standing part is, handed to the rig. One map, refilled, so a frame allocates nothing. */
+  private readonly spots = new Map<string, { x: number; y: number }>();
   /** The sprite's scale at rest, which the flinch punches from. */
   private scaleX = 1;
   private scaleY = 1;
@@ -101,8 +107,11 @@ export class BossBody {
   /** The next brick id to hand out, counting up from BOSS_ID_BASE past the level's own. */
   private nextId: number;
 
-  /** Queues the boss's sheet. Call from a scene's preload. */
+  /** Queues the boss's sheet, or its rig's pieces. Call from a scene's preload. */
   static preload(scene: Phaser.Scene, def: BossDef): void {
+    for (const a of def.rig?.assets ?? []) {
+      if (!scene.textures.exists(a.key)) scene.load.image(a.key, `assets/${a.path}`);
+    }
     const sheet = def.sprite;
     if (!sheet || scene.textures.exists(sheet.key)) return;
     scene.load.spritesheet(sheet.key, `assets/${sheet.path}`, {
@@ -115,6 +124,7 @@ export class BossBody {
     private def: BossDef,
     private host: BossHost,
     owner: BrickOwner,
+    private health: (part: string) => number | undefined = () => undefined,
   ) {
     const specs = def.parts.map((part, i) => partSpec(part, BOSS_ID_BASE + i));
     this.nextId = BOSS_ID_BASE + specs.length;
@@ -134,7 +144,8 @@ export class BossBody {
     });
     this.anchor = { x: (left + right) / 2, y: (top + bottom) / 2 };
     host.bricksAdded(bricks, false);
-    this.addSprite(bricks);
+    this.addRig(bricks);
+    if (!this.rig) this.addSprite(bricks);
     this.addGlows();
   }
 
@@ -145,8 +156,14 @@ export class BossBody {
 
   /** Where a camera should look: the middle of the picture, or of the parts when there is none. */
   get focus(): { x: number; y: number } {
-    const { sprite } = this;
+    const { sprite, rig } = this;
+    if (rig) return rig.focus;
     return sprite ? { x: sprite.x, y: sprite.y + this.lift } : this.center;
+  }
+
+  /** The rig drawing the boss, when it has one. */
+  get rigged(): BossRig | undefined {
+    return this.rig;
   }
 
   /** The brick standing in for a part, or undefined once it is retired. */
@@ -157,6 +174,13 @@ export class BossBody {
   /** The part a brick stands in for, or undefined when the brick is not one of this body's. */
   partOf(brick: Brick): PartDef | undefined {
     return this.defs.get(brick);
+  }
+
+  /** A part ran out of health: it comes off the field, and the picture shows it break. */
+  break(id: string): void {
+    if (!this.part(id)) return;
+    this.retire(id);
+    this.rig?.broken(id);
   }
 
   /** Takes parts off the field for good, with no score, drops or chain. */
@@ -209,6 +233,20 @@ export class BossBody {
   }
 
   /**
+   * The rig's frame: where everything stands, the beat and how far the fight is. `dt` is
+   * fight-clock ms. A boss drawn by a sheet has nothing to do here.
+   */
+  tick(dt: number, beats: number, progress: number): void {
+    const rig = this.rig;
+    if (!rig) return;
+    this.spots.clear();
+    for (const [id, brick] of this.bricks) this.spots.set(id, brick);
+    rig.beat(beats);
+    rig.progress(progress);
+    rig.place(this.center, this.spots, dt);
+  }
+
+  /**
    * The entrance, `t` from 0 to 1: the sprite fades in as it drops onto its place. A look only:
    * the hit zones stand where they are, and under reduced motion the sprite fades without the drop.
    */
@@ -216,6 +254,7 @@ export class BossBody {
     const k = Math.max(0, Math.min(1, t));
     this.lift = calm() ? 0 : ENTRANCE_DROP * (1 - k);
     this.sprite?.setAlpha(Math.min(1, k / ARRIVE_SOLID));
+    this.rig?.arrive(k);
   }
 
   /**
@@ -251,10 +290,12 @@ export class BossBody {
     if (this.playing === anim) return;
     this.playing = anim;
     this.sprite?.play(this.animKey(anim));
+    this.rig?.show(anim);
   }
 
   /** The scale punch that goes with a hit. A look only: the hit zones do not change. */
   flinch(): void {
+    this.rig?.flinch();
     const sprite = this.sprite;
     if (!sprite || calm()) return;
     this.punch?.stop();
@@ -271,6 +312,7 @@ export class BossBody {
 
   /** The boss is dead: its picture fades away. */
   fade(): void {
+    this.rig?.fade();
     const sprite = this.sprite;
     if (!sprite) return;
     this.host.scene.tweens.add({
@@ -296,6 +338,33 @@ export class BossBody {
     for (const light of this.glows.values()) light.kill();
     this.glows.clear();
     this.dropSprite();
+    this.rig?.destroy();
+    this.rig = undefined;
+  }
+
+  /** The rig, when the boss has one and every piece of it loaded. It hides the parts under it. */
+  private addRig(parts: readonly Brick[]): void {
+    const { scene, lighting, juice, scenery } = this.host;
+    const factory = this.def.rig;
+    if (!factory || !factory.assets.every((a) => scene.textures.exists(a.key))) return;
+    const homes = new Map<string, { x: number; y: number }>();
+    for (const [id, brick] of this.bricks) homes.set(id, { x: brick.homeX, y: brick.homeY });
+    this.rig = factory.create({
+      scene,
+      lighting,
+      juice,
+      scenery,
+      anchor: this.anchor,
+      homes,
+      health: (id) => this.health(id),
+      sfx: (key, volume, detune = 0, x) => audio.sfx(key, volume, detune, x === undefined ? undefined : { x }),
+      calm: calm(),
+    });
+    for (const brick of parts) {
+      if (SHOW_PARTS) brick.setAlpha(DEBUG_PART_ALPHA).setDepth(SPRITE_DEPTH + 1);
+      else brick.setVisible(false);
+    }
+    this.show('idle');
   }
 
   private animKey(anim: BossAnim): string {
@@ -338,7 +407,7 @@ export class BossBody {
    * so the light is told to keep shining, and a hot point is drawn on the eye.
    */
   private addGlows(): void {
-    const pictured = !!this.sprite;
+    const pictured = !!this.sprite || !!this.rig;
     for (const [brick, part] of this.defs) {
       const glow = part.light;
       if (!glow) continue;

@@ -508,6 +508,25 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'boss_skull_pop', path: 'audio/boss/skull-pop.mp3' },
   { key: 'boss_shot', path: 'audio/boss/shot.mp3' },
   { key: 'boss_beam', path: 'audio/boss/beam.mp3' },
+  { key: 'boss_slag_toss', path: 'audio/boss/slag-toss.mp3' },
+  { key: 'boss_slag_catch', path: 'audio/boss/slag-catch.mp3' },
+  { key: 'boss_slag_return', path: 'audio/boss/slag-return.mp3' },
+  { key: 'boss_slag_splash', path: 'audio/boss/slag-splash.mp3' },
+  // The Crucible, written by the same script.
+  { key: 'crucible_heartbeat', path: 'audio/boss/crucible/heartbeat.mp3' },
+  { key: 'crucible_rib_crack', path: 'audio/boss/crucible/rib-crack.mp3' },
+  { key: 'crucible_rib_break', path: 'audio/boss/crucible/rib-break.mp3' },
+  { key: 'crucible_stoke', path: 'audio/boss/crucible/stoke.mp3' },
+  { key: 'crucible_vent', path: 'audio/boss/crucible/vent.mp3' },
+  { key: 'crucible_doors', path: 'audio/boss/crucible/doors.mp3' },
+  { key: 'crucible_groan', path: 'audio/boss/crucible/groan.mp3' },
+  { key: 'crucible_clank', path: 'audio/boss/crucible/clank.mp3' },
+  { key: 'crucible_snap', path: 'audio/boss/crucible/snap.mp3' },
+  { key: 'crucible_crack', path: 'audio/boss/crucible/crack.mp3' },
+  { key: 'crucible_roar', path: 'audio/boss/crucible/roar.mp3' },
+  { key: 'crucible_scream', path: 'audio/boss/crucible/scream.mp3' },
+  { key: 'crucible_meltdown', path: 'audio/boss/crucible/meltdown.mp3' },
+  { key: 'crucible_cool', path: 'audio/boss/crucible/cool.mp3' },
 ];
 
 export const SCENES = {

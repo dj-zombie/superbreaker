@@ -413,7 +413,9 @@ export class Play extends BaseScene {
   /** A bonus stage can bring its own scenery and scroll it at its own pace; a level shows its world. */
   private sceneryFor(level: LevelSpec | undefined): { id: SceneryId; pace: number } {
     const def = level?.bonus && !this.runConfig ? BONUSES[level.bonus] : undefined;
-    return { id: def?.backdrop ?? this.world, pace: def?.pace ?? 1 };
+    // A boss that brings its own room is fought in it, from the descent on.
+    const boss = level?.boss && !this.runConfig ? BOSSES[level.boss].scenery : undefined;
+    return { id: def?.backdrop ?? boss ?? this.world, pace: def?.pace ?? 1 };
   }
 
   preload(): void {
@@ -429,9 +431,13 @@ export class Play extends BaseScene {
     if (!boss) return;
     BossBody.preload(this, BOSSES[boss]);
     // So does the boss track. A second boss level finds it in the cache.
-    if (!this.cache.audio.exists(BOSS_MUSIC_KEY)) {
-      this.load.audio(BOSS_MUSIC_KEY, `assets/${BOSS_TRACK.path}`);
-    }
+    this.loadBossMusic(BOSSES[boss].music);
+  }
+
+  /** A boss's own track, or the placeholder every other boss shares. */
+  private loadBossMusic(own?: { key: string; track: { path: string } }): void {
+    const key = own?.key ?? BOSS_MUSIC_KEY;
+    if (!this.cache.audio.exists(key)) this.load.audio(key, `assets/${(own?.track ?? BOSS_TRACK).path}`);
   }
 
   create(): void {
@@ -2013,7 +2019,7 @@ export class Play extends BaseScene {
    */
   private playBossMood(mood: BossMood): void {
     if (mood === 'rest' && this.bonusAhead) audio.galleryAfar();
-    else audio.bossMusic(mood);
+    else audio.bossMusic(mood, this.boss?.def.music);
   }
 
   private showHint(text = 'TAP TO LAUNCH'): void {
@@ -2378,10 +2384,11 @@ export class Play extends BaseScene {
    * load behind play.
    */
   private loadBosses(): void {
-    for (const def of Object.values(BOSSES)) BossBody.preload(this, def);
-    if (!this.cache.audio.exists(BOSS_MUSIC_KEY)) {
-      this.load.audio(BOSS_MUSIC_KEY, `assets/${BOSS_TRACK.path}`);
+    for (const def of Object.values(BOSSES)) {
+      BossBody.preload(this, def);
+      this.loadBossMusic(def.music);
     }
+    this.loadBossMusic();
     if (!this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
       this.load.audio(GALLERY_MUSIC_KEY, `assets/${GALLERY_TRACK.path}`);
     }
@@ -2392,8 +2399,11 @@ export class Play extends BaseScene {
   private startBoss(tier: number, seed: number): void {
     const id = BOSS_IDS[(Math.floor(tier / BOSS_EVERY_TIERS) - 1) % BOSS_IDS.length]!;
     this.clearHint();
-    this.boss = new BossDirector(BOSSES[id], this.bossHost(), { seed });
+    const def = BOSSES[id];
+    this.boss = new BossDirector(def, this.bossHost(), { seed });
     exposeBoss(this.boss);
+    // The screen goes dark for the hush, and the boss's room takes over behind it.
+    if (def.scenery) this.switchScenery(def.scenery, 1);
   }
 
   /** Arcade: a beaten boss leaves once its award is over, and the run's music steers again. */

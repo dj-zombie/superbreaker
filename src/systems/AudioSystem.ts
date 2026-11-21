@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
+import type { MusicTrack } from '../art/music';
 import { GALLERY_MUSIC_KEY, GALLERY_TRACK } from '../art/galleryMusic';
 import { WIDTH } from '../config';
 import { audibleMs, detunedMs, panAt, variation } from '../core/AudioMix';
@@ -120,6 +121,8 @@ class AudioSystem {
   private music?: MusicEngine;
   /** The boss track, on the same bus as the level song. Only one song plays at a time. */
   private boss?: MusicEngine;
+  /** Cache key of the track the boss engine plays. */
+  private bossKey?: string;
   /** The shooting gallery's bed, on the same bus. It takes over for that stage and then bows out. */
   private gallery?: MusicEngine;
   private musicKey?: MusicKey;
@@ -361,14 +364,14 @@ class AudioSystem {
    * The boss track at `mood`: swells in from silence, or moves there on the next beat. Play asks
    * every frame, so music switched back on in the middle of a fight finds its mood by itself.
    */
-  bossMusic(mood: BossMood): void {
+  bossMusic(mood: BossMood, own?: { key: string; track: MusicTrack }): void {
     if (!this.sound || !save.state.settings.music || this.sound.locked) return;
     const level = this.musicEngine();
     if (!level) return;
     this.wantedMusic = 'music';
     this.musicKey = 'music';
     // The calm after the fight is the level song's. So is every mood when no boss track loaded.
-    const boss = mood === 'rest' ? undefined : this.bossEngine();
+    const boss = mood === 'rest' ? undefined : this.bossEngine(own);
     const on = boss ?? level;
     const off = boss ? level : this.boss;
     off?.stop('fade');
@@ -419,13 +422,19 @@ class AudioSystem {
     return this.music;
   }
 
-  /** The boss track's engine, once a boss level has loaded the track. It shares the song's bus. */
-  private bossEngine(): MusicEngine | undefined {
-    if (this.boss) return this.boss;
+  /**
+   * The boss track's engine, once a boss level has loaded the track. It shares the song's bus.
+   * A boss with its own track gets an engine for that one; the rest share the placeholder.
+   */
+  private bossEngine(own?: { key: string; track: MusicTrack }): MusicEngine | undefined {
+    const key = own?.key ?? BOSS_MUSIC_KEY;
+    if (this.boss && this.bossKey === key) return this.boss;
     const mgr = this.webAudio;
-    const buffer = this.game?.cache.audio.get(BOSS_MUSIC_KEY) as AudioBuffer | undefined;
+    const buffer = this.game?.cache.audio.get(key) as AudioBuffer | undefined;
     if (!mgr || !this.musicBus || !(buffer instanceof AudioBuffer)) return undefined;
-    this.boss = new MusicEngine(mgr.context, this.musicBus, buffer, BOSS_TRACK);
+    this.boss?.stop('cut');
+    this.bossKey = key;
+    this.boss = new MusicEngine(mgr.context, this.musicBus, buffer, own?.track ?? BOSS_TRACK);
     if (this.analyser) this.boss.output.connect(this.analyser);
     return this.boss;
   }

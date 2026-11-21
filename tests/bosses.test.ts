@@ -310,7 +310,7 @@ describe('boss sounds', () => {
 
   it('has a file on disk behind every boss sound', () => {
     const boss = [...keys].filter(([, path]) => path.startsWith('audio/boss/'));
-    expect(boss.length).toBe(13);
+    expect(boss.length).toBe(31);
     for (const [key, path] of boss) {
       const file = join(ASSETS, path);
       expect(existsSync(file), `${key}: ${path}`).toBe(true);
@@ -382,7 +382,7 @@ describe('the Warden attacks', () => {
     for (const kind of ['shot', 'beam', 'skull'] as const) {
       expect(kinds(hazards, kind).length, kind).toBeGreaterThan(0);
     }
-    const effects = hazards.flatMap((h) => (h.kind === 'skull' ? [] : [h.onPaddle.kind]));
+    const effects = hazards.flatMap((h) => ('onPaddle' in h ? [h.onPaddle.kind] : []));
     expect(new Set(effects)).toEqual(new Set(['jam', 'shrink']));
   });
 

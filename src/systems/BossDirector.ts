@@ -18,6 +18,7 @@ import {
   MAX_HAZARDS,
   REVEAL_MS,
   MUSIC_LEAD_MS,
+  beatStretch,
   envelope,
   hitsFor,
   letterbox,
@@ -35,6 +36,9 @@ import {
   type Motion,
   type SpriteDef,
 } from '../core/Boss';
+import type { MusicTrack } from '../art/music';
+import type { SceneryId } from '../art/backdrops';
+import { BOSS_TRACK } from '../art/bossMusic';
 import { CueSheet } from '../core/Cues';
 import { Rng } from '../core/Rng';
 import type { BrickSpec } from '../core/types';
@@ -45,8 +49,9 @@ import { save } from '../services';
 import { calm, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
 import { BossBody } from './BossBody';
+import type { BossRig, RigFactory } from './BossRig';
 import type { BrickSystem } from './BrickSystem';
-import { HazardSystem } from './HazardSystem';
+import { HazardSystem, type HazardLooks } from './HazardSystem';
 import type { JuiceSystem } from './JuiceSystem';
 import type { Light, LightOptions, LightingSystem } from './LightingSystem';
 import type { ParallaxBackdrop } from './ParallaxBackdrop';
@@ -66,6 +71,11 @@ export interface PartDef {
   kind?: 'normal' | 'steel';
   /** Pool damage multiplier, default 1. 0 soaks hits. */
   weak?: number;
+  /**
+   * Health of its own, in plain ball hits on Normal, scaled like the pools. Its hits still drain
+   * the pool; when they reach this the part breaks off.
+   */
+  health?: number;
   light?: BrickSpec['light'];
 }
 
@@ -126,6 +136,21 @@ export interface BossDef {
   parts: PartDef[];
   /** The picture drawn over the parts. Without one the parts show as bricks. */
   sprite?: SpriteDef;
+  /** A picture in pieces, used in place of `sprite` once its textures have loaded. */
+  rig?: RigFactory;
+  /** Scenery the fight brings: the level's world gives way to it before the boss arrives. */
+  scenery?: SceneryId;
+  /** The boss's own pictures for its hazards, in place of the plain ones. */
+  hazards?: HazardLooks;
+  /** Every wind-up starts on a beat of the music: gaps stretch to the next one. */
+  beatLock?: boolean;
+  /** The boss's own track. Left out, the placeholder boss track plays. */
+  music?: { key: string; track: MusicTrack };
+  /**
+   * Looks for what the fight does: a hook on every event, after the framework has acted on it.
+   * State changes belong in a phase's `setup`; this only presents.
+   */
+  on?(s: BossStage, e: BossEvent): void;
   poses?: Record<string, Pose>;
   phases: PhaseDef[];
   /** The scene the boss arrives in, before the music and its name. */
@@ -154,6 +179,18 @@ export interface BossStage {
   /** Sets the pose the parts move to. Null is the phase's own pose. */
   pose(id: string | null): void;
   retire(...partIds: string[]): void;
+  /** Breaks parts off as their health running out would, with what the picture shows for it. */
+  break(...partIds: string[]): void;
+  /** The rig drawing the boss, when it has one and it loaded. */
+  readonly rig: BossRig | undefined;
+  /** Beats into the music, or a steady count at the boss track's tempo when none plays. */
+  beat(): number;
+  /** The boss track's tempo, in beats a minute. */
+  readonly bpm: number;
+  /** Hits dealt over the total of every pool, 0..1. */
+  readonly progress: number;
+  /** A part's health left, 0..1, or undefined for a part without its own. */
+  health(partId: string): number | undefined;
   /** Adds ordinary bricks to the arena: they break, score and drop. */
   spawn(bricks: ArenaBrick[]): Brick[];
   readonly audio: typeof audio;
@@ -375,8 +412,10 @@ export class BossDirector implements BrickOwner {
   };
   /** The fight clock in ms. It follows the world's time scale and stops for hit-stop. */
   private clock = 0;
-  /** Hits struck since the last update. */
-  private pending = 0;
+  /** Hits struck since the last update, by the part they struck. */
+  private readonly pending = new Map<string, number>();
+  /** Beats counted on the fight's own clock, for when no music plays. */
+  private freeBeats = 0;
   /** The part of a hit struck but not yet credited to the combo and the score. */
   private credit = 0;
   /** Fight-clock time of each part's last lethal hit. */
@@ -457,6 +496,9 @@ export class BossDirector implements BrickOwner {
         })),
         entranceMs: this.entranceMs,
         deathMs: def.death?.lengthMs ?? 0,
+        parts: Object.fromEntries(
+          def.parts.flatMap((p) => (p.health === undefined ? [] : [[p.id, p.health] as const])),
+        ),
       },
       this.tuning,
       { phase: opts.startPhase, intro: this.opening },
@@ -469,6 +511,12 @@ export class BossDirector implements BrickOwner {
       partPos: (id) => this.cast?.body.part(id),
       balls: () => host.balls(),
       hurt: () => host.hurt(),
+      looks: def.hazards,
+      returned: (id, hits) => {
+        if (this.state.step !== 'fight' || !this.cast?.body.part(id)) return false;
+        this.pending.set(id, (this.pending.get(id) ?? 0) + hits);
+        return true;
+      },
     });
     if (this.opening) {
       // The hush: the level's music stops and the screen goes black before anything arrives.
@@ -579,7 +627,7 @@ export class BossDirector implements BrickOwner {
     if (weak === 0) return 'armor';
     const hit = { cause, damage, lethal: opts.lethal, stripArmor: opts.stripArmor };
     const hits = hitsFor(hit, this.host.hitDamage()) * weak;
-    this.pending += hits;
+    this.pending.set(part.id, (this.pending.get(part.id) ?? 0) + hits);
     this.credit += hits;
     while (this.credit >= 1) {
       this.credit--;
@@ -595,15 +643,16 @@ export class BossDirector implements BrickOwner {
     const tick = host.juice.inHitStop ? 0 : dt / host.timeScale();
     this.clock += tick;
     const inPlay = host.ballInPlay();
+    this.freeBeats += (tick * this.bpm) / 60_000;
+    if (this.def.beatLock) this.lockToBeat();
     const events = state.tick(tick, inPlay);
-    if (this.pending > 0) {
-      const hits = this.pending;
-      this.pending = 0;
+    if (this.pending.size > 0) {
       if (this.clock - this.hurtAt >= HURT_GAP_MS) {
         this.hurtAt = this.clock;
         this.cast?.body.flinch();
       }
-      events.push(...state.damage(hits));
+      for (const [id, hits] of this.pending) events.push(...state.damage(hits, id));
+      this.pending.clear();
     }
     // The scene already playing gets this step of the clock before an event can end it.
     const before = this.playing;
@@ -624,6 +673,7 @@ export class BossDirector implements BrickOwner {
       // Balls hang still while play is frozen, so the body holds still too and cannot cover one.
       const speed = this.frozen ? 0 : inPlay ? BODY_MAX_SPEED : BODY_SCENE_SPEED;
       body.move(this.offset(), (speed * tick) / 1000);
+      body.tick(tick, this.beats(), state.progress);
       body.show(this.anim());
       const gone = state.step === 'finale' || state.step === 'aftermath';
       body.glow(gone ? 'out' : this.open ? 'open' : 'rest');
@@ -635,7 +685,25 @@ export class BossDirector implements BrickOwner {
 
   /** Dev tools: deals hits as if they had landed, so only in the fight. */
   debugHit(hits: number): void {
-    if (this.state.step === 'fight') this.pending += hits;
+    if (this.state.step === 'fight') this.pending.set('', (this.pending.get('') ?? 0) + hits);
+  }
+
+  /** The boss track's tempo, in beats a minute. */
+  get bpm(): number {
+    return (this.def.music?.track ?? BOSS_TRACK).bpm;
+  }
+
+  /** Beats into the music as heard, or the fight's own steady count while none plays. */
+  private beats(): number {
+    return audio.musicBeat() ?? this.freeBeats;
+  }
+
+  /** Stretches the gap so the next wind-up starts on a beat. Without music the gap runs as written. */
+  private lockToBeat(): void {
+    const left = this.state.gapLeft;
+    const beats = audio.musicBeat();
+    if (!Number.isFinite(left) || beats === undefined) return;
+    this.state.stretchGap(beatStretch(left, beats, this.bpm));
   }
 
   /** Dev tools: counts this frame as embedded when one of the points is inside a part. */
@@ -657,6 +725,20 @@ export class BossDirector implements BrickOwner {
   }
 
   private react(e: BossEvent): void {
+    this.handle(e);
+    const stage = this.cast?.stage;
+    if (stage && !this.over) this.def.on?.(stage, e);
+  }
+
+  private handle(e: BossEvent): void {
+    if (e.type === 'broken') {
+      const brick = this.cast?.body.part(e.part);
+      if (brick) this.host.impact(brick.x, brick.y, 0.6, theme().palette.danger);
+      this.cast?.body.break(e.part);
+      // A part the opening marked is gone: nothing is left to aim at.
+      if (this.lockPart === e.part) this.lockPart = undefined;
+      return;
+    }
     if (e.type === 'phase') {
       this.host.addScore(BOSS_PHASE_BONUS);
       this.label();
@@ -812,7 +894,7 @@ export class BossDirector implements BrickOwner {
   /** Brings the boss onto the field, the first time it is asked. */
   private summon(): { body: BossBody; stage: BossStage } {
     if (!this.cast) {
-      const body = new BossBody(this.def, this.host, this);
+      const body = new BossBody(this.def, this.host, this, (id) => this.state.partHealth(id));
       this.cast = { body, stage: this.makeStage(body) };
     }
     return this.cast;
@@ -827,6 +909,8 @@ export class BossDirector implements BrickOwner {
     const fresh = !this.cast;
     const { body } = this.summon();
     body.arrive(1);
+    // However the fight was reached, the boss's own room is in place around it.
+    if (this.def.scenery) this.host.scenery.land(true);
     this.setUp();
     // Nothing was in play before a body appeared, so it starts where its pose and motion put it.
     if (fresh) body.move(this.offset(), Infinity);
@@ -1078,7 +1162,7 @@ export class BossDirector implements BrickOwner {
   }
 
   private makeStage(body: BossBody): BossStage {
-    const { host } = this;
+    const { host, state } = this;
     return {
       scene: host.scene,
       bricks: host.bricks,
@@ -1097,6 +1181,18 @@ export class BossDirector implements BrickOwner {
       part: (id) => body.part(id),
       pose: (id) => this.pose(id),
       retire: (...ids) => body.retire(...ids),
+      break: (...ids) => {
+        for (const id of ids) body.break(id);
+      },
+      get rig() {
+        return body.rigged;
+      },
+      beat: () => this.beats(),
+      bpm: this.bpm,
+      get progress() {
+        return state.progress;
+      },
+      health: (id) => state.partHealth(id),
       spawn: (bricks) => body.spawn(bricks),
       anim: (name) => {
         this.forced = name;

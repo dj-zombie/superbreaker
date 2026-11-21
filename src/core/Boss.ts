@@ -36,6 +36,8 @@ export interface BossSpec {
   entranceMs?: number;
   /** Length of the death cutscene, in ms. */
   deathMs?: number;
+  /** Parts with health of their own, in plain ball hits on Normal, by part id. */
+  parts?: Record<string, number>;
 }
 
 /** Multipliers by difficulty: pool size, wind-up time and the calm between attacks. */
@@ -129,6 +131,14 @@ export const LAND_MS = 150;
 export const SKULL_POP_RADIUS = 26;
 /** The least a shrink may leave of the paddle's width: the floor Paddle.resize keeps. */
 const MIN_SHRINK = 0.6;
+/** Half-width of a slag glob on the paddle line, in px: it is caught by any part of the paddle over it. */
+export const SLAG_RADIUS = 14;
+/** The paddle line this far either side of a slag glob stays clear of every harm as it lands, in px. */
+export const SLAG_CLEAR = 48;
+/** Most hits one caught glob deals on its way back. */
+export const MAX_SLAG_HITS = 4;
+/** A gap that would end this little past a beat, in beats, starts on that beat instead of the next. */
+export const BEAT_SLACK = 0.1;
 
 export const BOSS_ANIMS = ['idle', 'tell', 'open', 'hurt', 'death'] as const;
 export type BossAnim = (typeof BOSS_ANIMS)[number];
@@ -157,6 +167,17 @@ export type Motion = (clockMs: number) => { x: number; y: number };
 /** Side to side: `amplitude` px either way, one full swing every `periodMs`. */
 export function sway(amplitude: number, periodMs: number): Motion {
   return (clockMs) => ({ x: amplitude * Math.sin((2 * Math.PI * clockMs) / periodMs), y: 0 });
+}
+
+/**
+ * A figure of eight on its side: `width` px either way across, `height` px either way up and
+ * down, twice as fast, so it dips at the middle and climbs at each end. One loop every `periodMs`.
+ */
+export function figure8(width: number, height: number, periodMs: number): Motion {
+  return (clockMs) => {
+    const a = (2 * Math.PI * clockMs) / periodMs;
+    return { x: width * Math.sin(a), y: height * Math.sin(2 * a) };
+  };
 }
 
 /**
@@ -224,7 +245,12 @@ export type HazardSpec =
   | { kind: 'shot'; from: string; x: number; at: number; flightMs: number; onPaddle: PaddleEffect }
   | { kind: 'beam'; x: number; width: number; at: number; liveMs: number; onPaddle: PaddleEffect }
   /** Takes a life. */
-  | { kind: 'skull'; from: string; x: number; at: number; flightMs: number };
+  | { kind: 'skull'; from: string; x: number; at: number; flightMs: number }
+  /**
+   * Harmless: caught on the paddle, it flies back at the first part of `returnTo` still standing
+   * and deals `hits`. A miss splashes on the line.
+   */
+  | { kind: 'slag'; from: string; x: number; at: number; flightMs: number; returnTo: string[]; hits: number };
 
 /** Everything one attack will do, decided when its wind-up starts. Warnings are drawn from it. */
 export interface AttackPlan {
@@ -270,7 +296,9 @@ export type BossEvent =
   | { type: 'step'; step: BossStep }
   | { type: 'phase'; phase: number }
   /** The attack cycle moved on. `attack` is the attack's id, or null in the gap. */
-  | { type: 'window'; window: AttackWindow; attack: string | null };
+  | { type: 'window'; window: AttackWindow; attack: string | null }
+  /** A part with health of its own ran out of it. The fight takes it off the field. */
+  | { type: 'broken'; part: string };
 
 /** The rules of a boss fight, without the engine: the step, the phase, its pool and its attacks. */
 export class BossState {
@@ -304,6 +332,11 @@ export class BossState {
   private inWindow = 0;
   /** How long the current gap lasts after a lost life, in ms. Null is the phase's own gap. */
   private regroup: number | null = null;
+  /** What the current gap is stretched by, so the next wind-up lands on a beat, in ms. */
+  private stretch = 0;
+  /** Health left of every part that has its own, scaled for the difficulty, in hits. */
+  private readonly health = new Map<string, number>();
+  private readonly healthMax = new Map<string, number>();
 
   /** Starts in 'fight' at `phase`, or in 'hush' when `intro` is set. */
   constructor(
@@ -322,6 +355,32 @@ export class BossState {
     this.index = Math.max(0, Math.min(this.pools.length - 1, Math.floor(opts.phase ?? 0)));
     this.left = this.poolMax;
     this.at = opts.intro ? 'hush' : 'fight';
+    for (const [id, hits] of Object.entries(spec.parts ?? {})) {
+      const max = Math.max(1, Math.round(hits * tuning.health));
+      this.health.set(id, max);
+      this.healthMax.set(id, max);
+    }
+  }
+
+  /** Health left of a part that has its own, 0..1 of its full, or undefined for one without. */
+  partHealth(id: string): number | undefined {
+    const left = this.health.get(id);
+    const max = this.healthMax.get(id);
+    return left === undefined || max === undefined ? undefined : left / max;
+  }
+
+  /**
+   * How long the gap has left as the phase has it, in ms: without any stretch for the beat.
+   * Infinity outside a gap, and in a phase that never attacks.
+   */
+  get gapLeft(): number {
+    if (this.at !== 'fight' || this.win !== 'gap' || this.decks[this.index]!.length === 0) return Infinity;
+    return Math.max(0, this.windowLength() - this.stretch - this.inWindow);
+  }
+
+  /** Stretches the current gap by `ms` past its own length, so the wind-up after it starts on a beat. */
+  stretchGap(ms: number): void {
+    if (this.win === 'gap') this.stretch = ms > 0 ? ms : 0;
   }
 
   get step(): BossStep {
@@ -369,14 +428,31 @@ export class BossState {
     return dealt / this.total;
   }
 
-  /** Only in 'fight'. Never carries past a phase boundary. Emptying the last pool is 'finale'. */
-  damage(hits: number): BossEvent[] {
+  /**
+   * Only in 'fight'. Never carries past a phase boundary. Emptying the last pool is 'finale'. A
+   * hit on `part`, when it has health of its own, takes no more from the pool than the part had
+   * left, and a part that runs out of health breaks before any phase change it causes.
+   */
+  damage(hits: number, part?: string): BossEvent[] {
     // Written this way round so a NaN is turned away too.
     if (this.at !== 'fight' || !(hits > 0)) return [];
+    const events: BossEvent[] = [];
+    const own = part === undefined ? undefined : this.health.get(part);
+    if (part !== undefined && own !== undefined) {
+      if (own <= 0) return [];
+      hits = Math.min(hits, own);
+      const left = own - hits;
+      this.health.set(part, left);
+      // A hit counted in fractions leaves crumbs: what is too small to see breaks the part.
+      if (left < 1e-6) {
+        this.health.set(part, 0);
+        events.push({ type: 'broken', part });
+      }
+    }
     this.left = Math.max(0, this.left - hits);
-    if (this.left > 0) return [];
+    if (this.left > 0) return events;
     // An attack belongs to the pool it began in: it ends with it, and the next deck starts fresh.
-    const events = this.calm();
+    events.push(...this.calm());
     this.next = 0;
     if (this.index === this.pools.length - 1) {
       events.push(this.enter('finale'));
@@ -514,10 +590,10 @@ export class BossState {
   private windowLength(): number {
     const attack = this.current;
     if (this.win === 'gap' || !attack) {
-      if (this.regroup !== null) return this.regroup;
+      if (this.regroup !== null) return this.regroup + this.stretch;
       const [full, empty] = this.gaps[this.index]!;
       const drained = 1 - this.left / this.poolMax;
-      return Math.max(0, (full + (empty - full) * drained) * this.tuning.gap);
+      return Math.max(0, (full + (empty - full) * drained) * this.tuning.gap) + this.stretch;
     }
     if (this.win === 'windup') return windupFor(attack, this.tuning);
     return Math.max(0, this.win === 'live' ? attack.liveMs : attack.recoverMs);
@@ -530,6 +606,7 @@ export class BossState {
         this.current = deck[this.next % deck.length]!;
         this.next = (this.next + 1) % deck.length;
         this.regroup = null;
+        this.stretch = 0;
         this.win = 'windup';
         break;
       case 'windup':
@@ -553,12 +630,33 @@ export class BossState {
     this.current = null;
     this.inWindow = 0;
     this.regroup = null;
+    this.stretch = 0;
     return was === 'gap' ? [] : [{ type: 'window', window: 'gap', attack: null }];
   }
 }
 
+/**
+ * Ms from the live window opening to the beat `beats` from now, at `bpm`, for an attack whose
+ * wind-up starts now and lasts `windupMs`: a plan times its hazards to the music with it.
+ */
+export function beatAt(beats: number, bpm: number, windupMs: number): number {
+  return (beats * 60_000) / bpm - windupMs;
+}
+
+/**
+ * How far to stretch a gap with `leftMs` to go so the wind-up after it starts on a beat, in ms,
+ * `beats` into the music at `bpm`. A gap that would end just past a beat starts on it.
+ */
+export function beatStretch(leftMs: number, beats: number, bpm: number): number {
+  if (!(bpm > 0) || !Number.isFinite(leftMs) || !Number.isFinite(beats)) return 0;
+  const beatMs = 60_000 / bpm;
+  const end = beats + leftMs / beatMs;
+  const next = Math.ceil(end - BEAT_SLACK);
+  return Math.max(0, (next - end) * beatMs);
+}
+
 /** Where on the paddle line a hazard is, and from when to when, for the fairness checks. */
-function occupancy(h: HazardSpec): { lo: number; hi: number; from: number; to: number } {
+function occupancy(h: Exclude<HazardSpec, { kind: 'slag' }>): { lo: number; hi: number; from: number; to: number } {
   if (h.kind === 'beam') {
     return { lo: h.x - h.width / 2, hi: h.x + h.width / 2, from: h.at, to: h.at + h.liveMs };
   }
@@ -569,7 +667,8 @@ function occupancy(h: HazardSpec): { lo: number; hi: number; from: number; to: n
 
 /** The narrowest the widest free stretch of the paddle line gets while the plan is live, in px. */
 export function safeGap(plan: AttackPlan): number {
-  const spans = plan.hazards.map(occupancy);
+  // Slag does no harm, so it never narrows the free line.
+  const spans = plan.hazards.flatMap((h) => (h.kind === 'slag' ? [] : [occupancy(h)]));
   let narrowest = FIELD_WIDTH;
   // The line only gets more crowded at the moment a hazard arrives, so those moments are enough.
   for (const { from: now } of spans) {
@@ -610,8 +709,28 @@ export function planProblems(
     if (h.kind !== 'beam' && !partIds.includes(h.from)) {
       problems.push(`${name} comes from "${h.from}", which is not a part`);
     }
-    if (h.kind === 'shot' && !(h.flightMs >= MIN_FLIGHT_MS)) {
+    if ((h.kind === 'shot' || h.kind === 'slag') && !(h.flightMs >= MIN_FLIGHT_MS)) {
       problems.push(`${name} flies ${h.flightMs} ms, under ${MIN_FLIGHT_MS}`);
+    }
+    if (h.kind === 'slag') {
+      if (h.returnTo.length === 0) problems.push(`${name} has nowhere to go back to`);
+      for (const id of h.returnTo) {
+        if (!partIds.includes(id)) problems.push(`${name} goes back to "${id}", which is not a part`);
+      }
+      if (!(h.hits > 0 && h.hits <= MAX_SLAG_HITS)) {
+        problems.push(`${name} deals ${h.hits} hits, outside 0 to ${MAX_SLAG_HITS}`);
+      }
+      // Catching it never costs anything: nothing else lands near it as it lands.
+      const land = h.at + h.flightMs;
+      for (const [j, other] of hazards.entries()) {
+        if (other.kind === 'slag') continue;
+        const o = occupancy(other);
+        const near = o.hi > h.x - SLAG_CLEAR && o.lo < h.x + SLAG_CLEAR;
+        if (near && o.from <= land + LAND_MS && o.to >= land - LAND_MS) {
+          problems.push(`${name} lands beside ${other.kind} ${j}, so catching it costs a hit`);
+        }
+      }
+      return;
     }
     if (h.kind === 'skull') {
       skulls++;
