@@ -26,8 +26,8 @@ const GLOW = 'bd_glow';
 const ADD = 1;
 
 /** The torso on the field, in px, and its centre under the shell's. */
-const TORSO_W = 260;
-const TORSO_DY = 14;
+const TORSO_W = 196;
+const TORSO_DY = -10;
 /** The torso's own pixels: its two gauges, its belly window and the jets on its fists. */
 const TORSO_SRC_W = 520;
 const GAUGES = [
@@ -41,16 +41,39 @@ const JETS = [
   [382, 384],
 ] as const;
 /** The cage on the field, in px, and its centre under the shell's. */
-const CAGE_W = 120;
-const CAGE_DY = 199;
+const CAGE_W = 90;
+const CAGE_DY = 130;
 const CAGE_SRC_W = 260;
 /** The cage's cap ends this far down its canvas, in its own px: the cables hang from there. */
 const CAP_SRC_BOTTOM = 96;
 /** One frame of the heart's sheet, in its own px, and on the field. */
 const HEART_FRAME = [180, 220] as const;
-const HEART_W = 90;
-/** The heart's frames: calm, swollen, screaming, hurt, white-hot, cold slag. */
-const FRAME = { calm: 0, swell: 1, scream: 2, hurt: 3, hot: 4, slag: 5 } as const;
+const HEART_W = 68;
+/**
+ * The heart's frames. The first six: calm, swollen, screaming, hurt, white-hot, cold slag. The
+ * in-betweens: squeezed on a beat, eyes half open, a snarl, the widest scream, a cracked flinch,
+ * and half-way to white-hot.
+ */
+const FRAME = {
+  calm: 0,
+  swell: 1,
+  scream: 2,
+  hurt: 3,
+  hot: 4,
+  slag: 5,
+  squeeze: 6,
+  peek: 7,
+  snarl: 8,
+  howl: 9,
+  crack: 10,
+  warm: 11,
+} as const;
+const FRAMES = 12;
+/** How long each step of a frame sequence shows, in ms: a tell's opening, a flinch, the heat-up. */
+const STEP_MS = 110;
+/** While it idles, its eyes crack open for a moment every this many beats, for this much of one. */
+const PEEK_EVERY = 8;
+const PEEK_BEATS = 0.6;
 
 /** A heartbeat: how much it swells on the beat, and how fast that dies away, in beats. */
 const BEAT_SWELL = 0.045;
@@ -69,7 +92,7 @@ const IDLE_BEAT_VOLUME = 0.16;
 const THUMP_VOLUME = 0.5;
 /** The heart's light: its colour, reach and brightness at rest and on a beat. */
 const HEART_COLOR = 0xff5a1a;
-const HEART_LIGHT_RADIUS = 150;
+const HEART_LIGHT_RADIUS = 120;
 const HEART_LIGHT = 0.75;
 const HEART_LIGHT_BEAT = 0.45;
 /** The furnace glow in the torso's belly, and the flames of its fists. */
@@ -141,6 +164,9 @@ export class CrucibleRig implements BossRig {
   /** The torso is falling away, or gone. */
   private fallen = false;
   private anim: BossAnim = 'idle';
+  /** Ms the current animation, and the death's heat, have been showing. */
+  private animMs = 0;
+  private endMs = 0;
   private beats = 0;
   private lastBeat = Number.NaN;
   /** Thumps left to land on the coming beats, for a tell. */
@@ -168,8 +194,8 @@ export class CrucibleRig implements BossRig {
     this.shellHome = { x: shell.x, y: shell.y };
     this.heartHome = { x: heart.x, y: heart.y };
     const tex = scene.textures.get(CRUCIBLE_KEYS.heart);
-    if (!tex.has(String(FRAME.slag))) {
-      for (let i = 0; i < 6; i++) {
+    if (!tex.has(String(FRAMES - 1))) {
+      for (let i = 0; i < FRAMES; i++) {
         tex.add(String(i), 0, (i % 3) * HEART_FRAME[0], Math.floor(i / 3) * HEART_FRAME[1], HEART_FRAME[0], HEART_FRAME[1]);
       }
     }
@@ -275,6 +301,7 @@ export class CrucibleRig implements BossRig {
   /** The death begins: the heart goes white-hot. */
   overheat(): void {
     this.ending = 'hot';
+    this.endMs = 0;
   }
 
   /** The death ends: the heart collapses into a lump of cooling slag. */
@@ -292,6 +319,8 @@ export class CrucibleRig implements BossRig {
 
   place(at: { x: number; y: number }, parts: ReadonlyMap<string, { x: number; y: number }>, dt: number): void {
     this.clock += dt;
+    this.animMs += dt;
+    this.endMs += dt;
     const { anchor } = this.ctx;
     const dx = at.x - anchor.x;
     const dy = at.y - anchor.y + this.rise;
@@ -345,7 +374,7 @@ export class CrucibleRig implements BossRig {
     const hot = this.ending === 'hot';
     this.heartGlow
       .setPosition(hx, hy)
-      .setDisplaySize(170 * (hot ? 1.6 : 1), 190 * (hot ? 1.6 : 1))
+      .setDisplaySize(128 * (hot ? 1.6 : 1), 143 * (hot ? 1.6 : 1))
       .setTint(hot ? 0xffe0a0 : HEART_COLOR)
       .setAlpha(this.ending === 'cold' ? 0 : Math.min(1, 0.35 * glow));
     if (this.heartLight && this.ending === 'none') {
@@ -358,6 +387,7 @@ export class CrucibleRig implements BossRig {
   }
 
   show(anim: BossAnim): void {
+    if (anim !== this.anim) this.animMs = 0;
     this.anim = anim;
   }
 
@@ -470,14 +500,32 @@ export class CrucibleRig implements BossRig {
     return lub + dub;
   }
 
-  /** The heart's frame for what the fight shows and the beat. */
+  /**
+   * The heart's frame for what the fight shows and the beat. Every change runs through its
+   * in-betweens: the eyes open before the mouth does, a flinch cracks before it winces, and the
+   * heat climbs before it is white.
+   */
   private frame(beat: number): number {
-    if (this.ending === 'hot') return FRAME.hot;
+    const step = Math.floor(this.animMs / STEP_MS);
+    if (this.ending === 'hot') {
+      const heat = Math.floor(this.endMs / STEP_MS);
+      return heat < 3 ? FRAME.warm : heat < 7 && heat % 2 === 1 ? FRAME.warm : FRAME.hot;
+    }
     if (this.ending === 'cold') return FRAME.slag;
-    if (this.punch > 0.4 || this.anim === 'hurt') return FRAME.hurt;
-    if (this.anim === 'tell' || this.anim === 'death') return FRAME.scream;
-    if (this.anim === 'open') return FRAME.swell;
-    return beat > BEAT_SWELL * 0.45 || this.swell > 0.03 ? FRAME.swell : FRAME.calm;
+    if (this.punch > 0.4 || this.anim === 'hurt') return this.punch > 0.75 ? FRAME.crack : FRAME.hurt;
+    if (this.anim === 'tell' || this.anim === 'death') {
+      if (step === 0) return FRAME.peek;
+      if (step === 1) return FRAME.snarl;
+      // A thump opens it widest; between them it screams, now and then stretching wider.
+      if (this.swell > 0.05) return FRAME.howl;
+      return step % 5 === 0 ? FRAME.howl : FRAME.scream;
+    }
+    if (this.anim === 'open') return step < 2 ? FRAME.peek : FRAME.swell;
+    if (this.swell > 0.05) return FRAME.snarl;
+    if (beat > BEAT_SWELL * 0.6) return FRAME.squeeze;
+    const peek = this.beats % PEEK_EVERY;
+    if (!this.still && peek >= PEEK_EVERY / 2 && peek < PEEK_EVERY / 2 + PEEK_BEATS) return FRAME.peek;
+    return FRAME.calm;
   }
 
   /** The cables from the cap to the bare heart, swaying a little. Snapped once it is free. */
@@ -486,10 +534,10 @@ export class CrucibleRig implements BossRig {
     g.clear();
     if (this.stance !== 'bare' || this.gone) return;
     const top = cageY - (CAGE_W / CAGE_SRC_W) * (this.cap.frame.height / 2 - CAP_SRC_BOTTOM);
-    const heartTop = hy - 40;
+    const heartTop = hy - 30;
     g.lineStyle(3, CABLE_COLOR, 1);
     for (let i = 0; i < CABLES; i++) {
-      const off = (i - (CABLES - 1) / 2) * 26;
+      const off = (i - (CABLES - 1) / 2) * 20;
       const sway = this.still ? 0 : CABLE_SWAY * Math.sin(this.clock / 600 + i * 1.7);
       const x0 = cageX + off;
       const x1 = cageX + off * 0.6 + sway;
@@ -512,7 +560,7 @@ export class CrucibleRig implements BossRig {
     const alpha = this.torso.alpha;
     this.belly
       .setPosition(tx + BELLY[0] * scale, ty + BELLY[1] * scale)
-      .setDisplaySize(90, 60)
+      .setDisplaySize(68, 45)
       .setAlpha(Math.min(1, (0.45 + 3 * beat + this.swell * 2) * flick) * alpha);
     this.bellySpot.x = this.belly.x;
     this.bellySpot.y = this.belly.y;
@@ -520,7 +568,7 @@ export class CrucibleRig implements BossRig {
       const big = 1 + this.jetFlare * 1.4;
       this.jets[i]!
         .setPosition(tx + x * scale, ty + y * scale + 6 + 10 * this.jetFlare)
-        .setDisplaySize(34 * big, 46 * big)
+        .setDisplaySize(26 * big, 35 * big)
         .setAlpha(Math.min(1, (0.6 + 0.4 * this.jetFlare) * flick) * alpha);
     });
     // The needles climb toward full as the boss weakens, with a tremble.

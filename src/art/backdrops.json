@@ -349,13 +349,24 @@
       },
       "chamber": {
         "width": 720,
-        "height": 618,
-        "y": 11,
+        "height": 625,
+        "y": 4,
         "parts": [
           {
             "path": "images/backdrops/crucible/chamber.webp",
             "x": 0,
             "width": 720
+          }
+        ]
+      },
+      "rail": {
+        "width": 496,
+        "height": 171,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/rail.webp",
+            "x": 0,
+            "width": 496
           }
         ]
       }

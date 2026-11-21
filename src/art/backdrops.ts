@@ -89,6 +89,12 @@ export interface StillLook {
   depth: number;
   /** Light behind its openings, in the plate's own pixels: pulses with `pulse`. */
   glows?: Array<{ color: number; alpha: number; x: number; y: number; width: number; height: number }>;
+  /**
+   * Girders across its top and bottom edges, the whole stage wide, so it rises as one piece of the
+   * room rather than a picture: the manifest layer they tile, how tall they stand in playfield
+   * units, and where each one's middle crosses the plate, in the plate's own pixels from its top.
+   */
+  rails?: { name: string; height: number; at: number[] };
 }
 
 export type LayerLook = TileLook | GlowLook | MoteLook | StillLook;
@@ -250,6 +256,8 @@ export const WORLD_LOOKS: Record<SceneryId, WorldLook> = {
           { color: 0xff6a18, alpha: 0.55, x: 360, y: 410, width: 300, height: 320 },
           { color: 0xff8a2a, alpha: 0.45, x: 360, y: 560, width: 460, height: 90 },
         ],
+        // Over the feathered top and along the broken floor's edge.
+        rails: { name: 'rail', height: 60, at: [24, 612] },
       },
       { kind: 'tiles', name: 'fog2', speed: 26, alpha: 0.7, sway: 10, optional: true },
       { kind: 'tiles', name: 'near', speed: 36, sway: 16 },

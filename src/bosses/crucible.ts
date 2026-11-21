@@ -254,6 +254,8 @@ const death: Cutscene = {
 
 /** Every opening marks the heart: it is what the slag goes back to and where the triple damage is. */
 const OPENING = { lock: 'heart' } as const;
+/** How long the heart stays marked after an attack, in ms: long, as a first boss gives. */
+const OPEN_MS = 6 * BEAT_MS;
 
 /** Stoke: ms each glob flies, as a lob, and between the two of a full pool's pair. */
 const STOKE_FLIGHT_MS = 3 * BEAT_MS;
@@ -283,13 +285,19 @@ function lobFor(v: BossView, k: number): number {
  * and it flies back for three hits at the rib nearest, or the heart once the ribs are gone. One glob
  * at a full pool, two as it empties.
  */
-function stoke(id: string, target: (v: BossView, x: number) => string[], from: string): AttackDef {
+function stoke(
+  id: string,
+  target: (v: BossView, x: number) => string[],
+  from: string,
+  opening?: AttackDef['opening'],
+): AttackDef {
   return {
     id,
-    windupMs: 2 * BEAT_MS,
+    windupMs: 3 * BEAT_MS,
     liveMs: STOKE_STAGGER_MS + STOKE_FLIGHT_MS + 100,
-    recoverMs: 2 * BEAT_MS,
+    recoverMs: opening ? OPEN_MS : 2 * BEAT_MS,
     tell: { sfx: 'crucible_stoke' },
+    opening,
     plan: (v) => {
       const count = v.phaseProgress < 0.5 ? 1 : 2;
       return {
@@ -313,7 +321,7 @@ function stoke(id: string, target: (v: BossView, x: number) => string[], from: s
 /** Vent: a steam beam the width of half the field, burning this long, and what it leaves of the paddle. */
 const VENT_WIDTH = 250;
 const VENT_BURN_MS = 2 * BEAT_MS;
-const VENT_SHRINK = 0.85;
+const VENT_SHRINK = 0.9;
 
 /**
  * Vent: the fist over the paddle's half of the field flares and blows a beam of steam straight
@@ -321,7 +329,7 @@ const VENT_SHRINK = 0.85;
  */
 const vent: AttackDef = {
   id: 'vent',
-  windupMs: 3 * BEAT_MS,
+  windupMs: 4 * BEAT_MS,
   liveMs: VENT_BURN_MS,
   recoverMs: 2 * BEAT_MS,
   tell: { sfx: 'crucible_vent' },
@@ -345,20 +353,23 @@ const vent: AttackDef = {
 /** Pressure: the field in three lanes, and how much of a lane each beam fills. */
 const LANES = 3;
 const LANE_FILL = 0.95;
-const PRESSURE_SHRINK = 0.85;
+const PRESSURE_SHRINK = 0.9;
+/** Pressure: one beam every two beats, each out a beat before the next fires. */
+const PRESSURE_STEP_MS = 2 * BEAT_MS;
+const PRESSURE_BURN_MS = BEAT_MS;
 
 /**
  * Pressure: the vents fire one lane after another, left, middle, right, on the beat. Each goes out
  * a moment before the next fires, so the way through is to follow the steam: step into the lane
  * that just went out.
  */
-function pressure(id: string, stepMs: number, burnMs: number): AttackDef {
+function pressure(id: string, stepMs = PRESSURE_STEP_MS, burnMs = PRESSURE_BURN_MS): AttackDef {
   const lane = FIELD_WIDTH / LANES;
   return {
     id,
-    windupMs: 3 * BEAT_MS,
+    windupMs: 4 * BEAT_MS,
     liveMs: (LANES - 1) * stepMs + burnMs,
-    recoverMs: 4 * BEAT_MS,
+    recoverMs: OPEN_MS,
     tell: { sfx: 'crucible_vent' },
     opening: OPENING,
     plan: () => ({
@@ -377,11 +388,11 @@ function pressure(id: string, stepMs: number, burnMs: number): AttackDef {
 }
 
 /** Slag rain: the rake of darts, px apart, ms apart and how long each flies and jams. */
-const RAIN_DARTS = 5;
+const RAIN_DARTS = 3;
 const RAIN_SPACING = 40;
 const RAIN_STAGGER_MS = BEAT_MS / 4;
 const RAIN_FLIGHT_MS = 2 * BEAT_MS;
-const RAIN_JAM_MS = 500;
+const RAIN_JAM_MS = 400;
 /** Slag rain: when the glob in the gap sets off, and how far past the rake's end it lands. */
 const RAIN_SLAG_AT = BEAT_MS;
 const RAIN_SLAG_OFF = 90;
@@ -392,9 +403,9 @@ const RAIN_SLAG_OFF = 90;
  */
 const slagRain: AttackDef = {
   id: 'slag-rain',
-  windupMs: 2 * BEAT_MS,
+  windupMs: 3 * BEAT_MS,
   liveMs: RAIN_SLAG_AT + STOKE_FLIGHT_MS + 100,
-  recoverMs: 4 * BEAT_MS,
+  recoverMs: OPEN_MS,
   tell: { sfx: 'crucible_stoke' },
   opening: OPENING,
   plan: ({ rng, paddle }) => {
@@ -430,22 +441,22 @@ const slagRain: AttackDef = {
   },
 };
 
-/** Spit: darts on every eighth note, walking across the paddle line, and how far each moves on. */
-const SPIT_DARTS = 8;
-const SPIT_STEP_MS = BEAT_MS / 2;
+/** Spit: darts on every beat, walking across the paddle line, and how far each moves on. */
+const SPIT_DARTS = 6;
+const SPIT_STEP_MS = BEAT_MS;
 const SPIT_FLIGHT_MS = 2 * BEAT_MS;
-const SPIT_WALK = 40;
-const SPIT_SHRINK = 0.92;
+const SPIT_WALK = 45;
+const SPIT_SHRINK = 0.95;
 
 /**
- * Spit: the free heart spits a stream of darts on the eighth notes that walks across where the
- * paddle stood, one way or the other. Each lands on the beat; stepping against the walk clears it.
+ * Spit: the free heart spits a stream of darts on the beat that walks across where the paddle
+ * stood, one way or the other. Each lands on a beat; stepping against the walk clears it.
  */
 const spit: AttackDef = {
   id: 'spit',
-  windupMs: 2 * BEAT_MS,
+  windupMs: 3 * BEAT_MS,
   liveMs: (SPIT_DARTS - 1) * SPIT_STEP_MS + SPIT_FLIGHT_MS,
-  recoverMs: 4 * BEAT_MS,
+  recoverMs: OPEN_MS,
   tell: { sfx: 'crucible_scream' },
   opening: OPENING,
   plan: ({ rng, paddle }) => {
@@ -468,7 +479,7 @@ const spit: AttackDef = {
 };
 
 /** Ember skull: how long the skull flies, and the slag beside it: px off, when it sets off and lands. */
-const SKULL_FLIGHT_MS = 4 * BEAT_MS;
+const SKULL_FLIGHT_MS = 6 * BEAT_MS;
 const SKULL_SLAG_OFF = 130;
 const SKULL_SLAG_AT = [0, BEAT_MS] as const;
 
@@ -478,9 +489,9 @@ const SKULL_SLAG_AT = [0, BEAT_MS] as const;
  */
 const emberSkull: AttackDef = {
   id: 'ember-skull',
-  windupMs: 3 * BEAT_MS,
+  windupMs: 4 * BEAT_MS,
   liveMs: SKULL_FLIGHT_MS + 100,
-  recoverMs: 4 * BEAT_MS,
+  recoverMs: OPEN_MS,
   tell: { sfx: 'crucible_roar' },
   opening: OPENING,
   plan: ({ rng, paddle }) => {
@@ -513,13 +524,14 @@ const emberSkull: AttackDef = {
 };
 
 /** Where the bare heart climbs to once it is free, under the room it tore itself out of. */
-const RISEN_DY = -10 * BH;
+const RISEN_DY = -8 * BH;
 
 /**
  * The first boss. A furnace torso holds the Crucible's heart in a cage of four ribs. The ball
  * breaks the ribs, and the gold slag it lobs is the player's best weapon: caught, it flies back.
  * Bare, the heart takes triple damage and the vents press in lanes. Torn free, it flies a figure
- * of eight and spits on the beat. Every attack is timed to the track and comes after two
+ * of eight and spits on the beat. It is the first boss, so it hangs high, warns long and leaves the
+ * heart marked a long while after each attack. Every attack is timed to the track and comes after two
  * thumps of the heart, so the fight is learned by ear as much as by eye.
  */
 export const crucible: BossDef = {
@@ -528,13 +540,14 @@ export const crucible: BossDef = {
   epithet: 'Heart of the forge',
   parts: [
     // The furnace torso and the cage's cap are iron: they deflect.
-    { id: 'shell', col: 6, row: 2, cols: 8, rows: 12, texture: 'brick_steel', kind: 'steel' },
-    { id: 'cap', col: 8, row: 14, cols: 4, rows: 4, texture: 'brick_steel', kind: 'steel' },
-    { id: 'rib1', col: 8, row: 18, cols: 1, rows: 8, texture: 'brick_orange2', health: 6 },
-    { id: 'rib2', col: 9, row: 18, cols: 1, rows: 8, texture: 'brick_orange2', health: 6 },
-    { id: 'rib3', col: 10, row: 18, cols: 1, rows: 8, texture: 'brick_orange2', health: 6 },
-    { id: 'rib4', col: 11, row: 18, cols: 1, rows: 8, texture: 'brick_orange2', health: 6 },
-    { id: 'heart', col: 9, row: 18, cols: 2, rows: 6, texture: 'brick_red', weak: 3 },
+    // It hangs high, so even a short screen leaves the ball a long way to travel under it.
+    { id: 'shell', col: 7, row: 2, cols: 6, rows: 8, texture: 'brick_steel', kind: 'steel' },
+    { id: 'cap', col: 9, row: 10, cols: 2, rows: 2, texture: 'brick_steel', kind: 'steel' },
+    { id: 'rib1', col: 8, row: 12, cols: 1, rows: 6, texture: 'brick_orange2', health: 5 },
+    { id: 'rib2', col: 9, row: 12, cols: 1, rows: 6, texture: 'brick_orange2', health: 5 },
+    { id: 'rib3', col: 10, row: 12, cols: 1, rows: 6, texture: 'brick_orange2', health: 5 },
+    { id: 'rib4', col: 11, row: 12, cols: 1, rows: 6, texture: 'brick_orange2', health: 5 },
+    { id: 'heart', col: 9, row: 13, cols: 2, rows: 5, texture: 'brick_red', weak: 3 },
   ],
   rig: crucibleRig(),
   scenery: 'crucible',
@@ -542,25 +555,25 @@ export const crucible: BossDef = {
   beatLock: true,
   poses: {
     // Up inside the torso, where no ball reaches it, while the ribs stand in front of it.
-    caged: { heart: { dy: -14 * BH } },
+    caged: { heart: { dy: -9 * BH } },
     risen: { heart: { dy: RISEN_DY } },
   },
   phases: [
     {
       id: 'caged',
       title: 'Caged',
-      // Four ribs of six: a pool that breaks them all, and slag that cracks them three at a time.
-      hits: 24,
+      // Four ribs of five, and slag that cracks them three at a time: the pool runs out a rib early.
+      hits: 18,
       pose: 'caged',
       motion: sway(36, 8000),
       intensity: 'low',
       deck: [stoke('stoke', ribsNear, 'shell'), vent],
-      gapMs: [2800, 2200],
+      gapMs: [3600, 3000],
     },
     {
       id: 'exposed',
       title: 'Exposed',
-      hits: 40,
+      hits: 27,
       motion: sway(60, 6000),
       intensity: 'mid',
       setup: (s) => {
@@ -572,13 +585,13 @@ export const crucible: BossDef = {
         s.paddle.resetSize();
       },
       enter: exposed,
-      deck: [pressure('pressure', 2 * BEAT_MS, 600), slagRain, stoke('stoke-heart', () => ['heart'], 'shell')],
-      gapMs: [2400, 1700],
+      deck: [pressure('pressure'), slagRain, stoke('stoke-heart', () => ['heart'], 'shell', OPENING)],
+      gapMs: [3200, 2600],
     },
     {
       id: 'meltdown',
       title: 'Meltdown',
-      hits: 44,
+      hits: 27,
       pose: 'risen',
       motion: figure8(130, 34, 8000),
       intensity: 'high',
@@ -589,8 +602,8 @@ export const crucible: BossDef = {
         s.paddle.resetSize();
       },
       enter: meltdown,
-      deck: [spit, emberSkull, pressure('pressure-fast', 1.5 * BEAT_MS, 450)],
-      gapMs: [2000, 1400],
+      deck: [spit, emberSkull, pressure('pressure-high')],
+      gapMs: [3000, 2400],
     },
   ],
   on: (s, e) => {

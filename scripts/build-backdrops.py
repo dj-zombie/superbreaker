@@ -123,7 +123,11 @@ WORLDS = {
         ],
         # Not scrolled: keyed, graded and cut to the rows it covers.
         "stills": [
-            {"name": "chamber", "haze": 0.1, "haze_rgb": (60, 16, 8), "gain": 0.8, "feather": 110},
+            {"name": "chamber", "haze": 0.1, "haze_rgb": (60, 16, 8), "gain": 0.8, "feather": 40},
+        ],
+        # The iron girders that frame the chamber's top and bottom edges as it rises, on white.
+        "rails": [
+            {"name": "rail", "haze": 0.08, "haze_rgb": (60, 16, 8), "gain": 0.8},
         ],
     },
 }
@@ -249,6 +253,30 @@ def fog(color, alpha: float, scale: float, seed: int) -> np.ndarray:
     return np.dstack([np.array(color)[None, None, :] * (a[..., None] / 255), a])
 
 
+def rail(rgb: np.ndarray) -> np.ndarray:
+    """A horizontal girder painted on white, as premultiplied RGBA that tiles side to side: keyed,
+    cut to its rows, and cut to whole repeats of its pattern with the ends crossfaded."""
+    alpha = np.clip((242 - rgb.min(axis=2)) / 40, 0, 1)
+    alpha[alpha < 0.05] = 0
+    premul = np.dstack([rgb * alpha[..., None], alpha * 255])
+    rows = np.flatnonzero(alpha.max(axis=1) > 0.3)
+    premul = premul[rows[0] : rows[-1] + 1]
+    # The pattern's repeat, from where the beam's columns look most alike.
+    w = premul.shape[1]
+    profile = premul[..., :3].mean(axis=(0, 2))
+    profile = profile - profile.mean()
+    lags = range(round(w * 0.12), round(w * 0.45))
+    period = max(lags, key=lambda lag: float(np.dot(profile[:-lag], profile[lag:])) / (w - lag))
+    repeats = max(1, (w - period // 2) // period)
+    band = max(4, period // 6)
+    start = (w - repeats * period - band) // 2
+    tile = premul[:, start : start + repeats * period + band].copy()
+    # Fade the extra band at the end into the start, so the last column runs into the first.
+    t = np.linspace(0, 1, band)[None, :, None]
+    tile[:, :band] = tile[:, :band] * t + tile[:, -band:] * (1 - t)
+    return tile[:, : repeats * period]
+
+
 def save_rgba(premul: np.ndarray, path: Path) -> None:
     a = premul[..., 3:4]
     rgb = np.where(a > 0, premul[..., :3] * 255 / np.maximum(a, 1e-6), 0)
@@ -365,6 +393,17 @@ def build(world: str, keep: bool = False) -> tuple[dict, dict]:
             "parts": [{"path": rel(f"{name}.webp"), "x": 0, "width": SRC_WIDTH}],
         }
         print(f"{world}/{name}: still {SRC_WIDTH}x{plate.shape[0]} from row {top}")
+    for opts in spec.get("rails", []):
+        name = opts["name"]
+        tile = grade(rail(load(find_image(src, name))), opts.get("haze_rgb", spec["haze"]), opts["haze"], opts["gain"])
+        save_rgba(tile, out / f"{name}.webp")
+        if keep:
+            layers[name] = tile
+        entry["layers"][name] = {
+            "width": tile.shape[1], "height": tile.shape[0],
+            "parts": [{"path": rel(f"{name}.webp"), "x": 0, "width": tile.shape[1]}],
+        }
+        print(f"{world}/{name}: rail {tile.shape[1]}x{tile.shape[0]}")
     try:
         key_path = find_image(src, "key")
     except FileNotFoundError:

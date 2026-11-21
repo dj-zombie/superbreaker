@@ -36,6 +36,8 @@ const FALL_ZOOM = 0.35;
 const FALL_SWELL = 0.08;
 const FALL_ROLL = 0.045;
 const FALL_PACE = 2.6;
+/** A still plate's girders run this far past each side of the stage, so a fall's swell never shows their ends. */
+const RAIL_OVERHANG = 200;
 /** The fall's vanishing point, as a share of the view's height. */
 const FALL_FOCUS_Y = 0.55;
 /** A pulse dies away at this rate, per second. */
@@ -58,6 +60,8 @@ interface StillLayer {
   look: StillLook;
   image: Phaser.GameObjects.Image;
   glows: Array<{ image: Phaser.GameObjects.Image; spec: NonNullable<StillLook['glows']>[number] }>;
+  /** Its girders, and where each crosses the plate, in the plate's source pixels from its top. */
+  rails: Array<{ sprite: Phaser.GameObjects.TileSprite; at: number }>;
   /** Rows of the source plate trimmed off above the image, in source pixels. */
   srcY: number;
   /** Playfield units per source pixel. */
@@ -271,7 +275,7 @@ export class ParallaxBackdrop implements Tintable {
     return [
       this.sky,
       ...this.tiles.flatMap((t) => t.parts.map((p) => p.sprite)),
-      ...this.stills.flatMap((s) => [s.image, ...s.glows.map((g) => g.image)]),
+      ...this.stills.flatMap((s) => [s.image, ...s.glows.map((g) => g.image), ...s.rails.map((r) => r.sprite)]),
       ...this.glows.map((g) => g.image),
       ...this.motes.map((m) => m.emitter),
     ];
@@ -348,7 +352,18 @@ export class ParallaxBackdrop implements Tintable {
             .setTint(spec.color)
             .setDepth(depth),
         }));
-        this.stills.push({ look: layer, image, glows, srcY: src.y ?? 0, scale: 1 });
+        const railSrc = layer.rails && art?.layers[layer.rails.name];
+        const railPart = railSrc ? railSrc.parts[0] : undefined;
+        const rails =
+          layer.rails && railSrc && railPart && scene.textures.exists(partKey(railPart.path))
+            ? layer.rails.at.map((at) => ({
+                at,
+                sprite: scene.add
+                  .tileSprite(0, 0, railSrc.width, railSrc.height, partKey(railPart.path))
+                  .setDepth(depth + 0.5),
+              }))
+            : [];
+        this.stills.push({ look: layer, image, glows, rails, srcY: src.y ?? 0, scale: 1 });
       } else if (!this.still) {
         this.motes.push(this.addMotes(layer, depth));
       }
@@ -499,6 +514,7 @@ export class ParallaxBackdrop implements Tintable {
     for (const g of this.glows) g.image.setTint(multiply(g.look.color, this.tint));
     for (const s of this.stills) {
       s.image.setTint(multiply(s.look.tint ?? 0xffffff, this.tint));
+      for (const r of s.rails) r.sprite.setTint(multiply(s.look.tint ?? 0xffffff, this.tint));
       for (const g of s.glows) g.image.setTint(multiply(g.spec.color, this.tint));
     }
     const light = luminance(this.tint);
@@ -539,6 +555,10 @@ export class ParallaxBackdrop implements Tintable {
     for (const t of this.tiles) this.fitTiles(t);
     for (const s of this.stills) {
       s.scale = s.look.width / s.image.frame.width;
+      for (const r of s.rails) {
+        const k = (s.look.rails?.height ?? 1) / r.sprite.frame.height;
+        r.sprite.setSize((STAGE_W + 2 * RAIL_OVERHANG) / k, r.sprite.frame.height);
+      }
     }
     for (const g of this.glows) {
       const size = HEIGHT * g.look.size;
@@ -606,6 +626,14 @@ export class ParallaxBackdrop implements Tintable {
         .setPosition(x, y)
         .setScale(s.scale * zoom)
         .setAlpha(alpha * this.fade);
+      for (const r of s.rails) {
+        const k = (s.look.rails?.height ?? 1) / r.sprite.frame.height;
+        r.sprite
+          .setVisible(shown)
+          .setPosition(x, y + (r.at - s.srcY) * s.scale * zoom)
+          .setScale(k * zoom)
+          .setAlpha(alpha * this.fade);
+      }
       for (const g of s.glows) {
         const { spec } = g;
         g.image

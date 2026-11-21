@@ -139,13 +139,26 @@ def keep_main(img: Image.Image, share: float = 0.02) -> Image.Image:
     return Image.fromarray(a, "RGBA")
 
 
+def open_source(source: str | list[str]) -> Image.Image:
+    """A source sheet, or several of the same width stacked top to bottom as one taller sheet."""
+    if isinstance(source, str):
+        return Image.open(SRC / source)
+    parts = [Image.open(SRC / s).convert("RGB") for s in source]
+    out = Image.new("RGB", (parts[0].width, sum(p.height for p in parts)), "white")
+    y = 0
+    for p in parts:
+        out.paste(p, (0, y))
+        y += p.height
+    return out
+
+
 def build(
-    boss: str, source: str, grid: tuple[int, int], frame: tuple[int, int], reach: int = REACH,
+    boss: str, source: str | list[str], grid: tuple[int, int], frame: tuple[int, int], reach: int = REACH,
     clean: bool = False,
 ) -> None:
     print(boss)
     cols, rows = grid
-    cut = cells(remove_white_background(Image.open(SRC / source)), cols, rows)
+    cut = cells(remove_white_background(open_source(source)), cols, rows)
     if clean:
         cut = [keep_main(c) for c in cut]
     masks = [silhouette(c) for c in cut]
@@ -314,7 +327,9 @@ RIGS = {
         {"kind": "piece", "source": "crucible/torso.jpg", "out": "torso.png", "width": 520},
         {"kind": "bars", "source": "crucible/cage.jpg", "out": "cage", "width": 260, "bars": 4,
          "cap": 0.25, "base": 0.86},
-        {"kind": "sheet", "source": "crucible/heart.jpg", "out": "heart", "grid": (3, 2),
+        # The second sheet is in-betweens: a squeeze, eyes half open, a snarl, the widest scream,
+        # a cracked flinch and half-way to white-hot.
+        {"kind": "sheet", "source": ["crucible/heart.jpg", "crucible/heart_b.jpg"], "out": "heart", "grid": (3, 4),
          "frame": (180, 220), "reach": 128},
         {"kind": "loose", "source": "crucible/fx.jpg", "grid": (3, 2), "size": 96,
          "names": ["slag", "splash", "dart", "chunk", "shard", "rivet"]},
