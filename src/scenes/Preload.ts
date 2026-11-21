@@ -8,6 +8,7 @@ import {
   rebuildMissingForeground,
 } from '../art/foreground';
 import { ensureProceduralTextures } from '../art/procedural';
+import { buildFxAtlas, isFxSourceKey, loadFxSheets } from '../fx/atlas';
 import { calm, menuWorld, useWorld } from '../ui/theme';
 import { label } from '../ui/type';
 import { Meter } from '../ui/widgets';
@@ -93,6 +94,11 @@ function devGallery(): boolean {
   return import.meta.env.DEV && new URLSearchParams(location.search).get('ui') === 'gallery';
 }
 
+/** Dev only: `?fx=lab` opens the FX Lab. */
+function devFxLab(): boolean {
+  return import.meta.env.DEV && new URLSearchParams(location.search).get('fx') === 'lab';
+}
+
 export class Preload extends BaseScene {
   private failed = new Set<string>();
 
@@ -114,6 +120,7 @@ export class Preload extends BaseScene {
     const relief = this.game.renderer.type === Phaser.WEBGL && lightingTier() === 'high';
     loadForeground(this.load, relief);
     this.load.spritesheet('coin', 'images/powerups/coins.png', { frameWidth: 25, frameHeight: 25 });
+    loadFxSheets(this.load);
     for (const a of AUDIO_ASSETS) this.load.audio(a.key, a.path);
     this.load.json(TILESET, 'tilesets/bricks.tsj');
     this.load.json(TEMPLATE_INDEX, 'templates/index.json');
@@ -143,8 +150,9 @@ export class Preload extends BaseScene {
     for (const key of this.failed) {
       if (this.textures.exists(key)) this.textures.remove(key);
     }
-    const shared = [...this.failed].filter((key) => !isForegroundKey(key));
+    const shared = [...this.failed].filter((key) => !isForegroundKey(key) && !isFxSourceKey(key));
     ensureProceduralTextures(this, [...shared, ...this.missingImages()]);
+    buildFxAtlas(this);
     rebuildMissingForeground(this);
     attachNormalMaps(this);
     buildUiFonts(this);
@@ -171,6 +179,7 @@ export class Preload extends BaseScene {
     else if (stop) this.scene.start(SCENES.play, stop);
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
+    else if (devFxLab()) this.scene.start(SCENES.fxLab);
     // A new player lands in level 1 with no clicks, and the tutorial runs over real play.
     else if (save.isNewPlayer()) this.scene.start(SCENES.play, { index: 1 });
     else this.scene.start(SCENES.title);

@@ -58,6 +58,18 @@ export function lightingTier(): LightingTier {
   return save.state.settings.batterySaver ? 'low' : autoLighting;
 }
 
+let fxTierPin: LightingTier | undefined;
+
+/** Particle effects follow the lighting tier unless the FX Lab pins one. */
+export function fxTier(): LightingTier {
+  return fxTierPin ?? lightingTier();
+}
+
+/** Dev tool hook: the FX Lab compares tiers side by side. `undefined` follows lighting again. */
+export function pinFxTier(tier: LightingTier | undefined): void {
+  fxTierPin = tier;
+}
+
 /** Resizes the canvas to the target zoom. Cameras re-zoom from the scale RESIZE event. */
 export function applyQuality(game: Phaser.Game): void {
   const before = RENDER_ZOOM;
