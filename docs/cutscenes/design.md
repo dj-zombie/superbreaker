@@ -110,7 +110,7 @@ launches under the cutscene, receives a `BackdropSnapshot` (world, scroll offset
 restores it, and the cutscene's cameras fade out over it: the scrolling shaft never cuts. A skip
 always uses `dissolve`. `theme` is the ordinary themed transition. A scene that opens on
 `inherit` takes the snapshot of the screen it was started from, which is how Chapter II picks up
-the piñata bonus's backdrop.
+the Warden fight's backdrop.
 
 ## 4. Decisions
 

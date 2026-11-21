@@ -347,7 +347,7 @@ export class Title extends BaseScene {
     if (total > 0 && done >= total) return 'Campaign complete';
     const index = Math.max(1, Math.min(save.state.unlocked, total));
     // A cleared level whose boss still stands holds the path there.
-    const boss = !!this.stopAfter(index) && !!save.state.levels[levelId(index)] && !save.bossBeaten(index);
+    const boss = !!this.stopAfter(index)?.level && !!save.state.levels[levelId(index)] && !save.bossBeaten(index);
     return `${boss ? 'Boss fight' : `Level ${index}`}  ·  ${done}/${total} cleared`;
   }
 
