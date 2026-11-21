@@ -8,6 +8,9 @@ import { BALL_SIZE } from '../../entities/Ball';
 import { PADDLE_BASE_WIDTH } from '../../entities/Paddle';
 import { softDiscTexture } from '../../ui/frames';
 import { calm } from '../../ui/theme';
+import { CometRig } from './CometRig';
+import { LogoRig } from './LogoRig';
+import { VolleyRig } from './VolleyRig';
 
 /** Under the ambient fields' front band and the board's particles, over the backdrop. */
 export const ACTOR_DEPTH = 5;
@@ -278,6 +281,17 @@ registerActorRig('boss', (scene, def, arg) => {
     height: sheet.height,
   });
 });
+
+/** A bullet-hell emitter: `volley:slag`, `volley:spirit` or `volley:data`. */
+registerActorRig('volley', (scene, def, arg) => new VolleyRig(scene, def, arg));
+
+/** A burning spark with a tail that follows its path: `comet:<core texture>`. */
+registerActorRig('comet', (scene, _def, arg) => new CometRig(scene, arg));
+
+/** The logo with its cracks lit in the forge's colour: `logo:<base texture>`. */
+registerActorRig('logo', (scene, _def, arg) =>
+  scene.textures.exists(arg) ? new LogoRig(scene, arg) : undefined,
+);
 
 // ---------------------------------------------------------------------------------------------
 

@@ -7,14 +7,20 @@ peak-normalised, encoded and decoded again to keep the peaks off full scale. The
 loops instead: no fades, and their last seconds crossfaded into their first so the seam is
 smooth.
 
-Everything goes to public/assets/audio/cutscenes/<name>.mp3, the keys the scripts in
-src/cutscenes/ name.
+Generated recordings (Ludo sound effects and music, MiniMax voice-over) are listed in SOURCED
+instead: their files in art-src/cutscenes/audio/ and art-src/cutscenes/vo/ are trimmed of
+leading silence, run through the entry's filters, loudness-normalised and faded out.
 
-Usage: python3 scripts/build-cutscene-audio.py   (requires numpy and ffmpeg)
+Everything goes to public/assets/audio/cutscenes/<name>.mp3 (voice-over to vo/<name>.mp3), the
+keys the scripts in src/cutscenes/ name.
+
+Usage: python3 scripts/build-cutscene-audio.py [name ...]   (requires numpy and ffmpeg)
 """
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -22,6 +28,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "public" / "assets" / "audio" / "cutscenes"
+SRC = ROOT / "art-src" / "cutscenes"
 
 _spec = importlib.util.spec_from_file_location("boss_audio", ROOT / "scripts" / "build-boss-audio.py")
 B = importlib.util.module_from_spec(_spec)
@@ -87,6 +94,66 @@ SOUNDS = (
 )
 
 
+# The Crucible speaks from inside a furnace: a fifth down, driven, with the iron ringing after.
+FURNACE = (
+    "asetrate=32000*0.74,aresample=44100,atempo=1.18,"
+    "acompressor=threshold=0.08:ratio=6:attack=5:release=80,"
+    "lowpass=f=4200,aecho=0.8:0.6:45|110:0.35|0.18"
+)
+
+# Name, source under art-src/cutscenes/, ffmpeg filters before the loudness pass, loudness
+# (LUFS), fade-out (s), channels, bitrate. The score keeps its own silence at the top: the scene
+# times its beats to it.
+SOURCED = (
+    ("cs_intro_score", "audio/score.mp3", "", -15, 2.5, 2, "128k"),
+    ("cs_thunder_close", "audio/thunder_close.mp3", "", -13, 0.6, 2, "128k"),
+    ("cs_braam", "audio/braam.mp3", "", -12, 0.8, 2, "128k"),
+    ("cs_riser", "audio/riser.mp3", "", -15, 0.1, 2, "128k"),
+    ("cs_volley", "audio/volley.mp3", "", -16, 0.4, 2, "128k"),
+    ("cs_anvil", "audio/anvil.mp3", "", -12, 0.6, 2, "128k"),
+    ("vo_intro_01", "vo/vo_intro_01.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_intro_02", "vo/vo_intro_02.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_intro_03", "vo/vo_intro_03.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_intro_04", "vo/vo_intro_04.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_intro_05", "vo/vo_intro_05.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_intro_06", "vo/vo_intro_06.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_crucible_01", "vo/vo_crucible_01.mp3", FURNACE, -15, 0.4, 1, "96k"),
+)
+TRIM = "silenceremove=start_periods=1:start_threshold=-50dB"
+
+
+def duration(path: Path) -> float:
+    out = subprocess.run(
+        [B.FFMPEG.replace("ffmpeg", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    return float(out.stdout.strip())
+
+
+def sourced(entry: tuple) -> Path:
+    name, source, filters, lufs, fade_out, channels, bitrate = entry
+    voice = source.startswith("vo/")
+    out = OUT / ("vo" if voice else "") / f"{name}.mp3"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    chain = [] if name == "cs_intro_score" else [TRIM]
+    if filters:
+        chain.append(filters)
+    chain.append(f"loudnorm=I={lufs}:TP=-1.5:LRA=11")
+    with tempfile.TemporaryDirectory() as d:
+        mid = Path(d) / "mid.wav"
+        subprocess.run(
+            [B.FFMPEG, "-v", "error", "-y", "-i", str(SRC / source), "-af", ",".join(chain), "-ar", str(B.SR), "-ac", str(channels), str(mid)],
+            check=True,
+        )
+        length = duration(mid)
+        fade = f"afade=t=out:st={max(0.0, length - fade_out):.3f}:d={fade_out}"
+        subprocess.run(
+            [B.FFMPEG, "-v", "error", "-y", "-i", str(mid), "-af", fade, "-b:a", bitrate, str(out)],
+            check=True,
+        )
+    return out
+
+
 def loop(x: np.ndarray) -> np.ndarray:
     """`x` minus its last LOOP_BLEND seconds, which are faded in over its start."""
     n = B.samples(LOOP_BLEND)
@@ -106,16 +173,22 @@ def sound(index: int) -> np.ndarray:
 
 
 def main() -> None:
+    wanted = set(sys.argv[1:])
     written = []
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         for i, (name, *_) in enumerate(SOUNDS):
+            if wanted and name not in wanted:
+                continue
             path = OUT / f"{name}.mp3"
             B.save(sound(i), path, B.SFX_BITRATE, tmp)
             written.append(path)
+    for entry in SOURCED:
+        if wanted and entry[0] not in wanted:
+            continue
+        written.append(sourced(entry))
     for path in written:
-        seconds = B.decode(path).shape[-1] / B.SR
-        print(f"{path.relative_to(ROOT)}  {seconds:.3f} s  {path.stat().st_size / 1024:.1f} KB")
+        print(f"{path.relative_to(ROOT)}  {duration(path):.3f} s  {path.stat().st_size / 1024:.1f} KB")
 
 
 if __name__ == "__main__":

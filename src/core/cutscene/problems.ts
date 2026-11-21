@@ -5,9 +5,12 @@ import type { CutsceneDef, Step, Vec } from './types';
 
 /** What the game knows exists, for checks that reach outside the script. All optional. */
 export interface KnownAssets {
+  /** One-shot effects, for `fx()`. Without `field`, ambient fields are checked with it too. */
   fx?: (id: string) => boolean;
+  /** Long-running fields, for `ambient()` and a descent's `through`. */
+  field?: (id: string) => boolean;
   sfx?: (key: string) => boolean;
-  /** Built-in sprites such as `breaker` and `boss:<id>`. */
+  /** Built-in sprites: `breaker`, and rigs named `<prefix>:<arg>` such as `boss:<id>`. */
   sprite?: (key: string) => boolean;
 }
 
@@ -23,6 +26,7 @@ export function scriptProblems(def: CutsceneDef, known: KnownAssets = {}): strin
   const beds = new Set((def.assets?.music ?? []).map((a) => a.key));
   const labels = new Set<string>();
   const on = new Set<string>();
+  const field = known.field ?? known.fx;
 
   const actor = (id: string, where: string) => {
     if (!cast[id]) out.push(`${where}: no cast member "${id}"`);
@@ -38,7 +42,7 @@ export function scriptProblems(def: CutsceneDef, known: KnownAssets = {}): strin
   for (const [id, a] of Object.entries(cast)) {
     for (const key of [a.sprite, a.portrait]) {
       if (!key) continue;
-      const builtIn = key === 'breaker' || key.startsWith('boss:');
+      const builtIn = key === 'breaker' || key.includes(':');
       if (builtIn ? known.sprite && !known.sprite(key) : !images.has(key)) {
         out.push(`cast "${id}": no image "${key}" in the assets`);
       }
@@ -89,7 +93,7 @@ export function scriptProblems(def: CutsceneDef, known: KnownAssets = {}): strin
         case 'descend':
           if (s.to === def.opens.scenery)
             out.push(`${where}: descends into the world it starts in`);
-          if (s.through && known.fx && !known.fx(s.through))
+          if (s.through && field && !field(s.through))
             out.push(`${where}: no effect "${s.through}"`);
           break;
         case 'plate':
@@ -103,7 +107,7 @@ export function scriptProblems(def: CutsceneDef, known: KnownAssets = {}): strin
           break;
         case 'ambient': {
           const key = s.key ?? s.fx;
-          if (known.fx && !known.fx(s.fx)) out.push(`${where}: no effect "${s.fx}"`);
+          if (field && !field(s.fx)) out.push(`${where}: no effect "${s.fx}"`);
           if (s.on) on.add(key);
           else if (!on.delete(key)) out.push(`${where}: turns off "${key}", which is not on`);
           break;

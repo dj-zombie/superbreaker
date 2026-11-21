@@ -87,7 +87,7 @@ scripts/build-fx.py  Cuts the generated particle sheets into strips for the fx a
 scripts/build-boss-audio.py  Synthesizes the placeholder boss sound effects
 scripts/build-boss-music.py  Cuts the placeholder boss track from a recording
 scripts/build-cutscene-art.py  Cuts the cutscene portraits, sprite sheets and plates
-scripts/build-cutscene-audio.py  Synthesizes the placeholder cutscene sounds and the wind bed
+scripts/build-cutscene-audio.py  Synthesizes the placeholder cutscene sounds and the wind bed, and levels the generated score, sounds and voice-over
 archive/             Retired levels and the old static backgrounds
 tests/               Vitest suites
 ios/, android/       Capacitor native projects
@@ -375,6 +375,8 @@ Story scenes play between campaign steps, as listed under `scenes` in `public/as
 python3 scripts/build-cutscene-art.py
 python3 scripts/build-cutscene-audio.py
 ```
+
+Chapter I (`chapter-1`) is the game's opening: a new player's first launch goes from Preload to a "Touch to ignite" tap, which unlocks the audio, then through the scene into Level 1. Its score, sounds and voice-over were generated (Ludo, MiniMax) into `art-src/cutscenes/audio/` and `art-src/cutscenes/vo/`, and `build-cutscene-audio.py` levels and trims them into place.
 
 [docs/cutscenes/authoring.md](docs/cutscenes/authoring.md) is the guide to writing one, and [docs/cutscenes/design.md](docs/cutscenes/design.md) explains how the director works.
 

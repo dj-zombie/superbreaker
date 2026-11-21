@@ -130,11 +130,12 @@ the piñata bonus's backdrop.
 
 - **Ending scene.** The `after` routing from `Results` is in place; no ending is written, so
   `index.json` has no entry for it.
-- **Voice-over.** The voice bus, ducking and `voice` holds work; no lines are recorded. Lines
-  type with blips until their clip is added (see the authoring guide).
-- **Rig-only bosses and other rigs.** `boss:<id>` needs a boss with a sprite sheet. A boss drawn
-  by a rig (the Crucible) or the jack-in-the-box (`JackRig`) needs `registerActorRig(prefix,
-build)` with an `ActorRig` adapter before it can be cast.
-- **Art.** Chapter II has one memory plate (`cs_plate_lid`); more plates can be generated the
-  same way.
+- **Voice-over.** Chapter I's narrator and the Crucible are recorded (generated); Chapter II's
+  lines still type with blips until their clips are added (see the authoring guide).
+- **Rig-only bosses.** `boss:<id>` needs a boss with a sprite sheet. The Crucible's live rig and
+  the jack-in-the-box (`JackRig`) need `registerActorRig(prefix, build)` with an `ActorRig`
+  adapter before they can be cast; Chapter I stages the Crucible from its torso and heart art
+  instead. The `volley`, `comet` and `logo` rigs are registered.
+- **Art.** Chapter I has the storm and anvil plates, Chapter II the lid; more plates can be
+  generated the same way.
 - **Branching and choices.** Not supported by design (see above).

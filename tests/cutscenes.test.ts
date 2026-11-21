@@ -21,24 +21,70 @@ vi.mock('phaser', () => ({
 import { BOSSES } from '../src/bosses';
 import { AUDIO_ASSETS } from '../src/config';
 import { sceneBetween, stepKey, validScenes } from '../src/core/Campaign';
-import { compile, GRADES, Playhead, sampleFrame, scriptProblems } from '../src/core/cutscene';
+import {
+  compile,
+  GRADES,
+  Playhead,
+  sampleFrame,
+  scriptProblems,
+  type CutsceneDef,
+  type KnownAssets,
+} from '../src/core/cutscene';
 import { CUTSCENES } from '../src/cutscenes';
+import { ABILITY_FX } from '../src/fx/library/abilities';
 import { AMBIENT_FX } from '../src/fx/library/ambient';
+import { BOSS_FX } from '../src/fx/library/boss';
+import { BRICK_FX } from '../src/fx/library/bricks';
+import { ELEMENT_FX } from '../src/fx/library/elements';
+import { FANFARE_FX } from '../src/fx/library/fanfare';
+import { IMPACT_FX } from '../src/fx/library/impacts';
+import { POWERUP_FX } from '../src/fx/library/powerups';
+import { SCREEN_FX } from '../src/fx/library/screen';
+import { WEAPON_FX } from '../src/fx/library/weapons';
 import { WEATHER_FX } from '../src/fx/library/weather';
 import { sheetFrames } from './sheets';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
 const SOUNDS = new Set(AUDIO_ASSETS.map((a) => a.key));
 const FIELDS = new Set(Object.keys({ ...AMBIENT_FX, ...WEATHER_FX }));
-const known = {
-  fx: (id: string) => FIELDS.has(id),
-  sfx: (key: string) => SOUNDS.has(key),
-  sprite: (key: string) => key === 'breaker' || (key.startsWith('boss:') && key.slice(5) in BOSSES),
-};
+const PRESETS = new Set(
+  [
+    ABILITY_FX,
+    AMBIENT_FX,
+    BOSS_FX,
+    BRICK_FX,
+    ELEMENT_FX,
+    FANFARE_FX,
+    IMPACT_FX,
+    POWERUP_FX,
+    SCREEN_FX,
+    WEAPON_FX,
+    WEATHER_FX,
+  ].flatMap((group) => Object.keys(group)),
+);
+const VOLLEYS = new Set(['slag', 'spirit', 'data']);
+
+/** What a scene may name: rigs that draw one of its images must load that image. */
+function knownFor(def: CutsceneDef): KnownAssets {
+  const images = new Set((def.assets?.images ?? []).map((a) => a.key));
+  return {
+    fx: (id) => PRESETS.has(id),
+    field: (id) => FIELDS.has(id),
+    sfx: (key) => SOUNDS.has(key),
+    sprite: (key) => {
+      const [rig, arg = ''] = key.split(':');
+      if (key === 'breaker') return true;
+      if (rig === 'boss') return arg in BOSSES;
+      if (rig === 'volley') return VOLLEYS.has(arg);
+      if (rig === 'comet' || rig === 'logo') return images.has(arg);
+      return false;
+    },
+  };
+}
 
 describe.each(Object.values(CUTSCENES))('cutscene $id', (def) => {
   it('has no script problems', () => {
-    expect(scriptProblems(def, known)).toEqual([]);
+    expect(scriptProblems(def, knownFor(def))).toEqual([]);
   });
 
   it('ships every asset it loads', () => {
@@ -113,11 +159,53 @@ describe('cutscenes in levels/index.json', () => {
     }
   });
 
+  it('opens the game with Chapter I, before Level 1', () => {
+    const scenes = validScenes(index.scenes);
+    expect(sceneBetween(undefined, { index: 1 }, scenes, () => false)).toBe('chapter-1');
+    expect(sceneBetween(undefined, { index: 1 }, scenes, (id) => id === 'chapter-1')).toBeUndefined();
+  });
+
   it('plays Chapter II between the piñata and Level 11', () => {
     const scenes = validScenes(index.scenes);
     expect(sceneBetween({ index: 10, stop: 'bonus' }, { index: 11 }, scenes, () => false)).toBe(
       'chapter-2',
     );
+  });
+});
+
+describe('chapter-1', () => {
+  const tl = compile(CUTSCENES['chapter-1']!);
+
+  it('has a label for every beat, in order', () => {
+    const beats = [
+      'ignite',
+      'storm',
+      'spark',
+      'crucible',
+      'volley',
+      'below',
+      'forge',
+      'title',
+      'card',
+      'handoff',
+    ];
+    const at = beats.map((b) => tl.labels.get(b));
+    expect(at.every((t) => t !== undefined)).toBe(true);
+    expect([...at].sort((x, y) => x! - y!)).toEqual(at);
+  });
+
+  it('waits for a tap before the score, so the tap unlocks the sound', () => {
+    const score = tl.music.find((m) => m.value.bed === 'cs_intro_score');
+    expect(tl.holds[0]?.kind).toBe('tap');
+    expect(tl.holds[0]!.at).toBeLessThan(score!.at);
+  });
+
+  it('keeps time with the score: no line stops the clock after the tap', () => {
+    expect(tl.holds).toHaveLength(1);
+  });
+
+  it('goes down through the Crypt and the Mainframe and back up to the Foundry', () => {
+    expect(tl.scenery.map((m) => m.value.id)).toEqual(['crypt', 'mainframe', 'hell']);
   });
 });
 

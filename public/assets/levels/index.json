@@ -45,6 +45,10 @@
   ],
   "scenes": [
     {
+      "id": "chapter-1",
+      "before": "level01"
+    },
+    {
       "id": "chapter-2",
       "before": "level11"
     }

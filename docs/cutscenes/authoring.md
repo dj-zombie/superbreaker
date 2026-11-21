@@ -65,8 +65,18 @@ vesper: {
 - `breaker`: the paddle and ball, dressed as the world on screen;
 - `boss:<id>`: a boss's own sheet with its fight animations (`idle`, `tell`, `open`, `hurt`,
   `death`), plus any `anims` the entry adds. The Warden adds `broken` and `crumble`;
+- `volley:<slag|spirit|data>`: a bullet-hell emitter. Its anims are patterns, `spiral`, `fan`,
+  `ring` and `rain`, and `stop` holds fire. Calm mode thins it out, and the Low tier halves its
+  pool;
+- `comet:<image>`: a glowing core whose trail follows wherever it moves, for a fast `path`.
+  `flare` bursts it;
+- `logo:<image>`: an image with `<image>_glow` layered over it; `ignite` lights the glow with a
+  stutter, and any other anim puts it out;
 - anything registered with `registerActorRig(prefix, build)` in `src/systems/cutscene/ActorStage.ts`.
   Rig-drawn bosses (the Crucible) and the jack-in-the-box need one before they can be cast.
+
+A rig reads its anims by name, but the script checks that every `anim` a scene asks for is in the
+cast entry's `anims`, so list them with empty frames: `{ frames: [], fps: 1 }`.
 
 A cast member without a `sprite` is a voice: it can speak, with its portrait, but never stands
 on stage. `narrator` is always available and has no face.
@@ -172,7 +182,10 @@ python3 scripts/build-cutscene-art.py cs_vesper    # one entry
 ```
 
 It keys and trims portraits, cuts sheets on their grid (and fails if a frame's content touches
-the edge of its cell), and resizes plates, writing to `public/assets/images/cutscenes/`. It needs
+the edge of its cell), resizes plates, and trims and fits single `sprite`s (already cut out, such
+as a rig's core), writing to `public/assets/images/cutscenes/`. A plate entry with `unlit: True`
+paints out its brightest cold light (a lightning bolt) and `dim` darkens it, so one painting
+gives a dark frame and a lit one to flicker over it: Chapter I's storm does that. It needs
 Pillow and numpy; if the system Python lacks them, use a venv:
 
 ```
@@ -184,6 +197,15 @@ python3 -m venv /tmp/sb-venv && /tmp/sb-venv/bin/pip install pillow numpy
 
 `scripts/build-cutscene-audio.py` synthesizes the placeholder sounds (numpy, ffmpeg) into
 `public/assets/audio/cutscenes/`. The music bed `cs_wind` is a seamless loop.
+
+Generated sounds, scores and voice clips go in `art-src/cutscenes/audio/` and
+`art-src/cutscenes/vo/`, with an entry in the script's `SOURCED` table: it trims the silence,
+evens the loudness and fades the tail, and can run an ffmpeg filter chain first (the Crucible's
+furnace voice). `python3 scripts/build-cutscene-audio.py vo_intro_01` rebuilds one.
+
+A scene scored to one long track, like Chapter I, can place every cue on the score's clock
+instead of in sequence: give each line a numeric `hold` (the clip's length) so no line stops the
+clock, and the picture stays on the music.
 
 ### Voice-over
 

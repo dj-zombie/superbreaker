@@ -38,7 +38,7 @@ import { transitioning } from '../ui/fx/transitions';
 import { installBack } from '../ui/nav';
 import { cutsceneDef } from '../cutscenes';
 import { BaseScene } from './BaseScene';
-import { CUTSCENES_REG, type CutsceneData } from './Cutscene';
+import { CUTSCENES_REG, storyBetween, type CutsceneData } from './Cutscene';
 
 const LEVEL_INDEX = 'levels-index';
 
@@ -211,9 +211,19 @@ export class Preload extends BaseScene {
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
     else if (devFxLab()) this.scene.start(SCENES.fxLab);
-    // A new player lands in level 1 with no clicks, and the tutorial runs over real play.
-    else if (save.isNewPlayer()) this.scene.start(SCENES.play, { index: 1 });
+    // A new player lands in level 1 with no clicks, and the tutorial runs over real play. The
+    // story scene routed before level 1, if any, plays first.
+    else if (save.isNewPlayer()) this.startFirstLevel();
     else this.scene.start(SCENES.title);
+  }
+
+  private startFirstLevel(): void {
+    const step = { index: 1 };
+    const story = storyBetween(this, undefined, step);
+    if (story) {
+      const data: CutsceneData = { id: story, then: { scene: SCENES.play, data: step } };
+      this.scene.start(SCENES.cutscene, data);
+    } else this.scene.start(SCENES.play, step);
   }
 
   private missingImages(): string[] {

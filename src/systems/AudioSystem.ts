@@ -173,6 +173,8 @@ class AudioSystem {
   private talking = 0;
   /** A cutscene's looping bed, in place of the song. */
   private bed?: { key: string; sound: Phaser.Sound.WebAudioSound; gain: GainNode; volume: number };
+  /** The bed a cutscene asked for, kept so one asked for while audio was locked starts on unlock. */
+  private wantedBed?: { key: string; volume?: number; fadeMs: number };
 
   init(game: Phaser.Game): void {
     this.game = game;
@@ -222,7 +224,13 @@ class AudioSystem {
     if (ctx && ctx.state !== 'running') void ctx.resume();
     // Phaser rebuilds its master nodes with a new context, which clears the mute.
     this.applyPlatformMute();
-    if (!this.sound || this.sound.locked || !this.wantedMusic) return;
+    if (!this.sound || this.sound.locked) return;
+    const bed = this.wantedBed;
+    if (bed) {
+      if (!this.bed) this.sceneBed(bed.key, bed);
+      return;
+    }
+    if (!this.wantedMusic) return;
     if (!save.state.settings.music) return;
     if (this.musicKey === this.wantedMusic && this.musicPlaying) return;
     this.playMusic(this.wantedMusic, true);
@@ -327,6 +335,7 @@ class AudioSystem {
   /** Moving from the menus into a level carries the song on instead of restarting it. */
   playMusic(key: MusicKey, force = false): void {
     this.wantedMusic = key;
+    this.wantedBed = undefined;
     this.endBed(BED_FADE_MS);
     if (!this.sound || !save.state.settings.music || this.sound.locked) return;
     const music = this.musicEngine();
@@ -611,6 +620,9 @@ class AudioSystem {
       this.stopMusic('fade');
       return;
     }
+    // The bed stands in for the song, so a tap that resumes audio doesn't bring the song back.
+    this.wantedMusic = undefined;
+    this.wantedBed = { key, volume: opts.volume, fadeMs };
     if (this.bed?.key === key) {
       this.bed.volume = opts.volume ?? this.bed.volume;
       this.fadeBed(this.bed.gain, this.bedLevel(this.bed.volume), fadeMs);
@@ -727,6 +739,7 @@ class AudioSystem {
 
   stopMusic(ending: MusicEnding = 'cut'): void {
     this.wantedMusic = undefined;
+    this.wantedBed = undefined;
     this.endBed(ending === 'cut' ? 0 : BED_FADE_MS);
     this.haltMusic(ending);
   }

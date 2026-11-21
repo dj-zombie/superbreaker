@@ -105,7 +105,9 @@ export function parseLine(src: string, cps = DEFAULT_CPS): ParsedLine {
 export function revealAt(line: ParsedLine, ms: number): number {
   const g = line.glyphs;
   if (ms < 0) return 0;
-  if (ms >= line.revealMs) return g.length;
+  // Within half a ms, as dialogAt does for held lines: a clock stopped at a line's end, less the
+  // line's start, can come out a hair short of its reveal time.
+  if (ms + 0.5 >= line.revealMs) return g.length;
   let lo = 0;
   let hi = g.length;
   while (lo < hi) {

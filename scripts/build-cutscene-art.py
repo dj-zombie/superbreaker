@@ -7,7 +7,10 @@ Three kinds of source, all named in ART below:
             fitted into a square, so every portrait sits the same in its box
   sheet     an animation grid on flat white for an actor on stage: keyed and cut the way
             build-bosses.py cuts a boss sheet (each cell slid onto the first, one common crop)
-  plate     a full-screen story illustration: no keying, only scaled and saved as JPEG
+  plate     a full-screen story illustration: no keying, only scaled and saved as JPEG. With
+            `unlit` the bright violet-white of painted lightning is filled in from the sky around
+            it, and `dim` darkens the picture, for the dark frame between strikes
+  sprite    one transparent image (a Ludo VFX render): trimmed and fitted into a square
 
 Everything goes to public/assets/images/cutscenes/. The keys and frame sizes are the ones the
 scene's script names (src/cutscenes/). Vesper's and the Warden's stage animations are built from
@@ -19,7 +22,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops
+import numpy as np
+from PIL import Image, ImageChops, ImageEnhance, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "art-src" / "cutscenes"
@@ -33,10 +37,15 @@ ART = {
     "cs_warden_face": {"kind": "portrait", "source": "warden_face.jpg", "size": 256},
     "cs_vesper_face": {"kind": "portrait", "source": "vesper_face.jpg", "size": 256},
     "cs_plate_lid": {"kind": "plate", "source": "plate_lid.jpg", "height": 1280},
+    "cs_plate_storm": {"kind": "plate", "source": "plate_storm.jpg", "height": 1280},
+    "cs_plate_storm_dark": {"kind": "plate", "source": "plate_storm.jpg", "height": 1280, "unlit": True, "dim": 0.6},
+    "cs_plate_anvil": {"kind": "plate", "source": "plate_anvil.jpg", "height": 1280},
+    "cs_spark": {"kind": "sprite", "source": "spark_core.png", "size": 192},
 }
 
 PORTRAIT_MARGIN = 0.04  # of the square kept clear around the character
 PLATE_QUALITY = 86
+LIGHTNING_LUM = 150  # brightness above which a cold pixel is taken for painted lightning
 
 
 def report(path: Path, img: Image.Image) -> None:
@@ -95,16 +104,53 @@ def sheet(name: str, spec: dict) -> None:
     report(path, out)
 
 
+def unlit(img: Image.Image) -> Image.Image:
+    """The picture with its lightning painted out: bright, cold pixels refilled from around them."""
+    a = np.asarray(img, dtype=np.float32)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    bolt = Image.fromarray(((lum > LIGHTNING_LUM) & (b >= r * 0.9)).astype(np.uint8) * 255, "L")
+    bolt = bolt.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.GaussianBlur(3))
+    m = np.asarray(bolt, dtype=np.float32)[..., None] / 255
+    keep = Image.fromarray(((1 - m[..., 0]) * 255).astype(np.uint8), "L")
+    rest = Image.fromarray((a * (1 - m)).astype(np.uint8), "RGB")
+    blur = lambda im: np.asarray(im.filter(ImageFilter.GaussianBlur(28)), dtype=np.float32)
+    weight = blur(keep)[..., None] / 255
+    fill = blur(rest) / np.maximum(weight, 1e-3)
+    out = a * (1 - m) + fill * m
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+
+
 def plate(name: str, spec: dict) -> None:
     img = Image.open(SRC / spec["source"]).convert("RGB")
     h = spec["height"]
     img = img.resize((round(img.width * h / img.height), h), Image.LANCZOS)
+    if spec.get("unlit"):
+        img = unlit(img)
+    if "dim" in spec:
+        img = ImageEnhance.Brightness(img).enhance(spec["dim"])
     path = OUT / f"{name}.jpg"
     img.save(path, quality=PLATE_QUALITY, optimize=True, progressive=True)
     report(path, img)
 
 
-KINDS = {"portrait": portrait, "sheet": sheet, "plate": plate}
+def sprite(name: str, spec: dict) -> None:
+    img = Image.open(SRC / spec["source"]).convert("RGBA")
+    box = img.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
+    if not box:
+        raise SystemExit(f"{name}: the sprite is empty")
+    art = img.crop(box)
+    size = spec["size"]
+    k = size / max(art.width, art.height)
+    art = art.resize((max(1, round(art.width * k)), max(1, round(art.height * k))), Image.LANCZOS)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    out.paste(art, ((size - art.width) // 2, (size - art.height) // 2))
+    path = OUT / f"{name}.png"
+    out.save(path, optimize=True)
+    report(path, out)
+
+
+KINDS = {"portrait": portrait, "sheet": sheet, "plate": plate, "sprite": sprite}
 
 
 def main() -> None:
