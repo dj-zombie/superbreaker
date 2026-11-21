@@ -8,7 +8,7 @@ type Ctx = CanvasRenderingContext2D;
 type Painter = (ctx: Ctx, w: number, h: number) => void;
 
 /** Generated strips in public/assets/images/fx (scripts/build-fx.py), and how many frames each has. */
-export const FX_SHEETS = { fire: 8, smoke: 8, boom: 12, boomg: 12, arc: 4, wisp: 4 } as const;
+export const FX_SHEETS = { fire: 8, smoke: 8, boom: 12, boomg: 12, arc: 4, wisp: 4, cloud: 6 } as const;
 export type FxSheet = keyof typeof FX_SHEETS;
 
 const sourceKey = (name: string) => `fxsrc_${name}`;
@@ -26,6 +26,7 @@ export const F = {
   boomg: seq('boomg', FX_SHEETS.boomg),
   arc: seq('arc', FX_SHEETS.arc),
   wisp: seq('wisp', FX_SHEETS.wisp),
+  cloud: seq('cloud', FX_SHEETS.cloud),
   shards: seq('shard', 4),
   chunks: seq('chunk', 3),
   confetti: ['conf_rect', 'conf_rect', 'conf_ribbon', 'conf_star', 'conf_disc'],
@@ -184,6 +185,29 @@ function puff(seed: number): Painter {
       const shade = Math.round(150 + 105 * (1 - (y / w)));
       gaussian(ctx, x, y, w * (0.22 + rnd() * 0.12), 2.6, 0.55, `${shade},${shade},${shade}`);
     }
+  };
+}
+
+/** A cumulus: lobes heaped on a flat base, lit from above, in gray for normal blend. */
+function cloud(seed: number): Painter {
+  return (ctx, w, h) => {
+    const rnd = mulberry32(seed);
+    const base = h * 0.66;
+    const lobes = 5 + Math.floor(rnd() * 3);
+    for (let i = 0; i < lobes; i++) {
+      const u = (i + 0.5) / lobes;
+      const x = w * (0.26 + 0.48 * u) + (rnd() - 0.5) * w * 0.04;
+      const r = w * (0.08 + 0.1 * Math.sin(u * Math.PI) + rnd() * 0.03);
+      const y = base - r * (0.55 + rnd() * 0.25);
+      const shade = Math.round(175 + 80 * (1 - y / h));
+      gaussian(ctx, x, y, r * 1.2, 2.4, 0.7, `${shade},${shade},${shade}`);
+    }
+    // The underside: a darker, wider band that flattens the base.
+    ctx.save();
+    ctx.translate(w / 2, base);
+    ctx.scale(1, 0.28);
+    gaussian(ctx, 0, 0, w * 0.42, 2.2, 0.55, '150,150,150');
+    ctx.restore();
   };
 }
 
@@ -635,6 +659,8 @@ function sheetFallback(sheet: FxSheet, i: number): [number, number, Painter] {
       return [128, 128, (c, w, h) => bolt(300 + i)(c, w, h)];
     case 'wisp':
       return [64, 64, wisp(400 + i)];
+    case 'cloud':
+      return [128, 128, cloud(500 + i * 23)];
   }
 }
 
@@ -720,6 +746,9 @@ export function buildFxAtlas(scene: Phaser.Scene): void {
           draw: (ctx, x, y) => {
             ctx.save();
             ctx.translate(x, y);
+            ctx.beginPath();
+            ctx.rect(0, 0, w, h);
+            ctx.clip();
             paint(ctx, w, h);
             ctx.restore();
           },

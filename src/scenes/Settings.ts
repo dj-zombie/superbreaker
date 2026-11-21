@@ -42,6 +42,7 @@ const SECTIONS: Array<{ title: string; rows: Row[] }> = [
     rows: [
       { key: 'music', label: 'Music', volume: 'musicVolume' },
       { key: 'sfx', label: 'Sound effects', volume: 'sfxVolume' },
+      { label: 'Voices', hint: 'Spoken lines in story scenes', slider: 'voiceVolume' },
       { key: 'monoAudio', label: 'Mono audio', hint: 'Same sound in both ears' },
     ],
   },
@@ -138,6 +139,7 @@ export class Settings extends Overlay {
           c.add(
             new Slider(this, x, 0, SLIDER_W, save.state.settings[sliderKey], (v) => {
               save.update((d) => (d.settings[sliderKey] = v));
+              audio.refresh();
             }),
           );
         } else {

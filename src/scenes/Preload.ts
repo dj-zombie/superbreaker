@@ -19,7 +19,13 @@ import {
   type TiledTemplate,
   type TiledTileset,
 } from '../core/LevelParser';
-import { validStops, type BossStop, type CampaignStep } from '../core/Campaign';
+import {
+  validScenes,
+  validStops,
+  type BossStop,
+  type CampaignStep,
+  type SceneEntry,
+} from '../core/Campaign';
 import { randomSeed } from '../core/Rng';
 import { GOAL_KINDS, RUN_LOOPS, goalFor, type RunConfig } from '../core/Run';
 import type { LevelSpec } from '../core/types';
@@ -28,7 +34,9 @@ import { save } from '../services';
 import { lightingTier } from '../systems/Quality';
 import { transitioning } from '../ui/fx/transitions';
 import { installBack } from '../ui/nav';
+import { cutsceneDef } from '../cutscenes';
 import { BaseScene } from './BaseScene';
+import { CUTSCENES_REG, type CutsceneData } from './Cutscene';
 
 const LEVEL_INDEX = 'levels-index';
 
@@ -36,6 +44,7 @@ const LEVEL_INDEX = 'levels-index';
 interface LevelIndex {
   levels: string[];
   bosses?: unknown;
+  scenes?: unknown;
 }
 const TILESET = 'tileset-bricks';
 const TEMPLATE_INDEX = 'templates-index';
@@ -92,6 +101,17 @@ function devRun(): RunConfig | undefined {
 /** Dev only: `?ui=gallery` opens the UI component gallery. */
 function devGallery(): boolean {
   return import.meta.env.DEV && new URLSearchParams(location.search).get('ui') === 'gallery';
+}
+
+/** Dev only: `?scene=chapter-2`, optionally `&at=12000` or `&at=descent`, plays that cutscene. */
+function devScene(): CutsceneData | undefined {
+  if (!import.meta.env.DEV) return undefined;
+  const q = new URLSearchParams(location.search);
+  const id = q.get('scene');
+  if (!id || !cutsceneDef(id)) return undefined;
+  const at = q.get('at');
+  const ms = Number(at);
+  return { id, at: at === null ? undefined : Number.isFinite(ms) ? ms : at };
 }
 
 /** Dev only: `?fx=lab` opens the FX Lab. */
@@ -168,6 +188,7 @@ export class Preload extends BaseScene {
     this.registry.set('levels', levels);
     const stops = this.parseStops(levels.length);
     this.registry.set('bossStops', stops);
+    this.registry.set(CUTSCENES_REG, this.parseScenes());
     loadingStop();
     // Reported on every load, not just on a clear: added levels lower a finished player's share.
     reportProgress((save.clearedCount() / Math.max(1, levels.length)) * 100);
@@ -175,7 +196,9 @@ export class Preload extends BaseScene {
     const jump = devLevel(levels);
     const stop = devStop(stops);
     const run = devRun();
+    const cut = devScene();
     if (run) this.scene.start(SCENES.play, { run });
+    else if (cut) this.scene.start(SCENES.cutscene, cut);
     else if (stop) this.scene.start(SCENES.play, stop);
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
@@ -217,6 +240,17 @@ export class Preload extends BaseScene {
       stops.push(stage?.bonus ? { after, level, bonus: stage } : { after, level });
     }
     return stops;
+  }
+
+  /** Where the cutscenes play, minus entries naming a scene the game doesn't have. */
+  private parseScenes(): SceneEntry[] {
+    const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex | undefined;
+    const raw = Array.isArray(index?.scenes) ? index.scenes : [];
+    const scenes = validScenes(raw, (id) => !!cutsceneDef(id));
+    if (import.meta.env.DEV && scenes.length < raw.length) {
+      console.warn(`[levels] ${raw.length - scenes.length} cutscene entries name no scene or no place`);
+    }
+    return scenes;
   }
 
   private parseMap(file: string): LevelSpec | undefined {

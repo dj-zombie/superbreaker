@@ -1,5 +1,6 @@
 import { registerFx } from '../FxEngine';
 import { ABILITY_FX } from './abilities';
+import { AMBIENT_FX } from './ambient';
 import { BOSS_FX } from './boss';
 import { BRICK_FX } from './bricks';
 import { ELEMENT_FX } from './elements';
@@ -21,6 +22,7 @@ export const FX_LIBRARY = {
   Boss: BOSS_FX,
   Fanfare: FANFARE_FX,
   Weather: WEATHER_FX,
+  Ambient: AMBIENT_FX,
   Screen: SCREEN_FX,
 } as const;
 

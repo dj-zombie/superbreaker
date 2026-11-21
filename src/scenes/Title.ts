@@ -26,6 +26,7 @@ import { display, glowWord, heading, label } from '../ui/type';
 import { CurrencyPill } from '../ui/widgets';
 import { startRun } from './ArcadeSelect';
 import { BaseScene } from './BaseScene';
+import { playCutscene, storyBetween } from './Cutscene';
 
 type Item = Phaser.GameObjects.Components.Transform &
   Phaser.GameObjects.Components.AlphaSingle &
@@ -38,10 +39,16 @@ const TILE_GAP = 12;
 const TILE_W = (CARD_W - TILE_GAP) / 2;
 const TILE_H = 156;
 
-/** Starts a campaign level, dropping anything carried from an earlier level. */
+/**
+ * Starts a campaign level, dropping anything carried from an earlier level. A story scene that
+ * leads into it and was never watched plays first.
+ */
 export function startLevel(scene: Phaser.Scene, step: CampaignStep, stopScenes?: string[]): void {
   runCarry.discard();
-  transitionTo(scene, SCENES.play, { index: step.index, stop: step.stop }, { stop: stopScenes });
+  const data = { index: step.index, stop: step.stop };
+  const story = storyBetween(scene, undefined, step);
+  if (story) playCutscene(scene, story, { scene: SCENES.play, data }, { stop: stopScenes });
+  else transitionTo(scene, SCENES.play, data, { stop: stopScenes });
 }
 
 /**

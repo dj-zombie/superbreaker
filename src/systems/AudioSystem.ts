@@ -58,6 +58,22 @@ const DREAM_SFX_WET = 0.6;
 const DREAM_SEND_IN_S = 0.25;
 const DREAM_SEND_OUT_S = 0.6;
 
+/** Music under a spoken line, and how fast it gets out of the way and comes back (time constants, s). */
+const VOICE_DUCK = 0.45;
+const VOICE_DUCK_IN_TC = 0.08;
+const VOICE_DUCK_OUT_TC = 0.35;
+/** A scene bed's fade when the script gives none (ms). */
+const BED_FADE_MS = 1200;
+
+/** A spoken line playing, or one that could not play. */
+export interface VoiceHandle {
+  /** The clip's length in ms; 0 when there is no such clip. */
+  readonly durationMs: number;
+  /** Finished, stopped, or never started. */
+  readonly ended: boolean;
+  stop(fadeMs?: number): void;
+}
+
 /** A volume slider's position as gain: 1 at the default. Squared so each notch sounds even. */
 function sliderGain(position: number): number {
   return (position / DEFAULT_VOLUME) ** 2;
@@ -105,6 +121,10 @@ interface Mix {
   sfx: GainNode;
   sfxFilter: BiquadFilterNode;
   duck: GainNode;
+  /** Ahead of the ducker: music and beds sink here while a line is spoken. */
+  talk: GainNode;
+  /** Spoken lines: dry, past the sound effects' filter and reverb, at the voice slider. */
+  voice: GainNode;
   limiter: DynamicsCompressorNode;
   sfxVerb: GainNode;
   musicVerb: GainNode;
@@ -149,6 +169,10 @@ class AudioSystem {
   private dreaming = false;
   private paused = false;
   private platformMute = false;
+  /** Lines speaking now; the music ducks while any are. */
+  private talking = 0;
+  /** A cutscene's looping bed, in place of the song. */
+  private bed?: { key: string; sound: Phaser.Sound.WebAudioSound; gain: GainNode; volume: number };
 
   init(game: Phaser.Game): void {
     this.game = game;
@@ -303,6 +327,7 @@ class AudioSystem {
   /** Moving from the menus into a level carries the song on instead of restarting it. */
   playMusic(key: MusicKey, force = false): void {
     this.wantedMusic = key;
+    this.endBed(BED_FADE_MS);
     if (!this.sound || !save.state.settings.music || this.sound.locked) return;
     const music = this.musicEngine();
     if (!music) return;
@@ -492,8 +517,14 @@ class AudioSystem {
     sfx.connect(sfxFilter);
     const duck = ctx.createGain();
     duck.connect(limiter);
+    const talk = ctx.createGain();
+    talk.gain.value = this.talking > 0 ? VOICE_DUCK : 1;
+    talk.connect(duck);
+    const voice = ctx.createGain();
+    voice.gain.value = sliderGain(save.state.settings.voiceVolume);
+    voice.connect(limiter);
     const out = mgr.destination;
-    this.mixNodes = { ctx, out, sfx, sfxFilter, duck, limiter, sfxVerb, musicVerb };
+    this.mixNodes = { ctx, out, sfx, sfxFilter, duck, talk, voice, limiter, sfxVerb, musicVerb };
     this.routeMusic(this.mixNodes);
     this.applyMono();
     this.applySfxTone();
@@ -501,12 +532,135 @@ class AudioSystem {
     return this.mixNodes;
   }
 
-  /** The music slider feeds the ducker, and bullet time's reverb. */
+  /** The music slider feeds the ducker (through the voice duck), and bullet time's reverb. */
   private routeMusic(m: Mix): void {
     if (!this.musicBus) return;
     this.musicBus.disconnect();
-    this.musicBus.connect(m.duck);
+    this.musicBus.connect(m.talk);
     this.musicBus.connect(m.musicVerb);
+  }
+
+  /**
+   * Plays a spoken line on the voice bus and ducks the music under it. The handle reports when
+   * it ends, so a script can hold on it; a missing clip returns a handle that has already ended,
+   * and the caller times the line some other way. With the voice slider at zero the clip still
+   * keeps time, silently.
+   */
+  voice(key: string, volume = 1): VoiceHandle {
+    const cache = this.game?.cache.audio;
+    const buffer: unknown = cache?.exists(key) ? cache.get(key) : undefined;
+    const durationMs = buffer instanceof AudioBuffer ? buffer.duration * 1000 : 0;
+    const m = this.mix();
+    if (!this.sound || this.sound.locked || !m || durationMs <= 0) {
+      return { durationMs, ended: true, stop: () => undefined };
+    }
+    const until = performance.now() + durationMs;
+    let done = false;
+    const s = this.sound.add(key) as Phaser.Sound.WebAudioSound;
+    route(s, m.voice);
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this.talking = Math.max(0, this.talking - 1);
+      this.applyTalk();
+    };
+    s.once('complete', () => {
+      finish();
+      s.destroy();
+    });
+    s.play({ volume });
+    this.talking++;
+    this.applyTalk();
+    return {
+      durationMs,
+      get ended() {
+        return done || performance.now() >= until + 250;
+      },
+      stop: (fadeMs = 120) => {
+        if (done) return;
+        finish();
+        if (fadeMs <= 0 || !s.isPlaying) {
+          s.destroy();
+          return;
+        }
+        s.volumeNode.gain.setTargetAtTime(0, m.ctx.currentTime, fadeMs / 3000);
+        window.setTimeout(() => s.destroy(), fadeMs + 50);
+      },
+    };
+  }
+
+  /** A typing blip for a line with no voice: quiet, and pitched per speaker. */
+  blip(key = 'ui_pip', volume = 0.12, detune = 0): void {
+    this.sfx(key, volume, detune + Math.random() * 120 - 60);
+  }
+
+  /**
+   * A cutscene's music. A sound key loops it as a bed in place of the song; `'song'` brings the
+   * game's song back; null fades everything out. Beds sit under the music slider and duck under
+   * voices like the song does.
+   */
+  sceneBed(key: string | null, opts: { fadeMs?: number; volume?: number } = {}): void {
+    const fadeMs = opts.fadeMs ?? BED_FADE_MS;
+    if (key === 'song') {
+      this.endBed(fadeMs);
+      this.playMusic('music');
+      return;
+    }
+    if (key === null) {
+      this.endBed(fadeMs);
+      this.stopMusic('fade');
+      return;
+    }
+    if (this.bed?.key === key) {
+      this.bed.volume = opts.volume ?? this.bed.volume;
+      this.fadeBed(this.bed.gain, this.bedLevel(this.bed.volume), fadeMs);
+      return;
+    }
+    this.endBed(fadeMs);
+    this.haltMusic('fade');
+    const m = this.mix();
+    if (!this.sound || this.sound.locked || !m || !this.game?.cache.audio.exists(key)) return;
+    const gain = m.ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(m.talk);
+    const sound = this.sound.add(key, { loop: true }) as Phaser.Sound.WebAudioSound;
+    route(sound, gain);
+    sound.play();
+    const volume = opts.volume ?? 0.5;
+    this.bed = { key, sound, gain, volume };
+    this.fadeBed(gain, this.bedLevel(volume), fadeMs);
+  }
+
+  private bedLevel(volume: number): number {
+    return save.state.settings.music ? volume * sliderGain(save.state.settings.musicVolume) : 0;
+  }
+
+  private fadeBed(gain: GainNode, to: number, fadeMs: number): void {
+    const now = gain.context.currentTime;
+    hold(gain.gain, now);
+    gain.gain.setTargetAtTime(to, now, Math.max(0.01, fadeMs / 1000 / 3));
+  }
+
+  private endBed(fadeMs: number): void {
+    const bed = this.bed;
+    if (!bed) return;
+    this.bed = undefined;
+    this.fadeBed(bed.gain, 0, fadeMs);
+    window.setTimeout(() => {
+      bed.sound.destroy();
+      bed.gain.disconnect();
+    }, fadeMs + 200);
+  }
+
+  /** The music sinks while anyone speaks, and comes back slowly after. */
+  private applyTalk(): void {
+    const m = this.mixNodes;
+    if (!m) return;
+    const now = m.ctx.currentTime;
+    const g = m.talk.gain;
+    hold(g, now);
+    if (this.talking > 0) g.setTargetAtTime(VOICE_DUCK, now, VOICE_DUCK_IN_TC);
+    else g.setTargetAtTime(1, now, VOICE_DUCK_OUT_TC);
   }
 
   /** Mono audio folds everything, music included, to one signal in both ears. */
@@ -573,6 +727,7 @@ class AudioSystem {
 
   stopMusic(ending: MusicEnding = 'cut'): void {
     this.wantedMusic = undefined;
+    this.endBed(ending === 'cut' ? 0 : BED_FADE_MS);
     this.haltMusic(ending);
   }
 
@@ -586,11 +741,15 @@ class AudioSystem {
 
   /** Re-applies settings after a toggle or a volume change. */
   refresh(): void {
-    const { music, sfx, musicVolume, sfxVolume } = save.state.settings;
+    const { music, sfx, musicVolume, sfxVolume, voiceVolume } = save.state.settings;
     const ctx = this.webAudio?.context;
     if (this.musicBus && ctx) {
       this.musicBus.gain.setTargetAtTime(sliderGain(musicVolume), ctx.currentTime, 0.03);
     }
+    if (this.mixNodes) {
+      this.mixNodes.voice.gain.setTargetAtTime(sliderGain(voiceVolume), this.mixNodes.ctx.currentTime, 0.03);
+    }
+    if (this.bed) this.fadeBed(this.bed.gain, this.bedLevel(this.bed.volume), 90);
     for (const [key, s] of this.loops) {
       (s as Phaser.Sound.WebAudioSound).setVolume(
         (this.loopVolumes.get(key) ?? 0) * sliderGain(sfxVolume),

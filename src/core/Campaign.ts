@@ -76,6 +76,49 @@ export interface BossStopEntry {
   bonus?: string;
 }
 
+/**
+ * A cutscene the index file places in the campaign: played on the way into the step `before`
+ * names, or on the way out of the one `after` names. Both are `stepKey` strings.
+ */
+export interface SceneEntry {
+  id: string;
+  before?: string;
+  after?: string;
+}
+
+/** The index file's cutscenes, minus entries without an id, a place, or a scene `known` has. */
+export function validScenes(entries: unknown, known: (id: string) => boolean = () => true): SceneEntry[] {
+  if (!Array.isArray(entries)) return [];
+  const out: SceneEntry[] = [];
+  for (const e of entries as Array<Partial<SceneEntry> | null>) {
+    const id = e?.id;
+    const before = typeof e?.before === 'string' ? e.before : undefined;
+    const after = typeof e?.after === 'string' ? e.after : undefined;
+    if (typeof id !== 'string' || !id || (!before && !after) || !known(id)) continue;
+    out.push({ id, ...(before && { before }), ...(after && { after }) });
+  }
+  return out;
+}
+
+/**
+ * The cutscene to play when the player goes from `from` to `to`: the first not yet `seen` that
+ * follows `from` or leads into `to`. Either end may be missing: a level started from the map has
+ * no `from`, and the campaign's last win has no `to`.
+ */
+export function sceneBetween(
+  from: CampaignStep | undefined,
+  to: CampaignStep | undefined,
+  entries: readonly SceneEntry[],
+  seen: (id: string) => boolean,
+): string | undefined {
+  const out = from && stepKey(from);
+  const into = to && stepKey(to);
+  const hit = entries.find(
+    (e) => !seen(e.id) && ((out !== undefined && e.after === out) || (into !== undefined && e.before === into)),
+  );
+  return hit?.id;
+}
+
 /** The stops an index file lists, in order, minus any that don't sit between two of its levels. */
 export function validStops(entries: unknown, levelCount: number): BossStopEntry[] {
   if (!Array.isArray(entries)) return [];

@@ -22,6 +22,7 @@ vi.mock('phaser', () => ({
 import { SCENERY_IDS } from '../src/art/backdrops';
 import { F, FX_SHEETS, fxFrameNames, packShelves, seq } from '../src/fx/atlas';
 import { ABILITY_FX } from '../src/fx/library/abilities';
+import { AMBIENT_FX } from '../src/fx/library/ambient';
 import { BOSS_FX } from '../src/fx/library/boss';
 import { BRICK_FX } from '../src/fx/library/bricks';
 import { ELEMENT_FX } from '../src/fx/library/elements';
@@ -54,6 +55,7 @@ import type { FxDef } from '../src/fx/types';
 
 const GROUPS = {
   ABILITY_FX,
+  AMBIENT_FX,
   BOSS_FX,
   BRICK_FX,
   ELEMENT_FX,

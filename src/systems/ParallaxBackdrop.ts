@@ -21,7 +21,28 @@ const DEPTH = -100;
 const BLEED = 12;
 /** Set in preload and read in the constructor so both agree on which sheet to use. */
 const HD_REG = 'backdropHd';
+/** The world the last preload kept resident. */
+const RESIDENT_REG = 'backdropResident';
 const GLOW_KEY = 'bd_glow';
+
+/**
+ * Backdrops still on screen. A scene that fades out over the next one (a cutscene's handoff)
+ * keeps drawing its layers while the next scene preloads, so their textures can't go yet.
+ */
+const live = new Set<ParallaxBackdrop>();
+/** Sceneries a preload wanted gone while a live backdrop still showed them. */
+const deferred = new Set<SceneryId>();
+
+function shownByLive(id: SceneryId): boolean {
+  for (const b of live) if (b.shows(id)) return true;
+  return false;
+}
+
+function dropScenery(scene: Phaser.Scene, id: SceneryId, hi: boolean): void {
+  for (const a of worldAssets(id, hi)) {
+    if (scene.textures.exists(a.key)) scene.textures.remove(a.key);
+  }
+}
 /** A scenery switch fades the new layers in over the old ones for this long, in ms. */
 const SWITCH_MS = 900;
 const BIT_KEY = 'bd_bit';
@@ -67,6 +88,21 @@ interface StillLayer {
   /** Playfield units per source pixel. */
   scale: number;
 }
+
+/**
+ * Where the scroll stands, so another scene can carry on from the same frame: the layers' loop
+ * positions (0..1 of each repeat), the pace, the sway and the flicker clock.
+ */
+export interface BackdropSnapshot {
+  world: SceneryId;
+  pace: number;
+  sway: number;
+  offsets: number[];
+  clock: number;
+}
+
+/** Bands an ambient field can sit in, among the backdrop's own layers. */
+export type BackdropBand = 'back' | 'between' | 'front';
 
 /** Where a still plate is drawn now: its top-centre, its scale, and how solid it is. */
 export interface StillFrame {
@@ -136,10 +172,10 @@ export class ParallaxBackdrop implements Tintable {
   static preload(scene: Phaser.Scene, world: SceneryId): void {
     const hd = WIDE && !save.state.settings.batterySaver;
     scene.registry.set(HD_REG, hd);
+    scene.registry.set(RESIDENT_REG, world);
     const drop = (id: SceneryId, hi: boolean) => {
-      for (const a of worldAssets(id, hi)) {
-        if (scene.textures.exists(a.key)) scene.textures.remove(a.key);
-      }
+      if (shownByLive(id)) deferred.add(id);
+      else dropScenery(scene, id, hi);
     };
     for (const other of SCENERY_IDS) {
       if (other === world) {
@@ -190,6 +226,10 @@ export class ParallaxBackdrop implements Tintable {
   /** The scenery whose art is loading, to fade to once it is in. */
   private switching?: SceneryId;
   private dead = false;
+  /** A steady lift on the lights, under the flares, for scenes that light the room. */
+  private glowBase = 0;
+  /** Extra multiply tints on single layers, by layer name. */
+  private layerTints = new Map<string, number>();
 
   /** `pace` scales every scroll speed; menus drift slower than play. */
   constructor(
@@ -206,10 +246,19 @@ export class ParallaxBackdrop implements Tintable {
     this.applyTint();
     scene.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
+    live.add(this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.dead = true;
+      live.delete(this);
       scene.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
       scene.events.off(Phaser.Scenes.Events.UPDATE, this.onUpdate, this);
+      const resident = scene.registry.get(RESIDENT_REG) as SceneryId | undefined;
+      for (const id of [...deferred]) {
+        if (id === resident || shownByLive(id)) continue;
+        deferred.delete(id);
+        dropScenery(scene, id, false);
+        dropScenery(scene, id, true);
+      }
     });
   }
 
@@ -371,6 +420,95 @@ export class ParallaxBackdrop implements Tintable {
     if (this.haze) this.hazeNear(this.haze.key, this.haze.amount);
   }
 
+  /** The scenery showing, or the one it is changing to. */
+  get current(): SceneryId {
+    return this.switching ?? this.world;
+  }
+
+  /** True while this backdrop draws, or is loading, the scenery's art. */
+  shows(id: SceneryId): boolean {
+    return !this.dead && (this.world === id || this.switching === id);
+  }
+
+  /** Where the scroll stands now, for the next scene to carry on from. */
+  snapshot(): BackdropSnapshot {
+    return {
+      world: this.world,
+      pace: this.pace,
+      sway: this.sway,
+      offsets: this.tiles.map((t) => (t.period > 0 ? t.offset / t.period : 0)),
+      clock: this.clock,
+    };
+  }
+
+  /**
+   * Carries on from a snapshot taken in another scene, so the cut between them can't be seen. A
+   * snapshot of another world only takes its pace.
+   */
+  restore(s: BackdropSnapshot): this {
+    const pace = this.still ? 0 : s.pace;
+    this.pace = this.paceTarget = pace;
+    if (s.world !== this.world) return this;
+    this.tiles.forEach((t, i) => (t.offset = ((s.offsets[i] ?? 0) % 1) * t.period));
+    if (!this.still) this.sway = this.swayTarget = s.sway;
+    this.clock = s.clock;
+    this.place();
+    return this;
+  }
+
+  /** Sets the scroll speed at once, with none of setPace's easing: a cutscene drives it. */
+  drive(pace: number): void {
+    if (this.still) return;
+    this.wantPace = pace;
+    if (this.landing === 'rising' || this.landing === 'landed') return;
+    this.pace = this.paceTarget = pace;
+  }
+
+  /** The parallax slide, -1..1, set directly rather than from the paddle. */
+  setSway(v: number): void {
+    if (this.still) return;
+    this.sway = this.swayTarget = Phaser.Math.Clamp(v, -1, 1);
+  }
+
+  /** A steady brightening of the lights, 0..0.6, that flashes add to. */
+  setGlow(amount: number): void {
+    this.glowBase = Phaser.Math.Clamp(amount, 0, 0.6);
+  }
+
+  /** A multiply tint on one layer by name (far, mid, near, fog1...), or white to clear it. */
+  setLayerTint(name: string, color: number): void {
+    if (color === 0xffffff) this.layerTints.delete(name);
+    else this.layerTints.set(name, color);
+    this.applyTint();
+  }
+
+  /** A depth for something drawn among the layers: behind them all, past the middle, or in front. */
+  bandDepth(band: BackdropBand): number {
+    const layers = WORLD_LOOKS[this.world].layers;
+    if (band === 'back') return DEPTH + 0.5;
+    if (band === 'front') return DEPTH + layers.length + 1;
+    const mid = layers.findIndex((l) => l.kind === 'tiles' && l.name === 'mid');
+    return DEPTH + 1 + (mid >= 0 ? mid : Math.floor(layers.length / 2)) + 0.5;
+  }
+
+  /**
+   * Starts loading other sceneries in the background, so a later `switchTo` finds them ready.
+   * Nothing is dropped: the caller asks only for what its scene will show.
+   */
+  prefetch(ids: readonly SceneryId[]): void {
+    const scene = this.scene;
+    const hd = scene.registry.get(HD_REG) === true;
+    let queued = false;
+    for (const id of ids) {
+      for (const a of worldAssets(id, hd)) {
+        if (scene.textures.exists(a.key)) continue;
+        scene.load.image(a.key, `assets/${a.path}`);
+        queued = true;
+      }
+    }
+    if (queued) scene.load.start();
+  }
+
   /** Multiply tint from Backdrop (dim, Fever hue, Black Hole dark) over each layer's own grade. */
   setTint(color: number): this {
     this.tint = color;
@@ -508,7 +646,8 @@ export class ParallaxBackdrop implements Tintable {
       this.sky.setTint(multiply(this.skyTint, this.tint));
     else this.sky.setFillStyle(multiply(WORLD_LOOKS[this.world].base, this.tint));
     for (const t of this.tiles) {
-      const color = multiply(t.look.tint ?? 0xffffff, this.tint);
+      const own = this.layerTints.get(t.look.name);
+      const color = multiply(multiply(t.look.tint ?? 0xffffff, this.tint), own ?? 0xffffff);
       for (const p of t.parts) p.sprite.setTint(color);
     }
     for (const g of this.glows) g.image.setTint(multiply(g.look.color, this.tint));
@@ -666,7 +805,7 @@ export class ParallaxBackdrop implements Tintable {
       ? 1
       : 1 + 0.1 * Math.sin(this.clock * 1.7) + 0.06 * Math.sin(this.clock * 4.3 + 1.3);
     for (const g of this.glows) {
-      g.image.setAlpha(Math.min(1, g.look.alpha * flicker + this.flare) * this.fade);
+      g.image.setAlpha(Math.min(1, g.look.alpha * flicker + this.glowBase + this.flare) * this.fade);
     }
     for (const m of this.motes) m.emitter.timeScale = Math.max(0.2, this.pace);
   }

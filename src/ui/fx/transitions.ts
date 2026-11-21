@@ -1,10 +1,12 @@
 import type Phaser from 'phaser';
 import { SCENES } from '../../config';
-import type { Transition } from '../../scenes/Transition';
+import type { Transition, TransitionStyle } from '../../scenes/Transition';
 
 export interface TransitionOptions {
   /** Other scenes to stop once the screen is covered. */
   stop?: string[];
+  /** `continuous` and `dissolve` start the next scene under this one instead of covering. */
+  style?: TransitionStyle;
 }
 
 function layer(scene: Phaser.Scene): Transition | undefined {
@@ -25,7 +27,7 @@ export function transitionTo(
     scene.scene.start(key, data);
     return;
   }
-  tr.go({ from: scene, key, data, stop: opts.stop });
+  tr.go({ from: scene, key, data, stop: opts.stop, style: opts.style });
 }
 
 /** True while a transition is covering or revealing; screens ignore input meanwhile. */

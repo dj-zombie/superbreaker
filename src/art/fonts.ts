@@ -1,15 +1,18 @@
 import type Phaser from 'phaser';
-import { DISPLAY_FONT } from '../config';
+import { DISPLAY_FONT, UI_FONT } from '../config';
 
 /** Plain white glyphs for HUD numbers and labels; tint them per use. */
 export const HUD_FONT = 'ui-plain';
 /** White glyphs with a dark outline, for pop-up text over the playfield. */
 export const POP_FONT = 'ui-pop';
+/** The body face for cutscene dialog, with typographic quotes, dashes and the ellipsis. */
+export const DIALOG_FONT = 'ui-dialog';
 
 const BASE = 64;
 const ATLAS_W = 1024;
 const OUTLINE = '#06050a';
 const CHARS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '·×‹›';
+const DIALOG_CHARS = CHARS + '‘’“”…—–éèêàçñöü¡¿';
 
 /**
  * Bakes UI_FONT into glyph atlases so labels that change often can be BitmapText. A canvas Text
@@ -20,9 +23,37 @@ export function buildUiFonts(scene: Phaser.Scene): void {
   bake(scene, POP_FONT, Math.round(BASE * 0.2));
 }
 
-function bake(scene: Phaser.Scene, key: string, outline: number): void {
+/** Bakes the dialog face on first use, once the web fonts have loaded. */
+export function buildDialogFont(scene: Phaser.Scene): string {
+  bake(scene, DIALOG_FONT, 0, `600 ${BASE}px ${UI_FONT}`, DIALOG_CHARS);
+  return DIALOG_FONT;
+}
+
+/** How far the pen moves for `ch` in a baked font at `size` px. */
+export function glyphAdvance(
+  scene: Phaser.Scene,
+  key: string,
+  size: number,
+): (ch: string) => number {
+  const data = scene.cache.bitmapFont.get(key)?.data as
+    { size: number; chars: Record<number, { xAdvance: number }> } | undefined;
+  if (!data) return () => size * 0.5;
+  const k = size / data.size;
+  const space = (data.chars[32]?.xAdvance ?? data.size * 0.3) * k;
+  return (ch) => {
+    const adv = data.chars[ch.charCodeAt(0)]?.xAdvance;
+    return adv === undefined ? space : adv * k;
+  };
+}
+
+function bake(
+  scene: Phaser.Scene,
+  key: string,
+  outline: number,
+  font = `800 ${BASE}px ${DISPLAY_FONT}`,
+  chars = CHARS,
+): void {
   if (scene.cache.bitmapFont.exists(key)) return;
-  const font = `800 ${BASE}px ${DISPLAY_FONT}`;
   const probe = document.createElement('canvas').getContext('2d');
   if (!probe) return;
   probe.font = font;
@@ -36,15 +67,20 @@ function bake(scene: Phaser.Scene, key: string, outline: number): void {
   const cells: Array<{ ch: string; x: number; y: number; w: number; adv: number }> = [];
   let x = 0;
   let y = 0;
-  for (const ch of CHARS) {
-    const adv = probe.measureText(ch).width;
+  for (const ch of chars) {
+    const ink = probe.measureText(ch);
+    const adv = ink.width;
     const w = Math.ceil(adv) + pad * 2;
-    if (x + w > ATLAS_W) {
+    // Ink past the advance (the hook of a j, an italic f) is left clear, so it never shows at
+    // the edge of the glyph beside it.
+    const left = Math.max(0, Math.ceil(ink.actualBoundingBoxLeft) - pad);
+    const right = Math.max(0, Math.ceil(ink.actualBoundingBoxRight - adv) - pad);
+    if (x + left + w + right > ATLAS_W) {
       x = 0;
       y += cellH;
     }
-    cells.push({ ch, x, y, w, adv });
-    x += w;
+    cells.push({ ch, x: x + left, y, w, adv });
+    x += left + w + right;
   }
   const atlasH = y + cellH;
 
@@ -57,13 +93,13 @@ function bake(scene: Phaser.Scene, key: string, outline: number): void {
   ctx.lineWidth = outline;
   ctx.strokeStyle = OUTLINE;
   ctx.fillStyle = '#ffffff';
-  const chars: Record<number, object> = {};
+  const glyphs: Record<number, object> = {};
   for (const c of cells) {
     const bx = c.x + pad;
     const by = c.y + pad + ascent;
     if (outline > 0) ctx.strokeText(c.ch, bx, by);
     ctx.fillText(c.ch, bx, by);
-    chars[c.ch.charCodeAt(0)] = {
+    glyphs[c.ch.charCodeAt(0)] = {
       x: c.x,
       y: c.y,
       width: c.w,
@@ -84,7 +120,7 @@ function bake(scene: Phaser.Scene, key: string, outline: number): void {
   }
   tex.refresh();
   scene.cache.bitmapFont.add(key, {
-    data: { font: key, size: BASE, lineHeight, chars },
+    data: { font: key, size: BASE, lineHeight, chars: glyphs },
     texture: key,
     frame: null,
   });

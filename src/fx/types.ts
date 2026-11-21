@@ -85,6 +85,11 @@ export interface EmitSpec {
   onDeath?: string;
   /** Chance per particle of `onDeath`, 0..1. */
   deathChance?: number;
+  /**
+   * How much the layer moves with the camera: 1 is pinned to the world, below 1 it trails the
+   * camera like a far layer, above 1 it rushes past like something near the lens.
+   */
+  parallax?: number;
 }
 
 /** A pooled image from the fx atlas that scales and fades: rings, shockwaves, flares, decals. */
@@ -166,6 +171,11 @@ export interface FxOpts {
   quiet?: boolean;
   /** Skip every hook, light included: the caller already lights and shakes this moment itself. */
   bare?: boolean;
+  /**
+   * Draws the particles at this depth instead of their channel's, so an ambient field can sit
+   * among a backdrop's layers (ParallaxBackdrop.bandDepth) or over everything.
+   */
+  depth?: number;
 }
 
 /** What the engine may reach for outside itself. All optional: the FX Lab has no light map. */

@@ -61,6 +61,8 @@ export interface Settings {
   /** Volume slider positions, 0..1. */
   musicVolume: number;
   sfxVolume: number;
+  /** Spoken lines in cutscenes, which have no switch of their own. */
+  voiceVolume: number;
   /** Controller stick speed, 0..1. Center is the speed the stick shipped with. */
   stickSensitivity: number;
   /** The same sound in both ears: no stereo panning. */
@@ -100,6 +102,8 @@ export interface SaveData {
   seenInstructions: boolean;
   /** Skills whose one-time READY hint has shown. */
   seenSkills: SkillId[];
+  /** Cutscenes watched to the end or skipped, by id: they don't play again on their own. */
+  seenScenes: string[];
 }
 
 export const SAVE_KEY = 'superbreaker.save';
@@ -128,6 +132,7 @@ export function defaultSave(): SaveData {
       sfx: true,
       musicVolume: DEFAULT_VOLUME,
       sfxVolume: DEFAULT_VOLUME,
+      voiceVolume: DEFAULT_VOLUME,
       stickSensitivity: DEFAULT_STICK_SENSITIVITY,
       monoAudio: false,
       haptics: true,
@@ -139,6 +144,7 @@ export function defaultSave(): SaveData {
     },
     seenInstructions: false,
     seenSkills: [],
+    seenScenes: [],
   };
 }
 
@@ -193,6 +199,9 @@ export function normalizeSave(raw: unknown): SaveData {
   }
   d.seenInstructions = r.seenInstructions === true;
   if (Array.isArray(r.seenSkills)) d.seenSkills = SKILL_IDS.filter((id) => r.seenSkills!.includes(id));
+  if (Array.isArray(r.seenScenes)) {
+    d.seenScenes = [...new Set(r.seenScenes.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  }
   return d;
 }
 

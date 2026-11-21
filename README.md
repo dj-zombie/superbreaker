@@ -25,7 +25,7 @@ pnpm dev          # http://localhost:5173
 | `pnpm desktop:dev`  | Electron window on the Vite dev server, with hot reload      |
 | `pnpm desktop:dist` | Build the desktop app and package installers into `release/` |
 
-In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=5` plays the campaign's boss stop after level 5 (the Warden). `?fx=lab` opens the FX Lab, a test bench for every particle effect (see [FX engine](#fx-engine)). The Phaser game is also available as `window.game` in the browser console:
+In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=5` plays the campaign's boss stop after level 5 (the Warden). `?scene=chapter-2` plays a cutscene, and `&at=arrival` (a label or a time in ms) starts it partway; the running scene is `window.cutscene` in the console, with `seek`, `pause`, `resume`, `step`, `skip` and `labels` (see [docs/cutscenes/authoring.md](docs/cutscenes/authoring.md)). `?fx=lab` opens the FX Lab, a test bench for every particle effect (see [FX engine](#fx-engine)). The Phaser game is also available as `window.game` in the browser console:
 
 ```js
 game.scene.getScene('Title').scene.start('Play', { index: 24 });
@@ -54,6 +54,7 @@ src/
     Run.ts           Arcade run rules: loops, goals, tiers, clock
     Boss.ts          Boss fight rules: steps, phases, attack plans and their fairness checks
     Cues.ts          The cue scheduler behind boss cutscenes
+    cutscene/        Cutscene scripts as data: step builders, the compiler, the playhead, grades and text markup
     procgen/         Arcade level generator: tier curve, patterns, mechanics, rule checks
     SaveStore.ts     Versioned save data with legacy Cordova migration
   entities/          Ball, Paddle, Brick game objects
@@ -61,7 +62,10 @@ src/
   fx/                The particle engine, its texture atlas and color palettes
     library/         The effect presets, one file per group (bricks, impacts, weapons, boss, weather...)
   bosses/            One file per boss, and the list a level's `boss` property picks from
-  scenes/            Boot, Preload, Title, Worlds, WorldPath, Briefing, ArcadeSelect, Play, Hud, Pause, Results, Upgrades, Settings, Transition
+  cutscenes/         One file per story cutscene, and the list `index.json` routes from
+  systems/cutscene/  The cutscene director: camera, grade, actors, plates and ambient fields
+  ui/cutscene/       Letterbox, dialog box and chapter card views
+  scenes/            Boot, Preload, Title, Worlds, WorldPath, Briefing, ArcadeSelect, Play, Hud, Cutscene, Pause, Results, Upgrades, Settings, Transition
   ui/                Per-world themes, baked frames, buttons, cards, controls and widgets
   ui/fx/             Scene transitions, motion helpers, UI particles, the logo reveal and behind-overlay filters
   art/procedural.ts  Canvas-drawn fallbacks for any texture that fails to load
@@ -71,7 +75,7 @@ src/
   platform/          Storage, haptics, app lifecycle, gamepad, the pad cursor and the desktop bridge
 desktop/             Electron shell: the window, the app:// file server and the preload bridge
 public/assets/       Images, audio, fonts, tileset and levels
-docs/                Design notes for larger features (Arcade, TV play, boss fights)
+docs/                Design notes for larger features (Arcade, TV play, boss fights, cutscenes)
 art-src/             Source sheets for the generated art, and the painted backdrop layers
 scripts/process-art.py  Cuts the art sheets into game sprites and app icons
 scripts/build-foreground.py  Cuts the per-world brick, paddle and ball renders into atlases and normal maps
@@ -81,6 +85,8 @@ scripts/build-bosses.py  Cuts the boss sprite sheets
 scripts/build-fx.py  Cuts the generated particle sheets into strips for the fx atlas
 scripts/build-boss-audio.py  Synthesizes the placeholder boss sound effects
 scripts/build-boss-music.py  Cuts the placeholder boss track from a recording
+scripts/build-cutscene-art.py  Cuts the cutscene portraits, sprite sheets and plates
+scripts/build-cutscene-audio.py  Synthesizes the placeholder cutscene sounds and the wind bed
 archive/             Retired levels and the old static backgrounds
 tests/               Vitest suites
 ios/, android/       Capacitor native projects
@@ -348,6 +354,17 @@ python3 scripts/build-bosses.py
 ```
 
 The boss sound effects (`public/assets/audio/boss/`) and the boss track (`public/assets/audio/music/boss-placeholder.mp3`) are placeholders. `scripts/build-boss-audio.py` synthesizes the effects (numpy, ffmpeg) and `scripts/build-boss-music.py --fetch` downloads a recording with yt-dlp and cuts the track from it. [docs/boss-fights/authoring.md](docs/boss-fights/authoring.md) is the guide to adding a boss.
+
+### Cutscenes
+
+Story scenes play between campaign steps, as listed under `scenes` in `public/assets/levels/index.json`, once per save. Each is a script in `src/cutscenes/` written with the builders in `src/core/cutscene/`. The source art is in `art-src/cutscenes/`; `scripts/build-cutscene-art.py` (Pillow, numpy) cuts the portraits, sheets and plates into `public/assets/images/cutscenes/`, and `scripts/build-cutscene-audio.py` (numpy, ffmpeg) synthesizes the placeholder sounds:
+
+```sh
+python3 scripts/build-cutscene-art.py
+python3 scripts/build-cutscene-audio.py
+```
+
+[docs/cutscenes/authoring.md](docs/cutscenes/authoring.md) is the guide to writing one, and [docs/cutscenes/design.md](docs/cutscenes/design.md) explains how the director works.
 
 ## Mobile builds
 

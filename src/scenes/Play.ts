@@ -116,7 +116,7 @@ import { JuiceSystem } from '../systems/JuiceSystem';
 import { FORCED_LASER_MODE, LaserSystem, POD_DEPTH } from '../systems/LaserSystem';
 import { OnboardingCoach, type CoachHand } from '../systems/OnboardingCoach';
 import { LightingSystem, type Light } from '../systems/LightingSystem';
-import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
+import { ParallaxBackdrop, type BackdropSnapshot } from '../systems/ParallaxBackdrop';
 import { PowerupSystem, type ActiveEffect, type Pickup } from '../systems/PowerupSystem';
 import { GUN_DEPTH } from '../systems/RailGunFx';
 import { RunDirector, type RunHost } from '../systems/RunDirector';
@@ -128,6 +128,7 @@ import { calm, css, pickWorld, theme, useWorld, worldLevels } from '../ui/theme'
 import { display, glowWord, heading, label } from '../ui/type';
 import { Meter, revealStars, RingTimer } from '../ui/widgets';
 import { BaseScene } from './BaseScene';
+import { playCutscene, storyBetween } from './Cutscene';
 
 export interface PlayData {
   /** Campaign level, 1-based. */
@@ -136,6 +137,8 @@ export interface PlayData {
   stop?: StopKind;
   /** Starts an Arcade run instead of a campaign level. */
   run?: RunConfig;
+  /** The backdrop a cutscene leaves on screen, to scroll on from without a cut. */
+  handoff?: BackdropSnapshot;
 }
 
 export interface RunResults {
@@ -297,6 +300,7 @@ export class Play extends BaseScene {
   atStop?: StopKind;
   /** Set when this is an Arcade run rather than a campaign level. */
   runConfig?: RunConfig;
+  private handoff?: BackdropSnapshot;
   hud!: HudState;
 
   private level!: LevelSpec;
@@ -382,6 +386,7 @@ export class Play extends BaseScene {
 
   init(data: PlayData): void {
     this.runConfig = data.run;
+    this.handoff = data.run ? undefined : data.handoff;
     this.levelIndex = data.run
       ? 0
       : Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
@@ -456,17 +461,20 @@ export class Play extends BaseScene {
 
   create(): void {
     this.setupCamera();
-    const shade = Phaser.Display.Color.IntegerToColor(theme().palette.base);
-    this.cameras.main.fadeIn(
-      this.atStop === 'bonus' ? BONUS_WIPE_IN_MS : 300,
-      shade.red,
-      shade.green,
-      shade.blue,
-    );
-    // A finished fade-in keeps drawing a clear full-screen fill every frame until it is reset.
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () =>
-      this.cameras.main.fadeEffect.reset(),
-    );
+    // Taking over from a cutscene, the backdrop is already on screen: the board fades in over it.
+    if (!this.handoff) {
+      const shade = Phaser.Display.Color.IntegerToColor(theme().palette.base);
+      this.cameras.main.fadeIn(
+        this.atStop === 'bonus' ? BONUS_WIPE_IN_MS : 300,
+        shade.red,
+        shade.green,
+        shade.blue,
+      );
+      // A finished fade-in keeps drawing a clear full-screen fill every frame until it is reset.
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () =>
+        this.cameras.main.fadeEffect.reset(),
+      );
+    }
     this.input.enabled = true;
     onBack(this, () => this.requestPause());
     this.runDirector = this.runConfig ? new RunDirector(this.runConfig) : undefined;
@@ -504,6 +512,7 @@ export class Play extends BaseScene {
     const scenery = this.sceneryFor(this.level);
     this.sceneryPace = scenery.pace;
     this.scenery = new ParallaxBackdrop(this, scenery.id, scenery.pace);
+    if (this.handoff?.world === scenery.id) this.scenery.restore({ ...this.handoff, pace: scenery.pace });
     this.lighting = new LightingSystem(this, world, this.level, this.scenery);
     // The light map replaces the flat dim; without WebGL the old tint still darkens the art.
     this.backdrop = this.lighting.enabled
@@ -2397,6 +2406,17 @@ export class Play extends BaseScene {
       if (gone) return;
       gone = true;
       this.skipBanner = undefined;
+      const story = storyBetween(this, { index: d.index, stop: d.stop }, next);
+      if (story) {
+        // The story takes over the scrolling backdrop as the board fades away.
+        playCutscene(
+          this,
+          story,
+          { scene: SCENES.play, data: { index: next.index, stop: next.stop } },
+          { handoff: this.scenery.snapshot(), stop: [SCENES.hud] },
+        );
+        return;
+      }
       const c = Phaser.Display.Color.IntegerToColor(t.palette.base);
       // From a boss into its bonus stage the wipe takes its time, as the fight lets go.
       const intoBonus = d.stop === 'boss' && next.stop === 'bonus';

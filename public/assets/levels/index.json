@@ -42,5 +42,11 @@
       "map": "boss10.tmj",
       "bonus": "pinata.tmj"
     }
+  ],
+  "scenes": [
+    {
+      "id": "chapter-2",
+      "before": "level11"
+    }
   ]
 }

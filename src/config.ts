@@ -543,6 +543,7 @@ export const SCENES = {
   worlds: 'Worlds',
   worldPath: 'WorldPath',
   briefing: 'Briefing',
+  cutscene: 'Cutscene',
   transition: 'Transition',
   gallery: 'UiGallery',
   fxLab: 'FxLab',

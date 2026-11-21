@@ -36,6 +36,7 @@ import { Title } from './scenes/Title';
 import { Worlds } from './scenes/Worlds';
 import { WorldPath } from './scenes/WorldPath';
 import { Briefing } from './scenes/Briefing';
+import { Cutscene } from './scenes/Cutscene';
 import { ArcadeSelect } from './scenes/ArcadeSelect';
 import { Play } from './scenes/Play';
 import { Hud } from './scenes/Hud';
@@ -210,6 +211,7 @@ async function start(): Promise<void> {
       Play,
       Hud,
       Briefing,
+      Cutscene,
       Pause,
       Results,
       Upgrades,

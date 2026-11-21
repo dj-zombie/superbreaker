@@ -3,10 +3,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   clearedLabel,
+  sceneBetween,
   stepAfter,
   stepKey,
   stepLabel,
   stopOf,
+  validScenes,
   validStops,
   type BossStop,
 } from '../src/core/Campaign';
@@ -149,6 +151,43 @@ describe('boss stop progress', () => {
     store.recordBoss(5, 3, 100, 30);
     store.recordBonusStop(5, 3, 100, 30);
     expect(store.clearedCount()).toBe(1);
+  });
+});
+
+describe('cutscenes between steps', () => {
+  const entries = validScenes([
+    { id: 'chapter-2', before: 'level11' },
+    { id: 'ending', after: 'level30' },
+    { id: 'warden-intro', before: 'boss10' },
+  ]);
+  const none = () => false;
+
+  it('keeps entries with an id and a place, and drops unknown scenes', () => {
+    expect(validScenes(null)).toEqual([]);
+    expect(
+      validScenes([{ id: 'a' }, { before: 'level02' }, { id: '', after: 'level01' }, null, { id: 'b', after: 'level03' }]),
+    ).toEqual([{ id: 'b', after: 'level03' }]);
+    expect(validScenes([{ id: 'x', before: 'level02' }], (id) => id !== 'x')).toEqual([]);
+  });
+
+  it('plays on the way into a step, from wherever the player comes', () => {
+    expect(sceneBetween({ index: 10, stop: 'bonus' }, { index: 11 }, entries, none)).toBe('chapter-2');
+    expect(sceneBetween({ index: 10, stop: 'boss' }, { index: 11 }, entries, none)).toBe('chapter-2');
+    expect(sceneBetween(undefined, { index: 11 }, entries, none)).toBe('chapter-2');
+    expect(sceneBetween({ index: 10 }, { index: 10, stop: 'boss' }, entries, none)).toBe('warden-intro');
+  });
+
+  it('plays on the way out of a step, even with nowhere to go', () => {
+    expect(sceneBetween({ index: 30 }, undefined, entries, none)).toBe('ending');
+  });
+
+  it('plays a scene once', () => {
+    expect(sceneBetween(undefined, { index: 11 }, entries, (id) => id === 'chapter-2')).toBeUndefined();
+  });
+
+  it('plays nothing elsewhere', () => {
+    expect(sceneBetween({ index: 11 }, { index: 12 }, entries, none)).toBeUndefined();
+    expect(sceneBetween(undefined, undefined, entries, none)).toBeUndefined();
   });
 });
 

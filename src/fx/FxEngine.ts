@@ -109,7 +109,8 @@ export class FxEngine {
   static current?: FxEngine;
   world: SceneryId;
   hooks: FxHooks;
-  private emitters = new Map<ChannelId, Emitter>();
+  /** By channel, plus one per depth and parallax that a caller asked for. */
+  private emitters = new Map<string, Emitter>();
   private frames = new Map<string, Frame>();
   private running: Running[] = [];
   private sprites: LiveSprite[] = [];
@@ -319,8 +320,9 @@ export class FxEngine {
     this.budget -= n;
   }
 
-  private emitter(channel: ChannelId): Emitter {
-    let e = this.emitters.get(channel);
+  private emitter(channel: ChannelId, depth?: number, parallax = 1): Emitter {
+    const key = depth === undefined && parallax === 1 ? channel : `${channel}@${depth ?? ''}~${parallax}`;
+    let e = this.emitters.get(key);
     if (!e) {
       const c = CHANNELS[channel];
       e = this.scene.add.particles(0, 0, FX_TEXTURE, {
@@ -330,8 +332,8 @@ export class FxEngine {
         particleClass: FxParticle,
         blendMode: c.blend,
       });
-      e.setDepth(c.depth);
-      this.emitters.set(channel, e);
+      e.setDepth(depth ?? c.depth).setScrollFactor(parallax);
+      this.emitters.set(key, e);
     }
     return e;
   }
@@ -395,7 +397,7 @@ export class FxEngine {
         : undefined,
     };
     pending.current = em;
-    this.emitter(spec.channel).emitParticleAt(x, y, n);
+    this.emitter(spec.channel, opts.depth, spec.parallax).emitParticleAt(x, y, n);
     pending.current = null;
   }
 
@@ -550,7 +552,7 @@ export class FxEngine {
     img
       .setPosition(x + dx, y + dy)
       .setBlendMode(spec.blend === 'normal' ? NORMAL : ADD)
-      .setDepth(spec.depth ?? SPRITE_DEPTH)
+      .setDepth(opts.depth ?? spec.depth ?? SPRITE_DEPTH)
       .setAlpha(0)
       .setVisible(!spec.delay);
     const s: LiveSprite = {

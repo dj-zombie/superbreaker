@@ -35,7 +35,7 @@ export function installPadCursor(game: Phaser.Game): void {
   // scenes synchronously, so acting on press would let Play see the same press once it resumes.
   const armed = new Set<number>();
 
-  const playing = () => game.scene.isActive(SCENES.play);
+  const playing = () => game.scene.isActive(SCENES.play) || game.scene.isActive(SCENES.cutscene);
   const inCharge = () => padConnected() && inputSource() === 'pad' && !playing();
 
   const place = () => {

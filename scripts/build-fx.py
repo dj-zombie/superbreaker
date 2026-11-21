@@ -37,6 +37,8 @@ SHEETS = {
     "boomg": ("boom", 4, 3, "gray", "shared", 128),
     "arc": ("arc", 2, 2, "gray", "each", 128),
     "wisp": ("wisp", 2, 2, "gray", "each", 96),
+    # Cumulus banks for cutscenes and ambient fields: normal blend, shaded like smoke.
+    "cloud": ("cloud", 3, 2, "smoke", "each", 128),
 }
 
 # JPEG noise in the black.
