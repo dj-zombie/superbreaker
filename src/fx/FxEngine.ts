@@ -139,7 +139,7 @@ export class FxEngine {
     const rank = tierRank(tier);
     const calm = save.state.settings.reducedMotion;
     const pal = this.palette(opts);
-    const tint = opts.tint ?? 0xffffff;
+    const tint = opts.tint ?? pal.accent;
     const scale = opts.scale ?? 1;
     const world = opts.world ?? this.world;
     const here = (only?: readonly SceneryId[]) => !only || only.includes(world);
@@ -198,6 +198,45 @@ export class FxEngine {
   /** Keeps a preset's `rate` layers emitting across an area: weather and ambient fields. */
   field(id: string, area: { x: number; y: number; width: number; height: number }, opts: FxOpts = {}): FxHandle {
     return this.run(id, { x: area.x + area.width / 2, y: area.y + area.height / 2 }, area, opts);
+  }
+
+  /**
+   * Weather over `bounds` (usually the playfield): spawns in a band above it, below it or across
+   * it, as the preset's `spawn` says, so rain and ash can fall the whole height.
+   */
+  weather(id: string, bounds: { x: number; y: number; width: number; height: number }, opts: FxOpts = {}): FxHandle {
+    const band = 40;
+    const spawn = registry.get(id)?.spawn ?? 'fill';
+    const area =
+      spawn === 'top'
+        ? { x: bounds.x - 80, y: bounds.y - band, width: bounds.width + 160, height: band }
+        : spawn === 'bottom'
+          ? { x: bounds.x, y: bounds.y + bounds.height, width: bounds.width, height: band }
+          : bounds;
+    const handle = this.field(id, area, opts);
+    this.prewarm(id, bounds, opts);
+    return handle;
+  }
+
+  /** Seeds a field with a lifetime's worth of particles, already mid-flight, so it starts full. */
+  private prewarm(id: string, bounds: { x: number; y: number; width: number; height: number }, opts: FxOpts): void {
+    const def = registry.get(id);
+    if (!def || this.dead) return;
+    const tier = fxTier();
+    const rank = tierRank(tier);
+    const calm = save.state.settings.reducedMotion;
+    const pal = this.palette(opts);
+    const tint = opts.tint ?? pal.accent;
+    const world = opts.world ?? this.world;
+    const density = particleDensity() * tierScale(tier) * (opts.intensity ?? 1) * (calm ? 0.35 : 1);
+    for (const l of def.layers ?? []) {
+      if (l.rate === undefined || rank < tierRank(l.minTier ?? 'low') || (l.only && !l.only.includes(world))) continue;
+      const life = typeof l.life === 'number' ? l.life : (l.life[0] + l.life[1]) / 2;
+      const n = Math.min(300, Math.round((l.rate * density * life) / 1000));
+      const cx = bounds.x + bounds.width / 2;
+      const cy = bounds.y + bounds.height / 2;
+      if (n > 0) this.emit(l, n, cx, cy, opts, pal, tint, opts.scale ?? 1, undefined, bounds, true);
+    }
   }
 
   /** Particles alive across every channel. */
@@ -296,6 +335,7 @@ export class FxEngine {
     scale: number,
     anchor?: { x: number; y: number },
     area?: Running['area'],
+    warm = false,
   ): void {
     const names = typeof spec.frames === 'string' ? [spec.frames] : spec.frames;
     const forces: FxForce[] = [...(spec.forces ?? [])];
@@ -317,6 +357,7 @@ export class FxEngine {
       forces,
       anchor,
       area,
+      warm,
       died: spec.onDeath
         ? (dx, dy, t) => this.deaths.push({ id: spec.onDeath!, x: dx, y: dy, tint: t, world })
         : undefined,
@@ -390,7 +431,7 @@ export class FxEngine {
           continue;
         }
         const pal = this.palette(r.opts);
-        const tint = r.opts.tint ?? 0xffffff;
+        const tint = r.opts.tint ?? pal.accent;
         const scale = r.opts.scale ?? 1;
         const density = base * (r.opts.intensity ?? 1);
         const world = r.opts.world ?? this.world;
@@ -434,8 +475,14 @@ export class FxEngine {
   ): void {
     const img = this.spritePool.pop() ?? this.scene.add.image(0, 0, FX_TEXTURE, spec.frame);
     img.setFrame(spec.frame);
+    let dx = roll(spec.dx, 0) * scale;
+    let dy = roll(spec.dy, 0) * scale;
+    if (spec.aim && opts.angle) {
+      const a = opts.angle * (Math.PI / 180);
+      [dx, dy] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+    }
     img
-      .setPosition(x + roll(spec.dx, 0) * scale, y + roll(spec.dy, 0) * scale)
+      .setPosition(x + dx, y + dy)
       .setBlendMode(spec.blend === 'normal' ? NORMAL : ADD)
       .setDepth(spec.depth ?? SPRITE_DEPTH)
       .setAlpha(0)

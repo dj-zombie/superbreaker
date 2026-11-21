@@ -27,6 +27,8 @@ export interface Emission {
   anchor?: { readonly x: number; readonly y: number };
   /** Spawn area for fields: a random point in this box instead of `x`/`y` plus the zone. */
   area?: { x: number; y: number; width: number; height: number };
+  /** Prewarm: start at a random age so a field begins full instead of empty. */
+  warm?: boolean;
   died?: (x: number, y: number, tint: number) => void;
 }
 
@@ -108,10 +110,10 @@ export class FxParticle extends Phaser.GameObjects.Particles.Particle {
     this.accelerationY = 0;
 
     this.life = Math.max(1, roll(s.life, 500));
-    this.lifeCurrent = this.life;
-    this.lifeT = 0;
-    this.age = 0;
-    this.delayCurrent = roll(s.delay, 0);
+    this.age = em.warm ? Math.random() * this.life * 0.9 : 0;
+    this.lifeCurrent = this.life - this.age;
+    this.lifeT = this.age / this.life;
+    this.delayCurrent = em.warm ? 0 : roll(s.delay, 0);
     this.holdCurrent = 0;
 
     this.size0 = roll(s.size, 1) * k;

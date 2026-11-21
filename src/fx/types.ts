@@ -127,9 +127,12 @@ export interface FxDef {
   then?: ReadonlyArray<{ at: number; fx: string; dx?: Range; dy?: Range; scale?: number; angle?: Range }>;
   /** High-tier screen distortion ring. */
   distort?: { radius: number; life: number; strength?: number };
+  /** Where `fx.weather` spawns this preset relative to the bounds it is given. */
+  spawn?: 'top' | 'bottom' | 'fill';
 }
 
 export interface FxOpts {
+  /** What `@tint` resolves to: the brick's, ball's or ability's color. Defaults to the world's accent. */
   tint?: number;
   world?: SceneryId;
   /** Scales size, speed, zones and sprite sizes. */

@@ -544,6 +544,61 @@ const PAINTED: Record<string, [number, number, Painter]> = {
     },
   ],
   conf_disc: [10, 10, (c, w) => stops(c, w / 2, w / 2, w / 2, [[0, 1], [0.75, 1], [1, 0]])],
+  // A coin face-on, light from the top left so a gold tint reads as metal; `flutter` spins it.
+  coin: [
+    18,
+    18,
+    (c, w) => {
+      const r = w / 2 - 1;
+      const g = c.createLinearGradient(0, 0, w, w);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.55, '#d0d0d0');
+      g.addColorStop(1, '#7a7a7a');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(w / 2, w / 2, r, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = 'rgba(90,90,90,0.9)';
+      c.lineWidth = 1.2;
+      c.beginPath();
+      c.arc(w / 2, w / 2, r * 0.66, 0, Math.PI * 2);
+      c.stroke();
+      gaussian(c, w * 0.36, w * 0.32, w * 0.26, 3, 0.9);
+    },
+  ],
+  // Six-armed ice crystal with side branches.
+  flake: [
+    32,
+    32,
+    (c, w) => {
+      const m = w / 2;
+      c.strokeStyle = 'rgba(255,255,255,0.95)';
+      c.lineCap = 'round';
+      c.lineWidth = 1.6;
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        const ex = Math.cos(a);
+        const ey = Math.sin(a);
+        c.beginPath();
+        c.moveTo(m, m);
+        c.lineTo(m + ex * (m - 2), m + ey * (m - 2));
+        for (const [u, len] of [
+          [0.45, 0.22],
+          [0.7, 0.16],
+        ] as const) {
+          const bx = m + ex * (m - 2) * u;
+          const by = m + ey * (m - 2) * u;
+          for (const s of [-1, 1]) {
+            const b = a + s * 0.8;
+            c.moveTo(bx, by);
+            c.lineTo(bx + Math.cos(b) * w * len, by + Math.sin(b) * w * len);
+          }
+        }
+        c.stroke();
+      }
+      gaussian(c, m, m, w * 0.22, 2.5, 0.8);
+    },
+  ],
   ...Object.fromEntries(F.shards.map((n, i) => [n, [24, 24, shard(11 + i * 7)]])),
   ...Object.fromEntries(F.chunks.map((n, i) => [n, [24, 24, chunk(41 + i * 13)]])),
   ...Object.fromEntries(F.bolts.map((n, i) => [n, [96, 20, bolt(71 + i * 5)]])),
