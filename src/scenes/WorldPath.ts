@@ -101,7 +101,7 @@ export class WorldPath extends BaseScene {
     for (let index = first; index < first + 10; index++) {
       places.push({ index });
       const stop = this.stopAfter(index);
-      if (stop?.level) places.push({ index, stop: 'boss' });
+      if (stop) places.push({ index, stop: 'boss' });
       if (stop?.bonus) places.push({ index, stop: 'bonus' });
     }
     const step = (bottom - top) / (places.length - 1);
@@ -114,16 +114,14 @@ export class WorldPath extends BaseScene {
 
   private nodeState(index: number, stop: StopKind | undefined): NodeState {
     if (save.state.levels[stepKey({ index, stop })]) return 'cleared';
-    // A boss stop opens with its level's clear, and its bonus stage with the boss beaten, or with
-    // the level's clear when there is no boss. Either is open when the path already is past it, as
-    // unlocking every level leaves it.
+    // A boss stop opens with its level's clear, and its bonus stage with the boss beaten. Either
+    // is open when the path already is past it, as unlocking every level leaves it.
     const past = save.state.unlocked > index;
-    const cleared = !!save.state.levels[levelId(index)];
     const open =
       stop === 'boss'
-        ? cleared || past
+        ? !!save.state.levels[levelId(index)] || past
         : stop === 'bonus'
-          ? (this.stopAfter(index)?.level ? save.bossBeaten(index) : cleared) || past
+          ? save.bossBeaten(index) || past
           : index <= save.state.unlocked;
     return open ? 'open' : 'locked';
   }

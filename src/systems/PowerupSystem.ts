@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playPickupLoop } from '../art/pickups';
 import { HYPER_DURATION_MS, LOSE_Y, PIERCE_DURATION_MS, POWERUP_INFO } from '../config';
 import { DropDirector, powerupStats, type DropContext } from '../core/Economy';
 import type { PowerupId } from '../core/types';
@@ -40,6 +41,8 @@ export class Pickup extends Phaser.Physics.Arcade.Sprite {
     super(scene, x, y, POWERUP_INFO[kind].texture);
     scene.add.existing(this);
     this.setDepth(6);
+    // Before the body exists, which takes its size from the current frame.
+    playPickupLoop(this, kind);
   }
 }
 

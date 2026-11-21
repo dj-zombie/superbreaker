@@ -740,8 +740,6 @@ export const ALWAYS_PROCEDURAL = [
   'laser_flash',
   'laser_casing',
   'laser_bit',
-  'pu_mystery',
-  'pu_hyper',
   ...ABILITY_IDS.map((id) => `ab_${id}`),
 ];
 

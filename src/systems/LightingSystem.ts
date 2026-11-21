@@ -381,7 +381,7 @@ export class LightingSystem {
   private lookAt = 0;
   private frame = 0;
   private bricks: readonly Brick[] = [];
-  private paddle?: Phaser.GameObjects.Image;
+  private paddle?: LitImage;
   /** Images lit the way bricks are without being one: a boss's sprite. */
   private lit: LitImage[] = [];
   /** The ones too big for a single quad, and the pieces drawn in their place. */
@@ -475,7 +475,7 @@ export class LightingSystem {
   }
 
   /** The bricks to tint and shadow, and the paddle to tint. Call once after both exist. */
-  attach(bricks: readonly Brick[], paddle: Phaser.GameObjects.Image): void {
+  attach(bricks: readonly Brick[], paddle: LitImage): void {
     this.bricks = bricks;
     this.paddle = paddle;
   }

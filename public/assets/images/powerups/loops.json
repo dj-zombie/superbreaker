@@ -1,0 +1,81 @@
+{
+ "balls": {
+  "frames": 36,
+  "fps": 20.09,
+  "width": 96,
+  "height": 96,
+  "cols": 8,
+  "yoyo": true
+ },
+ "bigger": {
+  "frames": 27,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "extraLife": {
+  "frames": 35,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8,
+  "yoyo": true
+ },
+ "fireball": {
+  "frames": 28,
+  "fps": 19.64,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "hyper": {
+  "frames": 28,
+  "fps": 22.15,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "laser": {
+  "frames": 27,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "magnet": {
+  "frames": 27,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "mystery": {
+  "frames": 27,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "pierce": {
+  "frames": 29,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "shield": {
+  "frames": 28,
+  "fps": 19.64,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ },
+ "smaller": {
+  "frames": 27,
+  "fps": 24.0,
+  "width": 96,
+  "height": 96,
+  "cols": 8
+ }
+}

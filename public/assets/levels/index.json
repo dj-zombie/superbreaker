@@ -38,12 +38,9 @@
       "bonus": "gallery.tmj"
     },
     {
-      "after": 8,
-      "bonus": "pinata.tmj"
-    },
-    {
       "after": 10,
-      "map": "boss10.tmj"
+      "map": "boss10.tmj",
+      "bonus": "pinata.tmj"
     }
   ],
   "scenes": [

@@ -2289,14 +2289,12 @@ export class Play extends BaseScene {
     this.abilities.clearEffects();
     if (this.skills.slowmo.active) this.endSlowmo();
     const here = this.campaignStep;
-    // Worked out before the win is saved: a level's stop is next only while its boss stands, or
-    // until a bonus stage with no boss has been played.
+    // Worked out before the win is saved: a level's stop is next only while its boss stands.
     const next = stepAfter(
       here,
-      (i) => !!this.stopAfter(i)?.level,
+      (i) => !!this.stopAfter(i),
       (i) => save.bossBeaten(i),
       (i) => !!this.stopAfter(i)?.bonus,
-      (i) => !!save.state.levels[stepKey({ index: i, stop: 'bonus' })],
     );
     runCarry.stage(this.abilities.held(), stepKey(next));
     const stars = earned ?? starsForLives(this.hud.lives);

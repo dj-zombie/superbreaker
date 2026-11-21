@@ -11,8 +11,10 @@ The cut sprites go to art-src/foreground/<world>/sprites/. The original brick PN
 public/assets/images/bricks/ are the Tiled tileset and are never touched.
 
 Each world's sprites are then packed into the one atlas the game loads,
-public/assets/images/foreground/<world>.png + <world>.json, plus a normal map atlas with the same
-layout (<world>_n.png) for the High lighting tier. Normals
+public/assets/images/foreground/<world>.webp + <world>.json, plus a normal map atlas with the same
+layout (<world>_n.png) for the High lighting tier. The looping paddle and ball frames that
+scripts/build-anims.py writes to art-src/foreground/<world>/anim/ are packed in too, as
+paddle_00, paddle_01, ... and ball_00, ball_01, ... Normals
 come from a bevel around each sprite's alpha plus a high-pass of its brightness, so the painted
 detail catches moving lights.
 
@@ -204,7 +206,7 @@ def blur(a: np.ndarray, sigma: float) -> np.ndarray:
     return sum(k[i] * p[:, i : i + a.shape[1]] for i in range(2 * r + 1))
 
 
-def normal_map(rgba: np.ndarray) -> np.ndarray:
+def normal_map(rgba: np.ndarray, detail_gain: float = DETAIL) -> np.ndarray:
     """Tangent-space normals, green up (OpenGL), which is what Phaser's light shader expects."""
     alpha = rgba[..., 3] / 255
     padded = np.pad(alpha, int(BEVEL_PX * 3))
@@ -212,7 +214,7 @@ def normal_map(rgba: np.ndarray) -> np.ndarray:
     bevel = smooth(0.5, 1.0, inner) * alpha
     lum = (rgba[..., :3] / 255) @ np.array([0.3, 0.59, 0.11], np.float32)
     detail = (lum - blur(lum, 3.0)) * alpha
-    height = bevel + detail * DETAIL
+    height = bevel + detail * detail_gain
     dy, dx = np.gradient(height)
     # Rows run down the image while the shader's y runs up, hence +dy.
     n = np.dstack([-dx * NORMAL_STRENGTH, dy * NORMAL_STRENGTH, np.ones_like(height)])
@@ -227,11 +229,30 @@ def extrude(rgba: np.ndarray) -> np.ndarray:
     return np.pad(rgba, ((GUTTER, GUTTER), (GUTTER, GUTTER), (0, 0)), mode="edge")
 
 
+def anim_frames(world: str) -> tuple[dict[str, np.ndarray], dict[str, dict[str, float]]]:
+    """The looping paddle and ball frames from scripts/build-anims.py, as <name>_00, <name>_01, ...,
+    and each loop's frame rate."""
+    frames: dict[str, np.ndarray] = {}
+    rates: dict[str, dict[str, float]] = {}
+    for meta_path in sorted((SRC / world / "anim").glob("*.json")):
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        sheet = np.asarray(Image.open(meta_path.with_suffix(".png")).convert("RGBA")).astype(np.float32)
+        w, h, cols = meta["width"], meta["height"], meta["cols"]
+        for i in range(meta["frames"]):
+            x, y = (i % cols) * w, (i // cols) * h
+            frames[f"{meta_path.stem}_{i:02d}"] = sheet[y : y + h, x : x + w]
+        rates[meta_path.stem] = {"fps": meta["fps"]}
+    return frames, rates
+
+
 def pack(world: str) -> None:
-    """Shelf-packs the world's sprites, tallest first, into <world>.png, <world>_n.png and <world>.json."""
+    """Shelf-packs the world's sprites, tallest first, into <world>.webp, <world>_n.png and <world>.json."""
     folder = SRC / world / "sprites"
     sprites = {name: np.asarray(Image.open(folder / f"{name}.png").convert("RGBA")).astype(np.float32) for name in SPRITES}
-    order = sorted(SPRITES, key=lambda n: (-sprites[n].shape[0], SPRITES.index(n)))
+    frames_by_name, rates = anim_frames(world)
+    sprites.update(frames_by_name)
+    names = list(sprites)
+    order = sorted(names, key=lambda n: (-sprites[n].shape[0], names.index(n)))
     places: dict[str, tuple[int, int]] = {}
     x = y = shelf = 0
     for name in order:
@@ -248,12 +269,18 @@ def pack(world: str) -> None:
     normal = np.zeros_like(color)
     normal[...] = (127.5, 127.5, 255, 255)
     frames = {}
-    for name in SPRITES:
+    for name in names:
         rgba = sprites[name]
         h, w = rgba.shape[:2]
         fx, fy = places[name]
         color[fy : fy + h + GUTTER * 2, fx : fx + w + GUTTER * 2] = extrude(rgba)
-        normal[fy : fy + h + GUTTER * 2, fx : fx + w + GUTTER * 2] = extrude(normal_map(rgba))
+        # Only bricks and the paddle are relief-lit; the ball's frames keep the flat normal. The
+        # paddle's loop frames get the bevel alone: painted detail per frame would only flicker,
+        # and the flat middle keeps the normal atlas small.
+        if name.startswith("paddle_"):
+            normal[fy : fy + h + GUTTER * 2, fx : fx + w + GUTTER * 2] = extrude(normal_map(rgba, 0))
+        elif not name.startswith("ball_"):
+            normal[fy : fy + h + GUTTER * 2, fx : fx + w + GUTTER * 2] = extrude(normal_map(rgba))
         frames[name] = {
             "frame": {"x": fx + GUTTER, "y": fy + GUTTER, "w": w, "h": h},
             "rotated": False,
@@ -261,9 +288,12 @@ def pack(world: str) -> None:
             "spriteSourceSize": {"x": 0, "y": 0, "w": w, "h": h},
             "sourceSize": {"w": w, "h": h},
         }
-    save(image(color), OUT / f"{world}.png")
+    # The animation frames make the color atlas photographic, so it ships as lossy WebP.
+    path = OUT / f"{world}.webp"
+    image(color).save(path, quality=92, alpha_quality=100, method=6)
+    print(f"  {path.relative_to(ROOT)} {ATLAS_WIDTH}x{height}")
     save(image(normal), OUT / f"{world}_n.png")
-    meta = {"image": f"{world}.png", "size": {"w": ATLAS_WIDTH, "h": height}, "scale": "1"}
+    meta = {"image": f"{world}.webp", "size": {"w": ATLAS_WIDTH, "h": height}, "scale": "1", "anims": rates}
     path = OUT / f"{world}.json"
     path.write_text(json.dumps({"frames": frames, "meta": meta}, indent=1) + "\n", encoding="utf-8")
     print(f"  {path.relative_to(ROOT)} {len(frames)} frames")

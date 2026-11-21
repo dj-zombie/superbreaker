@@ -23,6 +23,64 @@ export function fgTexture(world: WorldId, name: string): [string, string] {
   return [fgAtlas(world), name];
 }
 
+/** World sprites that also have a looping animation, packed as `<name>_00`, `<name>_01`, ... */
+export const FG_ANIMS = ['paddle', 'ball'] as const;
+export type FgAnim = (typeof FG_ANIMS)[number];
+
+/** Used when an atlas doesn't say how fast its loops run. */
+const FG_ANIM_FPS = 20;
+
+export function fgAnimKey(world: WorldId, name: FgAnim): string {
+  return `${fgAtlas(world)}_${name}`;
+}
+
+/**
+ * Texture and first frame for a sprite that will play its world loop. Physics bodies take their
+ * size from the frame they are created with, so animated sprites must start on a loop frame.
+ */
+export function fgAnimTexture(scene: Phaser.Scene, world: WorldId, name: FgAnim): [string, string] {
+  const anim = scene.anims.get(fgAnimKey(world, name));
+  const first = anim?.frames[0]?.frame.name;
+  return [fgAtlas(world), first !== undefined ? String(first) : name];
+}
+
+/** Starts the world loop on a sprite made with `fgAnimTexture`, at a random point unless `sync`. */
+export function playFgAnim(
+  sprite: Phaser.GameObjects.Sprite,
+  world: WorldId,
+  name: FgAnim,
+  sync = false,
+): void {
+  const key = fgAnimKey(world, name);
+  const anim = sprite.scene.anims.get(key);
+  if (!anim) return;
+  const startFrame = sync ? 0 : Math.floor(Math.random() * anim.frames.length);
+  sprite.play({ key, startFrame });
+}
+
+/** Builds each world's paddle and ball loops from the frames its atlas holds. */
+export function createForegroundAnims(scene: Phaser.Scene): void {
+  for (const world of WORLD_IDS) {
+    const atlas = fgAtlas(world);
+    if (!scene.textures.exists(atlas)) continue;
+    const texture = scene.textures.get(atlas);
+    const names = texture.getFrameNames();
+    const meta = (texture.customData as { meta?: { anims?: Record<string, { fps?: number }> } })
+      .meta;
+    for (const name of FG_ANIMS) {
+      const key = fgAnimKey(world, name);
+      const frames = names.filter((f) => f.startsWith(`${name}_`)).sort();
+      if (scene.anims.exists(key) || frames.length < 2) continue;
+      scene.anims.create({
+        key,
+        frames: frames.map((frame) => ({ key: atlas, frame })),
+        frameRate: meta?.anims?.[name]?.fps ?? FG_ANIM_FPS,
+        repeat: -1,
+      });
+    }
+  }
+}
+
 const normalKey = (world: WorldId) => `${fgAtlas(world)}_n`;
 
 /**
@@ -31,7 +89,11 @@ const normalKey = (world: WorldId) => `${fgAtlas(world)}_n`;
  */
 export function loadForeground(load: Phaser.Loader.LoaderPlugin, normals: boolean): void {
   for (const world of WORLD_IDS) {
-    load.atlas(fgAtlas(world), `images/foreground/${world}.png`, `images/foreground/${world}.json`);
+    load.atlas(
+      fgAtlas(world),
+      `images/foreground/${world}.webp`,
+      `images/foreground/${world}.json`,
+    );
     if (normals) load.image(normalKey(world), `images/foreground/${world}_n.png`);
   }
 }

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
-import { fgTexture } from '../art/foreground';
+import { fgAnimTexture, playFgAnim } from '../art/foreground';
 
 export const BALL_SIZE = 22;
 
@@ -12,7 +12,7 @@ const TRAIL_TINT: Record<BallMode, number> = {
   pierce: 0xd6ff3c,
 };
 
-export class Ball extends Phaser.Physics.Arcade.Image {
+export class Ball extends Phaser.Physics.Arcade.Sprite {
   declare body: Phaser.Physics.Arcade.Body;
   /** Desired speed in px/s; velocity is renormalized to this after every bounce. */
   speed = 0;
@@ -34,8 +34,9 @@ export class Ball extends Phaser.Physics.Arcade.Image {
   private mode: BallMode = 'normal';
 
   constructor(scene: Phaser.Scene, x: number, y: number, world: WorldId) {
-    super(scene, x, y, ...fgTexture(world, 'ball'));
+    super(scene, x, y, ...fgAnimTexture(scene, world, 'ball'));
     scene.add.existing(this);
+    playFgAnim(this, world, 'ball');
     scene.physics.add.existing(this);
     const frameSize = Math.min(this.width, this.height);
     this.setScale(BALL_SIZE / frameSize);

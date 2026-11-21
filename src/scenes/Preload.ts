@@ -3,10 +3,12 @@ import { AUDIO_ASSETS, HEIGHT, IMAGE_ASSETS, SCENES, WIDTH } from '../config';
 import { buildUiFonts } from '../art/fonts';
 import {
   attachNormalMaps,
+  createForegroundAnims,
   isForegroundKey,
   loadForeground,
   rebuildMissingForeground,
 } from '../art/foreground';
+import { createPickupAnims, isPickupLoopKey, loadPickupLoops } from '../art/pickups';
 import { ensureProceduralTextures } from '../art/procedural';
 import { buildFxAtlas, isFxSourceKey, loadFxSheets } from '../fx/atlas';
 import { calm, menuWorld, useWorld } from '../ui/theme';
@@ -20,7 +22,6 @@ import {
   type TiledTileset,
 } from '../core/LevelParser';
 import {
-  stopOf,
   validScenes,
   validStops,
   type BossStop,
@@ -77,8 +78,8 @@ function devStop(stops: BossStop[]): CampaignStep | undefined {
   const m = /^(\d+)(b?)$/.exec(new URLSearchParams(location.search).get('stop') ?? '');
   const stop = stops.find((s) => s.after === Number(m?.[1]));
   if (!m || !stop) return undefined;
-  const kind = stopOf(stop, m[2] ? 'bonus' : 'boss');
-  return kind ? { index: stop.after, stop: kind } : undefined;
+  if (!m[2]) return { index: stop.after, stop: 'boss' };
+  return stop.bonus ? { index: stop.after, stop: 'bonus' } : undefined;
 }
 
 /**
@@ -141,6 +142,7 @@ export class Preload extends BaseScene {
     const relief = this.game.renderer.type === Phaser.WEBGL && lightingTier() === 'high';
     loadForeground(this.load, relief);
     this.load.spritesheet('coin', 'images/powerups/coins.png', { frameWidth: 25, frameHeight: 25 });
+    loadPickupLoops(this);
     loadFxSheets(this.load);
     for (const a of AUDIO_ASSETS) this.load.audio(a.key, a.path);
     this.load.json(TILESET, 'tilesets/bricks.tsj');
@@ -155,7 +157,7 @@ export class Preload extends BaseScene {
       if (key !== LEVEL_INDEX) return;
       const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex;
       const entries = validStops(index.bosses, index.levels.length);
-      const stops = entries.flatMap((s) => (s.map ? [s.map] : []));
+      const stops = entries.map((s) => s.map);
       const bonuses = entries.flatMap((s) => (s.bonus ? [s.bonus] : []));
       // A map opened from Tiled that isn't in the campaign yet is played as an extra level.
       const map = devMap();
@@ -171,11 +173,15 @@ export class Preload extends BaseScene {
     for (const key of this.failed) {
       if (this.textures.exists(key)) this.textures.remove(key);
     }
-    const shared = [...this.failed].filter((key) => !isForegroundKey(key) && !isFxSourceKey(key));
+    const shared = [...this.failed].filter(
+      (key) => !isForegroundKey(key) && !isFxSourceKey(key) && !isPickupLoopKey(key),
+    );
     ensureProceduralTextures(this, [...shared, ...this.missingImages()]);
     buildFxAtlas(this);
     rebuildMissingForeground(this);
     attachNormalMaps(this);
+    createForegroundAnims(this);
+    createPickupAnims(this);
     buildUiFonts(this);
     if (!this.anims.exists('coin-spin') && this.textures.exists('coin')) {
       this.anims.create({
@@ -224,22 +230,21 @@ export class Preload extends BaseScene {
   }
 
   /**
-   * The stops between levels. A stop whose boss map is missing or names no boss is left out, a
-   * bonus map that names no bonus stage is dropped from its stop, and a stop left with neither goes.
+   * The boss stops between levels. A stop whose map is missing or names no boss is left out, and
+   * a bonus map that names no bonus stage is dropped from its stop.
    */
   private parseStops(levelCount: number): BossStop[] {
     const index = this.cache.json.get(LEVEL_INDEX) as LevelIndex | undefined;
     const stops: BossStop[] = [];
     for (const { after, map, bonus } of validStops(index?.bosses, levelCount)) {
-      const level = map ? this.parseMap(map) : undefined;
-      if (map && !level?.boss) {
+      const level = this.parseMap(map);
+      if (!level?.boss) {
         if (level) console.warn(`[levels] boss stop ${map} names no boss`);
         continue;
       }
       const stage = bonus ? this.parseMap(bonus) : undefined;
       if (stage && !stage.bonus) console.warn(`[levels] bonus stop ${bonus} names no bonus stage`);
-      if (!level && !stage?.bonus) continue;
-      stops.push({ after, ...(level && { level }), ...(stage?.bonus && { bonus: stage }) });
+      stops.push(stage?.bonus ? { after, level, bonus: stage } : { after, level });
     }
     return stops;
   }

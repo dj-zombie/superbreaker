@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
-import { fgTexture } from '../art/foreground';
+import { fgAnimTexture, playFgAnim } from '../art/foreground';
 import { PADDLE_Y, WIDTH } from '../config';
 
 export const PADDLE_BASE_WIDTH = 104;
@@ -10,7 +10,7 @@ const MAX_FACTOR = 1.7;
 /** How solid the paddle looks while it is jammed. The tint is the lighting's, so alpha shows it. */
 const JAMMED_ALPHA = 0.45;
 
-export class Paddle extends Phaser.Physics.Arcade.Image {
+export class Paddle extends Phaser.Physics.Arcade.Sprite {
   declare body: Phaser.Physics.Arcade.Body;
   /** Where input wants the paddle; the paddle eases toward it. */
   targetX = WIDTH / 2;
@@ -21,8 +21,9 @@ export class Paddle extends Phaser.Physics.Arcade.Image {
   private jamMs = 0;
 
   constructor(scene: Phaser.Scene, world: WorldId) {
-    super(scene, WIDTH / 2, PADDLE_Y, ...fgTexture(world, 'paddle'));
+    super(scene, WIDTH / 2, PADDLE_Y, ...fgAnimTexture(scene, world, 'paddle'));
     scene.add.existing(this);
+    playFgAnim(this, world, 'paddle', true);
     scene.physics.add.existing(this);
     this.setImmovable(true);
     this.body.setAllowGravity(false);

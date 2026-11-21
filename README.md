@@ -25,7 +25,7 @@ pnpm dev          # http://localhost:5173
 | `pnpm desktop:dev`  | Electron window on the Vite dev server, with hot reload      |
 | `pnpm desktop:dist` | Build the desktop app and package installers into `release/` |
 
-In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=10` plays the campaign's boss stop after level 10 (the Warden), and `?stop=8b` the bonus stage after level 8 (the piñata). `?scene=chapter-2` plays a cutscene, and `&at=arrival` (a label or a time in ms) starts it partway; the running scene is `window.cutscene` in the console, with `seek`, `pause`, `resume`, `step`, `skip` and `labels` (see [docs/cutscenes/authoring.md](docs/cutscenes/authoring.md)). `?fx=lab` opens the FX Lab, a test bench for every particle effect (see [FX engine](#fx-engine)). The Phaser game is also available as `window.game` in the browser console:
+In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=5` plays the campaign's boss stop after level 5 (the Warden). `?scene=chapter-2` plays a cutscene, and `&at=arrival` (a label or a time in ms) starts it partway; the running scene is `window.cutscene` in the console, with `seek`, `pause`, `resume`, `step`, `skip` and `labels` (see [docs/cutscenes/authoring.md](docs/cutscenes/authoring.md)). `?fx=lab` opens the FX Lab, a test bench for every particle effect (see [FX engine](#fx-engine)). The Phaser game is also available as `window.game` in the browser console:
 
 ```js
 game.scene.getScene('Title').scene.start('Play', { index: 24 });
@@ -79,6 +79,7 @@ docs/                Design notes for larger features (Arcade, TV play, boss fig
 art-src/             Source sheets for the generated art, and the painted backdrop layers
 scripts/process-art.py  Cuts the art sheets into game sprites and app icons
 scripts/build-foreground.py  Cuts the per-world brick, paddle and ball renders into atlases and normal maps
+scripts/build-anims.py  Loops the Ludo paddle, ball and powerup animations into frame sheets
 scripts/build-backdrops.py  Keys, loops and splits the backdrop layers, and cuts the world cards
 scripts/process-logo.py  Splits the logo concepts into a base and a glow layer
 scripts/build-bosses.py  Cuts the boss sprite sheets
@@ -175,7 +176,7 @@ Boards come from a seeded generator (`src/core/procgen/`) that unlocks mechanics
 
 ## Editing levels with Tiled
 
-Levels are [Tiled](https://www.mapeditor.org) maps in `public/assets/levels/*.tmj`, listed in order in `public/assets/levels/index.json`. They share the external tileset `public/assets/tilesets/bricks.tsj`. The index's `bosses` list puts a stop on the world map after a level (`{"after": 5, "map": "boss05.tmj"}`); the map names its boss, and the next level opens once that boss is beaten. A stop's `bonus` map is a bonus stage played after its boss, or on its own when the stop has no `map` (`{"after": 8, "bonus": "pinata.tmj"}`), in which case it comes up after its level until it has been played once.
+Levels are [Tiled](https://www.mapeditor.org) maps in `public/assets/levels/*.tmj`, listed in order in `public/assets/levels/index.json`. They share the external tileset `public/assets/tilesets/bricks.tsj`. The index's `bosses` list puts a boss stop on the world map after a level (`{"after": 5, "map": "boss05.tmj"}`); the map names its boss, and the next level opens once that boss is beaten.
 
 1. Open `superbreaker.tiled-project` in Tiled. It defines the custom property types used below.
 2. Duplicate an existing level (for example `level24.tmj`), place bricks as tile objects on an object layer, and add the file to `index.json`.
@@ -264,11 +265,22 @@ python3 scripts/build-foreground.py              # cut the renders, then pack
 python3 scripts/build-foreground.py --pack-only  # re-pack sprites edited by hand
 ```
 
-The script removes the white, gradient-maps the master's glass to each of the 16 tile hues so a red brick stays red in every world, and writes the sprites to `art-src/foreground/<world>/sprites/`. It then packs each world into one atlas, `public/assets/images/foreground/<world>.png` with `<world>.json`, which is what the game loads. Level files still name textures `brick_red` and so on; the world picks the atlas when the sprite is drawn. The original bricks in `public/assets/images/bricks/` stay as the Tiled tileset.
+The script removes the white, gradient-maps the master's glass to each of the 16 tile hues so a red brick stays red in every world, and writes the sprites to `art-src/foreground/<world>/sprites/`. It then packs each world into one atlas, `public/assets/images/foreground/<world>.webp` with `<world>.json`, which is what the game loads. The atlas also holds the animated paddle and ball as `paddle_00`, `paddle_01` and so on, with each animation's frame rate under `meta.anims`. Level files still name textures `brick_red` and so on; the world picks the atlas when the sprite is drawn. The original bricks in `public/assets/images/bricks/` stay as the Tiled tileset.
 
-The pack step also writes `<world>_n.png`, a normal map with the same layout: a bevel around each sprite's outline plus the painted detail as fine relief. On the High lighting tier (desktop by default) the game loads it and lights bricks and the paddle per pixel, so bevels catch the ball as it passes. Phones skip it, and the service worker doesn't precache it.
+The pack step also writes `<world>_n.png`, a normal map with the same layout: a bevel around each sprite's outline plus the painted detail as fine relief. Paddle frames get only the bevel and ball frames stay flat, so the animation doesn't bloat the map. On the High lighting tier (desktop by default) the game loads it and lights bricks and the paddle per pixel, so bevels catch the ball as it passes. Phones skip it, and the service worker doesn't precache it.
 
-The title logo (`public/assets/images/ui/logo.png`), the stars, coin, lock, heart and powerup icons are the original artwork and are shared by every world.
+The title logo (`public/assets/images/ui/logo.png`), the stars, coin, lock and heart are the original artwork and are shared by every world.
+
+### Animations
+
+The paddle and ball loops and the powerup badges were made with [Ludo](https://ludo.ai). The badges were drawn with `ludo image generate-with-style` from the shield icon so the set matches. Each still was then animated with `ludo sprite animate --loop`: Hydra for the paddles, which keeps their outline locked, and Ignis for the balls and badges. The raw Ludo sheets are large, so they stay untracked in `ludo-output/anim/`.
+
+```sh
+python3 scripts/build-anims.py             # every animation
+python3 scripts/build-anims.py hell_ball   # just the named ones
+```
+
+The script closes each loop. It crossfades the last frames into the first, or plays forward and back for a heartbeat. It can also drop frames around a jump. Paddle and ball frames go to `art-src/foreground/<world>/anim/`, for `build-foreground.py --pack-only` to pack. Powerup loops go to `public/assets/images/powerups/<id>_loop.webp`, listed in `loops.json` with their frame rates, and each badge's still goes to `<id>.png` for the HUD and menus. A pickup whose loop fails to load falls back to its still.
 
 ### Parallax backdrops
 

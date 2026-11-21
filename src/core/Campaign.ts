@@ -2,14 +2,13 @@ import { bonusStopId, bossStopId, levelId } from './SaveStore';
 import type { LevelSpec } from './types';
 
 /**
- * A stop on the world map, between level `after` and the next one: a boss fight, a bonus stage,
- * or both. A boss's map names the boss, and the next level opens once the boss is beaten; a bonus
- * stage after a boss is its reward on the way to the next level.
+ * A boss fight on the world map, between level `after` and the next one. Its map names the boss,
+ * and the next level opens once the boss is beaten. A stop can also name a bonus stage, played
+ * as the boss's reward on the way to the next level.
  */
 export interface BossStop {
   after: number;
-  /** The boss fight's map. A stop without one is a bonus stage alone. */
-  level?: LevelSpec;
+  level: LevelSpec;
   bonus?: LevelSpec;
 }
 
@@ -19,7 +18,7 @@ export type StopKind = 'boss' | 'bonus';
 /** The stop asked for, if the stop after the level has one of that kind. */
 export function stopOf(stop: BossStop | undefined, asked: StopKind | undefined): StopKind | undefined {
   if (!stop || !asked) return undefined;
-  return (asked === 'boss' ? stop.level : stop.bonus) ? asked : undefined;
+  return asked === 'boss' || stop.bonus ? asked : undefined;
 }
 
 /** The map a stop plays. */
@@ -57,29 +56,23 @@ export function clearedLabel(step: CampaignStep): string {
 
 /**
  * Where a win leads: to the level's boss stop while its boss stands, from a beaten boss to its
- * bonus stage, and from there on to the next level. A bonus stage with no boss before it is next
- * after its level until it has been played once.
+ * bonus stage, and from there on to the next level.
  */
 export function stepAfter(
   step: CampaignStep,
-  hasBoss: (after: number) => boolean,
+  hasStop: (after: number) => boolean,
   beaten: (after: number) => boolean,
   hasBonus: (after: number) => boolean = () => false,
-  bonusPlayed: (after: number) => boolean = () => false,
 ): CampaignStep {
-  const i = step.index;
-  if (!step.stop) {
-    if (hasBoss(i) && !beaten(i)) return { index: i, stop: 'boss' };
-    if (!hasBoss(i) && hasBonus(i) && !bonusPlayed(i)) return { index: i, stop: 'bonus' };
-  }
-  if (step.stop === 'boss' && hasBonus(i)) return { index: i, stop: 'bonus' };
-  return { index: i + 1 };
+  if (!step.stop && hasStop(step.index) && !beaten(step.index)) return { index: step.index, stop: 'boss' };
+  if (step.stop === 'boss' && hasBonus(step.index)) return { index: step.index, stop: 'bonus' };
+  return { index: step.index + 1 };
 }
 
-/** The index file's stops, as written: a boss map played after a level, a bonus stage, or both. */
+/** The index file's boss stops, as written: a map played after a level, and its bonus stage's. */
 export interface BossStopEntry {
   after: number;
-  map?: string;
+  map: string;
   bonus?: string;
 }
 
@@ -132,11 +125,10 @@ export function validStops(entries: unknown, levelCount: number): BossStopEntry[
   const out: BossStopEntry[] = [];
   for (const e of entries as Array<Partial<BossStopEntry> | null>) {
     const after = e?.after;
-    const map = typeof e?.map === 'string' ? e.map : undefined;
-    const bonus = typeof e?.bonus === 'string' ? e.bonus : undefined;
-    if ((!map && !bonus) || !Number.isInteger(after)) continue;
+    const map = e?.map;
+    if (typeof map !== 'string' || !Number.isInteger(after)) continue;
     if (after! < 1 || after! >= levelCount || out.some((s) => s.after === after)) continue;
-    out.push({ after: after!, ...(map && { map }), ...(bonus && { bonus }) });
+    out.push(typeof e?.bonus === 'string' ? { after: after!, map, bonus: e.bonus } : { after: after!, map });
   }
   return out.sort((a, b) => a.after - b.after);
 }

@@ -74,23 +74,13 @@ describe('campaign steps', () => {
     expect(stepAfter({ index: 5 }, stopAfterFive, () => true, stopAfterFive)).toEqual({ index: 6 });
   });
 
-  it('goes from a level to a bonus stage with no boss until it has been played', () => {
-    const none = () => false;
-    expect(stepAfter({ index: 5 }, none, none, stopAfterFive)).toEqual({ index: 5, stop: 'bonus' });
-    expect(stepAfter({ index: 5, stop: 'bonus' }, none, none, stopAfterFive)).toEqual({ index: 6 });
-    expect(stepAfter({ index: 5 }, none, none, stopAfterFive, () => true)).toEqual({ index: 6 });
-  });
-
   it('plays only the stops the stop after a level has', () => {
     const level = { id: 'x' } as LevelSpec;
     const plain: BossStop = { after: 5, level };
     const party: BossStop = { after: 5, level, bonus: level };
-    const solo: BossStop = { after: 5, bonus: level };
     expect(stopOf(plain, 'boss')).toBe('boss');
     expect(stopOf(plain, 'bonus')).toBeUndefined();
     expect(stopOf(party, 'bonus')).toBe('bonus');
-    expect(stopOf(solo, 'boss')).toBeUndefined();
-    expect(stopOf(solo, 'bonus')).toBe('bonus');
     expect(stopOf(undefined, 'boss')).toBeUndefined();
     expect(stopOf(party, undefined)).toBeUndefined();
   });
@@ -112,14 +102,12 @@ describe('campaign steps', () => {
         { after: 0, map: 'zero.tmj' },
         { after: 2.5, map: 'half.tmj' },
         { after: 3 },
-        { after: 8, bonus: 'solo.tmj' },
         null,
       ],
       30,
     );
     expect(stops).toEqual([
       { after: 5, map: 'a.tmj', bonus: 'party.tmj' },
-      { after: 8, bonus: 'solo.tmj' },
       { after: 10, map: 'b.tmj' },
     ]);
     expect(validStops(undefined, 30)).toEqual([]);
@@ -215,19 +203,18 @@ describe('boss stops in levels/index.json', () => {
   const resolveTemplate = (path: string) => templates.get(path.split('/').pop()!);
   const stops = validStops(index.bosses, index.levels.length);
 
-  it('lists every stop it means to, after levels 5, 8 and 10 among them', () => {
+  it('lists every stop it means to, after levels 5 and 10 among them', () => {
     expect(Array.isArray(index.bosses) ? index.bosses.length : 0).toBe(stops.length);
-    expect(stops.map((s) => s.after)).toEqual(expect.arrayContaining([5, 8, 10]));
+    expect(stops.map((s) => s.after)).toEqual(expect.arrayContaining([5, 10]));
   });
 
-  const fights = stops.filter((s) => s.map).map((s) => [s.map!, s.map!] as const);
-  it.each(fights)('%s names a boss and passes the checks', (_, file) => {
-    const map = readJson<TiledMap>(join(LEVELS_DIR, file));
-    const { level, warnings } = parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate);
+  it.each(stops.map((s) => [s.map, s] as const))('%s names a boss and passes the checks', (_, stop) => {
+    const map = readJson<TiledMap>(join(LEVELS_DIR, stop.map));
+    const { level, warnings } = parseLevel(map, stop.map.replace('.tmj', ''), resolve, resolveTemplate);
     expect(warnings).toEqual([]);
     expect(validateLevel(level)).toEqual([]);
     expect(level.boss).toBeDefined();
-    expect(index.levels).not.toContain(file);
+    expect(index.levels).not.toContain(stop.map);
   });
 
   it('puts the Crucible after level 5 and the Warden after level 10', () => {
@@ -236,22 +223,15 @@ describe('boss stops in levels/index.json', () => {
       [10, 'boss10', 'warden'],
     ] as const) {
       const stop = stops.find((s) => s.after === after)!;
-      const map = readJson<TiledMap>(join(LEVELS_DIR, stop.map!));
+      const map = readJson<TiledMap>(join(LEVELS_DIR, stop.map));
       expect(parseLevel(map, key, resolve, resolveTemplate).level.boss).toBe(boss);
     }
   });
 
-  it('follows the Crucible with the shooting gallery, and level 8 with the piñata', () => {
-    for (const [after, file, bonus] of [
-      [5, 'gallery.tmj', 'gallery'],
-      [8, 'pinata.tmj', 'pinata'],
-    ] as const) {
-      const stop = stops.find((s) => s.after === after)!;
-      expect(stop.bonus).toBe(file);
-      const map = readJson<TiledMap>(join(LEVELS_DIR, file));
-      expect(parseLevel(map, bonus, resolve, resolveTemplate).level.bonus).toBe(bonus);
-    }
-    expect(stops.find((s) => s.after === 8)!.map).toBeUndefined();
-    expect(stops.find((s) => s.after === 10)!.bonus).toBeUndefined();
+  it('follows the Crucible with the shooting gallery', () => {
+    const five = stops.find((s) => s.after === 5)!;
+    expect(five.bonus).toBe('gallery.tmj');
+    const map = readJson<TiledMap>(join(LEVELS_DIR, five.bonus!));
+    expect(parseLevel(map, 'gallery', resolve, resolveTemplate).level.bonus).toBe('gallery');
   });
 });

@@ -340,7 +340,7 @@ export const IMAGE_ASSETS: ImageAsset[] = [
   ...BRICK_COLORS.map((c) => ({ key: `brick_${c}`, path: `images/bricks/brick_${c}.png` })),
   ...NEW_BRICK_KINDS.map((k) => ({ key: `brick_${k}`, path: `images/bricks/brick_${k}.png` })),
   ...(Object.keys(POWERUP_INFO) as PowerupId[])
-    .filter((id) => id !== 'coin' && id !== 'mystery' && id !== 'hyper')
+    .filter((id) => id !== 'coin')
     .map((id) => ({ key: `pu_${id}`, path: `images/powerups/${id}.png` })),
   { key: 'paddle', path: 'images/paddle.png' },
   { key: 'ball', path: 'images/ball.png' },
