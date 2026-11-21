@@ -76,6 +76,8 @@ interface Running {
   stopped: boolean;
   handle: FxHandle;
   ribbon?: FxRibbon;
+  /** The tint the ribbon was last colored with, so `set({ tint })` can recolor it. */
+  ribbonTint?: number;
   haze?: { stop(): void };
 }
 
@@ -103,6 +105,8 @@ export interface FxEngineOptions {
  * pooled emitters on one texture, so effects cost no emitter or texture churn.
  */
 export class FxEngine {
+  /** The engine of the scene made last, for the debug overlay. */
+  static current?: FxEngine;
   world: SceneryId;
   hooks: FxHooks;
   private emitters = new Map<ChannelId, Emitter>();
@@ -129,6 +133,7 @@ export class FxEngine {
     this.refillBudget();
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.update, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
+    FxEngine.current = this;
   }
 
   /** Fires a preset once at (x, y). */
@@ -177,11 +182,11 @@ export class FxEngine {
     if (def.distort) this.distort.shock(x, y, def.distort.radius * scale, def.distort.life, def.distort.push);
 
     const h = this.hooks;
-    if (def.light && h.light) {
+    if (def.light && h.light && !opts.bare) {
       const l = def.light;
       h.light(x, y, resolveColor(l.color, pal, tint), l.radius * scale, l.life, l.intensity ?? 1, l.grow ?? 1);
     }
-    if (!opts.quiet) {
+    if (!opts.quiet && !opts.bare) {
       if (def.shake) h.shake?.(def.shake[0], def.shake[1] * Math.min(1.5, scale));
       if (def.punch) h.punch?.(def.punch[0], def.punch[1] * Math.min(1.5, scale));
       if (def.hitStop) h.hitStop?.(def.hitStop);
@@ -256,6 +261,16 @@ export class FxEngine {
     return n;
   }
 
+  /** What is on screen now: particles, running effects, one-shot sprites and ribbon trails. */
+  stats(): { particles: number; effects: number; sprites: number; ribbons: number } {
+    return {
+      particles: this.aliveCount(),
+      effects: this.running.length,
+      sprites: this.sprites.length,
+      ribbons: this.ribbons.length,
+    };
+  }
+
   /** Ends every running effect and removes every particle and sprite at once. */
   clear(): void {
     this.generation++;
@@ -273,6 +288,7 @@ export class FxEngine {
   destroy(): void {
     if (this.dead) return;
     this.dead = true;
+    if (FxEngine.current === this) FxEngine.current = undefined;
     this.scene.events.off(Phaser.Scenes.Events.UPDATE, this.update, this);
     this.running.length = 0;
     this.sprites.length = 0;
@@ -433,7 +449,9 @@ export class FxEngine {
         alpha: rb.alpha,
         core: rb.core,
         coreColor: pal.core,
+        depth: rb.depth,
       });
+      r.ribbonTint = tint;
       this.ribbons.push(r.ribbon);
     }
     if (def.haze) {
@@ -473,6 +491,11 @@ export class FxEngine {
         const scale = r.opts.scale ?? 1;
         const density = base * (r.opts.intensity ?? 1);
         const world = r.opts.world ?? this.world;
+        const rb = r.def.ribbon;
+        if (r.ribbon && rb && tint !== r.ribbonTint) {
+          r.ribbonTint = tint;
+          r.ribbon.recolor(resolveColor(rb.color, pal, tint), rb.tail ? resolveColor(rb.tail, pal, tint) : undefined);
+        }
         r.layers.forEach((l, j) => {
           if (rank < tierRank(l.minTier ?? 'low')) return;
           if (l.only && !l.only.includes(world)) return;

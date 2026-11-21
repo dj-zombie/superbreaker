@@ -81,6 +81,53 @@ export const WEAPON_FX: Record<string, FxDef> = {
     ],
   },
 
+  /**
+   * One mote of a laser bolt's wake, played by the caller every few px. Cheap enough for a full
+   * gatling stream, where an attached tracer per bolt would not be.
+   */
+  'weapon.bolt_trail': {
+    layers: [
+      {
+        channel: 'low',
+        frames: 'dot',
+        count: 1,
+        life: [130, 170],
+        size: [0.5, 0.65],
+        color: ['@core', '@tint'],
+        alpha: 0.6,
+      },
+    ],
+  },
+
+  /** One spark of the helix wound round a rail beam; the rail gun plays one every few px of beam. */
+  'weapon.rail_spark': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: 'streak',
+        count: 1,
+        speed: [50, 160],
+        drag: 2.5,
+        life: [260, 520],
+        size: [0.24, 0.36],
+        stretch: 0.004,
+        thin: 0.6,
+        color: ['@core', '@tint'],
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'dot',
+        count: 1,
+        speed: [10, 40],
+        life: [200, 380],
+        size: [0.4, 0.6],
+        color: '@tint',
+        fade: 'flicker',
+      },
+    ],
+  },
+
   /** A missile's exhaust, blowing out behind it along `opts.angle` (point it backward). Attach. */
   'weapon.exhaust': {
     ribbon: { width: 12, life: 200, color: '@hot', tail: '@cool', core: 0.8 },

@@ -438,4 +438,153 @@ export const IMPACT_FX: Record<string, FxDef> = {
     ],
     light: { color: '@tint', radius: 50, life: 120 },
   },
+
+  /**
+   * `juice.burst`: tinted shards and white streaks for anything breaking that has no preset of
+   * its own (hazards, bonus targets, boss props). `intensity` is the old shard count over 12.
+   */
+  'impact.shards': {
+    layers: [
+      {
+        channel: 'debris',
+        frames: F.shards,
+        count: 12,
+        speed: [90, 300],
+        gravity: 760,
+        drag: 0.4,
+        spin: [-900, 900],
+        rotate: [0, 360],
+        life: [450, 800],
+        size: [0.3, 0.6],
+        color: '@tint',
+        fade: 'late',
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'streak',
+        count: 6,
+        speed: [160, 380],
+        drag: 4,
+        life: [140, 300],
+        size: [0.2, 0.34],
+        stretch: 0.004,
+        thin: 0.6,
+        color: ['@core', '@tint'],
+      },
+    ],
+    sprites: [{ frame: 'glow', from: 14, to: 46, life: 140, fade: 'quick', alpha: 0.6, color: '@tint' }],
+  },
+
+  /** `juice.sparkle`: a pinch of glints, for small rewards and soft touches. `intensity` is count over 6. */
+  'impact.sparkle': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: 'dot',
+        count: 6,
+        speed: [60, 220],
+        drag: 2.5,
+        life: [220, 440],
+        size: [0.45, 0.8],
+        color: ['@core', '@tint'],
+        fade: 'flicker',
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'twinkle',
+        count: 2,
+        speed: [20, 80],
+        life: [200, 360],
+        size: [0.2, 0.34],
+        rotate: [0, 90],
+        color: '@core',
+        fade: 'quick',
+      },
+    ],
+  },
+
+  /** The ball's own streak: a tapered ribbon under the ball and a few fading motes. */
+  'ball.trail': {
+    ribbon: { width: 15, life: 200, color: '@tint', alpha: 0.65, core: 0.7, depth: 4 },
+    layers: [
+      {
+        channel: 'low',
+        frames: 'dot',
+        rate: 40,
+        zone: { circle: 4 },
+        life: [180, 300],
+        size: [0.5, 0.8],
+        color: '@tint',
+        alpha: 0.6,
+      },
+    ],
+  },
+
+  /** Hyperspeed: a longer, hotter ribbon and streaks peeling off it. */
+  'ball.hyper': {
+    ribbon: { width: 20, life: 380, color: '@tint', tail: '@hot', alpha: 0.8, core: 0.9, depth: 4 },
+    layers: [
+      {
+        channel: 'low',
+        frames: 'dot',
+        rate: 90,
+        zone: { circle: 5 },
+        life: [260, 420],
+        size: [0.55, 0.9],
+        color: ['@core', '@tint'],
+        alpha: 0.7,
+      },
+      {
+        channel: 'low',
+        frames: 'streak',
+        rate: 18,
+        zone: { circle: 6 },
+        speed: [30, 90],
+        drag: 3,
+        life: [160, 300],
+        size: [0.2, 0.3],
+        stretch: 0.004,
+        thin: 0.6,
+        color: '@tint',
+      },
+    ],
+  },
+
+  /** A fireball: a flame ribbon, licking fire and embers that drift up behind it. */
+  'ball.fire': {
+    ribbon: { width: 20, life: 240, color: '@hot', tail: '@warm', alpha: 0.85, core: 0.8, depth: 4 },
+    layers: [
+      {
+        channel: 'low',
+        frames: F.fire,
+        rate: 70,
+        zone: { circle: 5 },
+        speed: [10, 40],
+        forces: [emberLift],
+        drag: 2,
+        life: [260, 480],
+        size: [0.26, 0.4],
+        grow: 0.4,
+        sizeEase: 'linear',
+        rotate: [0, 360],
+        mirror: true,
+        color: FLAME,
+        fade: 'inOut',
+      },
+      {
+        channel: 'low',
+        frames: 'ember',
+        rate: 16,
+        zone: { circle: 6 },
+        speed: [20, 70],
+        forces: [swirl, emberLift],
+        life: [500, 900],
+        size: [0.25, 0.45],
+        color: ['@core', '@hot', '@warm'],
+        fade: 'flicker',
+      },
+    ],
+  },
 };

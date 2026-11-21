@@ -137,6 +137,8 @@ export interface FxDef {
     /** A thin white-hot core, at this alpha. */
     core?: number;
     minTier?: LightingTier;
+    /** Defaults to 9, over the bricks; a ball's trail sits under the ball at 4. */
+    depth?: number;
   };
   /** High-tier heat shimmer in a box above an attached target, in px. */
   haze?: { w: number; h: number; push?: number; dy?: number };
@@ -162,6 +164,8 @@ export interface FxOpts {
   forces?: readonly FxForce[];
   /** Skip the camera and hit-stop hooks (e.g. menus). */
   quiet?: boolean;
+  /** Skip every hook, light included: the caller already lights and shakes this moment itself. */
+  bare?: boolean;
 }
 
 /** What the engine may reach for outside itself. All optional: the FX Lab has no light map. */

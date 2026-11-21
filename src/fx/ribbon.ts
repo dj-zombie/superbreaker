@@ -96,6 +96,16 @@ export class FxRibbon {
     this.stopped = true;
   }
 
+  /** Re-tints a live trail, e.g. a ball turning into a fireball. */
+  recolor(color: number, tail = color): void {
+    const [glow, core] = this.ropes;
+    if (glow) {
+      glow.head = color;
+      glow.tail = tail;
+    }
+    if (core) core.tail = color;
+  }
+
   /** Steps the trail; false once it has faded out and been destroyed. */
   update(delta: number): boolean {
     const life = this.style.life;
