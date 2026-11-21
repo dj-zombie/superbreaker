@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { SCENERY_IDS, type SceneryId } from '../art/backdrops';
+import { dropSheet, loadSheet } from '../art/sheets';
 import { BOSSES } from '../bosses';
 import { RENDER_ZOOM, HEIGHT, SCENES, WIDTH } from '../config';
 import { sceneBetween, type CampaignStep, type SceneEntry } from '../core/Campaign';
@@ -123,27 +124,25 @@ export class Cutscene extends BaseScene {
     const at = (path: string) => `assets/${path}`;
     for (const img of a.images ?? [])
       if (!this.textures.exists(img.key)) this.load.image(img.key, at(img.path));
-    for (const s of a.sheets ?? []) {
-      if (!this.textures.exists(s.key)) {
-        this.load.spritesheet(s.key, at(s.path), {
-          frameWidth: s.frameWidth,
-          frameHeight: s.frameHeight,
-        });
-      }
-    }
+    // The scene's own animation frames are big; it lets go of the ones it loaded when it ends.
+    const sheets: string[] = [];
+    const sheet = (key: string, path: string, frame?: { frameWidth?: number; frameHeight?: number }) => {
+      if (this.textures.exists(key)) return;
+      loadSheet(this.load, key, at(path), frame);
+      sheets.push(key);
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      for (const key of sheets) dropSheet(this, key);
+    });
+    for (const s of a.sheets ?? []) sheet(s.key, s.path, s);
     for (const list of [a.voice, a.sfx, a.music]) {
       for (const s of list ?? [])
         if (!this.cache.audio.exists(s.key)) this.load.audio(s.key, at(s.path));
     }
     for (const actor of Object.values(this.def.cast ?? {})) {
       const m = /^boss:(.+)$/.exec(actor.sprite ?? '');
-      const sheet = m ? BOSSES[m[1] as keyof typeof BOSSES]?.sprite : undefined;
-      if (sheet && !this.textures.exists(sheet.key)) {
-        this.load.spritesheet(sheet.key, at(sheet.path), {
-          frameWidth: sheet.frameWidth,
-          frameHeight: sheet.frameHeight,
-        });
-      }
+      const boss = m ? BOSSES[m[1] as keyof typeof BOSSES]?.sprite : undefined;
+      if (boss) sheet(boss.key, boss.path, boss);
     }
   }
 

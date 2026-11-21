@@ -86,7 +86,7 @@ export class PowerupSystem {
     this.group.add(p);
     const info = POWERUP_INFO[id];
     if (id === 'coin') {
-      p.setScale(0.9);
+      p.setDisplaySize(22.5, 22.5);
       if (this.scene.anims.exists('coin-spin')) p.play('coin-spin');
     } else {
       p.setScale(34 / Math.max(p.width, p.height));

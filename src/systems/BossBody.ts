@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { dropSheet, loadSheet } from '../art/sheets';
 import { BOSS_ANIMS, BOSS_ID_BASE, ENTRANCE_DROP, SPRITE_DEPTH, type BossAnim } from '../core/Boss';
 import { BH, BRICK_HEALTH, BW } from '../core/procgen/grid';
 import type { BrickSpec } from '../core/types';
@@ -114,10 +115,7 @@ export class BossBody {
     }
     const sheet = def.sprite;
     if (!sheet || scene.textures.exists(sheet.key)) return;
-    scene.load.spritesheet(sheet.key, `assets/${sheet.path}`, {
-      frameWidth: sheet.frameWidth,
-      frameHeight: sheet.frameHeight,
-    });
+    loadSheet(scene.load, sheet.key, `assets/${sheet.path}`, sheet);
   }
 
   constructor(
@@ -338,6 +336,8 @@ export class BossBody {
     for (const light of this.glows.values()) light.kill();
     this.glows.clear();
     this.dropSprite();
+    // A long animation's frames take tens of MB on the GPU; the next fight loads them again.
+    if (this.def.sprite) dropSheet(this.host.scene, this.def.sprite.key);
     this.rig?.destroy();
     this.rig = undefined;
   }

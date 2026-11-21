@@ -28,6 +28,7 @@ import { Rng } from '../src/core/Rng';
 import { BH, BW, COLS } from '../src/core/procgen/grid';
 import { FIELD_WIDTH, LEVEL_MAX_Y } from '../src/core/types';
 import type { BossDef, BossStage, Cutscene } from '../src/systems/BossDirector';
+import { sheetFrames } from './sheets';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
@@ -261,22 +262,17 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
     });
 
     it('has a size on the field and in the sheet', () => {
-      for (const px of [sprite.frameWidth, sprite.frameHeight, sprite.width, sprite.height]) {
+      const sheet = sprite.path.endsWith('.json') ? [] : [sprite.frameWidth, sprite.frameHeight];
+      for (const px of [...sheet, sprite.width, sprite.height]) {
         expect(px).toBeGreaterThan(0);
       }
     });
 
     it('plays only frames that are on its sheet', () => {
-      // A PNG's width and height are the two big-endian words that follow its IHDR tag.
-      const png = readFileSync(join(ASSETS, sprite.path));
-      expect(png.toString('latin1', 12, 16)).toBe('IHDR');
-      const across = png.readUInt32BE(16) / sprite.frameWidth;
-      const down = png.readUInt32BE(20) / sprite.frameHeight;
-      expect(Number.isInteger(across)).toBe(true);
-      expect(Number.isInteger(down)).toBe(true);
+      const frames = sheetFrames(sprite.path, sprite.frameWidth, sprite.frameHeight);
       for (const name of BOSS_ANIMS) {
         for (const frame of sprite.anims[name].frames) {
-          expect(frame, name).toBeLessThan(across * down);
+          expect(frames.has(String(frame)), `${name}: ${frame}`).toBe(true);
         }
       }
     });

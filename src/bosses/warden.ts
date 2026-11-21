@@ -1,3 +1,4 @@
+import { frameRun } from '../art/sheets';
 import { SHOT_RADIUS, SKULL_RADIUS, sway, type AttackDef, type HazardSpec } from '../core/Boss';
 import { BH, BRICK_HEALTH, BW } from '../core/procgen/grid';
 import { FIELD_WIDTH } from '../core/types';
@@ -358,22 +359,22 @@ export const warden: BossDef = {
     },
     { id: 'guard', col: 9, row: 7, cols: 2, rows: 1, texture: 'brick_steel', kind: 'steel' },
   ],
+  // Frame numbers and rates are the ones scripts/build-sprite-anims.py prints: every animation plays at
+  // the rate Ludo rendered it.
   sprite: {
     key: 'boss_warden',
-    path: 'images/bosses/warden.png',
-    frameWidth: 320,
-    frameHeight: 240,
-    width: 300,
-    height: 225,
+    path: 'images/bosses/warden.json',
+    width: 312.5,
+    height: 237.5,
     // Puts the eye in the middle of the core and the shoulders across the body.
     dx: 2,
-    dy: 49.5,
+    dy: 43.25,
     anims: {
-      idle: { frames: [0, 1, 2, 1], fps: 5 },
-      tell: { frames: [3, 4], fps: 8 },
-      open: { frames: [5], fps: 1 },
-      hurt: { frames: [6], fps: 1 },
-      death: { frames: [7, 8], fps: 3 },
+      idle: { frames: frameRun(0, 37), fps: 14.5 },
+      tell: { frames: frameRun(37, 64), fps: 22.9 },
+      open: { frames: frameRun(101, 40), fps: 15.4 },
+      hurt: { frames: [141], fps: 1 },
+      death: { frames: frameRun(142, 64), fps: 20.8 },
     },
   },
   poses: {

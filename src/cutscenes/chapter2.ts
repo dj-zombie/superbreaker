@@ -1,3 +1,4 @@
+import { frameRun } from '../art/sheets';
 import {
   ambient,
   ambientOff,
@@ -59,12 +60,13 @@ export const CHAPTER_2 = cutscene(
       warden: {
         name: 'The Warden',
         color: 0x4fd6c4,
-        sprite: 'boss:warden',
-        size: 230,
+        sprite: 'cs_warden',
+        size: 243,
         portrait: 'cs_warden_face',
+        // Frames and rates as scripts/build-sprite-anims.py prints them.
         anims: {
-          broken: { frames: [7, 7, 6, 7], fps: 3, loop: true },
-          crumble: { frames: [8], fps: 1 },
+          broken: { frames: frameRun(0, 64), fps: 14.4 },
+          crumble: { frames: frameRun(64, 48), fps: 20.8, loop: false },
         },
         idle: 'broken',
         light: { color: 0xff9a3c, radius: 90, intensity: 0.7 },
@@ -75,7 +77,7 @@ export const CHAPTER_2 = cutscene(
         sprite: 'cs_vesper',
         size: 160,
         portrait: 'cs_vesper_face',
-        anims: { idle: { frames: [0, 1, 2, 3, 4, 3, 2, 1], fps: 6, loop: true } },
+        anims: { idle: { frames: frameRun(0, 33), fps: 13.5 } },
         idle: 'idle',
         light: { color: 0xffb35a, radius: 150, intensity: 0.9 },
       },
@@ -83,7 +85,7 @@ export const CHAPTER_2 = cutscene(
     },
     assets: {
       images: [img('cs_warden_face'), img('cs_vesper_face'), img('cs_plate_lid', 'jpg')],
-      sheets: [{ ...img('cs_vesper'), frameWidth: 240, frameHeight: 270 }],
+      sheets: [{ ...img('cs_vesper', 'webp'), frameWidth: 260, frameHeight: 348 }, img('cs_warden', 'json')],
       voice: VOICE,
       sfx: [snd('cs_heartbeat'), snd('cs_rumble'), snd('cs_crack'), snd('cs_chime')],
       music: [snd('cs_wind')],

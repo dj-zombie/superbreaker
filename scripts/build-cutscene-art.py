@@ -10,7 +10,8 @@ Three kinds of source, all named in ART below:
   plate     a full-screen story illustration: no keying, only scaled and saved as JPEG
 
 Everything goes to public/assets/images/cutscenes/. The keys and frame sizes are the ones the
-scene's script names (src/cutscenes/).
+scene's script names (src/cutscenes/). Vesper's and the Warden's stage animations are built from
+Ludo takes by scripts/build-sprite-anims.py instead.
 
 Usage: python3 scripts/build-cutscene-art.py [name ...]   (requires Pillow and numpy)
 """
@@ -31,7 +32,6 @@ _spec.loader.exec_module(bosses)
 ART = {
     "cs_warden_face": {"kind": "portrait", "source": "warden_face.jpg", "size": 256},
     "cs_vesper_face": {"kind": "portrait", "source": "vesper_face.jpg", "size": 256},
-    "cs_vesper": {"kind": "sheet", "source": "vesper_idle.jpg", "grid": (3, 2), "frame": (240, 270), "reach": 128},
     "cs_plate_lid": {"kind": "plate", "source": "plate_lid.jpg", "height": 1280},
 }
 

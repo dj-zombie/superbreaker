@@ -143,15 +143,15 @@ export const BEAT_SLACK = 0.1;
 export const BOSS_ANIMS = ['idle', 'tell', 'open', 'hurt', 'death'] as const;
 export type BossAnim = (typeof BOSS_ANIMS)[number];
 
-/** A boss's picture: one sheet of equal frames, and the frames each animation plays. */
+/** A boss's picture: numbered frames of one size, and the frames each animation plays. */
 export interface SpriteDef {
   /** Texture key. */
   key: string;
-  /** Under public/assets. */
+  /** Under public/assets: a sheet of equal frames, or the JSON of an atlas (src/art/sheets.ts). */
   path: string;
-  /** Size of one frame in the sheet, in px. */
-  frameWidth: number;
-  frameHeight: number;
+  /** Size of one frame in a sheet, in px. An atlas says its own. */
+  frameWidth?: number;
+  frameHeight?: number;
   /** Size on the field, in px. */
   width: number;
   height: number;

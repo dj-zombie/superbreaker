@@ -32,10 +32,10 @@ SRC = ROOT / "art-src" / "bosses"
 OUT = ROOT / "public" / "assets" / "images" / "bosses"
 
 # Each boss: its source sheet, the grid (columns, rows) it is drawn on, and the size of one
-# frame in the output, which is what the boss's SpriteDef in src/bosses/ names.
-BOSSES = {
-    "warden": {"source": "warden.jpg", "grid": (3, 3), "frame": (320, 240)},
-}
+# frame in the output, which is what the boss's SpriteDef in src/bosses/ names. The Warden is
+# animated from Ludo takes now, by scripts/build-sprite-anims.py; art-src/bosses/warden.jpg is the pose
+# those takes started from.
+BOSSES = {}
 
 WHITE_TOLERANCE = 38  # as process-art.py
 ALPHA_FLOOR = 24  # alpha above this counts as content, as process-art.py's trim

@@ -141,7 +141,7 @@ export class Preload extends BaseScene {
     }
     const relief = this.game.renderer.type === Phaser.WEBGL && lightingTier() === 'high';
     loadForeground(this.load, relief);
-    this.load.spritesheet('coin', 'images/powerups/coins.png', { frameWidth: 25, frameHeight: 25 });
+    this.load.spritesheet('coin', 'images/powerups/coins.png', { frameWidth: 48, frameHeight: 48 });
     loadPickupLoops(this);
     loadFxSheets(this.load);
     for (const a of AUDIO_ASSETS) this.load.audio(a.key, a.path);
@@ -187,7 +187,8 @@ export class Preload extends BaseScene {
       this.anims.create({
         key: 'coin-spin',
         frames: this.anims.generateFrameNumbers('coin'),
-        frameRate: 10,
+        // The rate Ludo rendered the spin at (scripts/build-sprite-anims.py).
+        frameRate: 20.6,
         repeat: -1,
       });
     }

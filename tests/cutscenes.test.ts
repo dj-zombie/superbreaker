@@ -25,6 +25,7 @@ import { compile, GRADES, Playhead, sampleFrame, scriptProblems } from '../src/c
 import { CUTSCENES } from '../src/cutscenes';
 import { AMBIENT_FX } from '../src/fx/library/ambient';
 import { WEATHER_FX } from '../src/fx/library/weather';
+import { sheetFrames } from './sheets';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
 const SOUNDS = new Set(AUDIO_ASSETS.map((a) => a.key));
@@ -47,6 +48,18 @@ describe.each(Object.values(CUTSCENES))('cutscene $id', (def) => {
       .filter((r) => !existsSync(join(ASSETS, r.path)))
       .map((r) => r.path);
     expect(missing).toEqual([]);
+  });
+
+  it('animates its cast with only frames their sheets hold', () => {
+    const sheets = new Map((def.assets?.sheets ?? []).map((s) => [s.key, s]));
+    for (const [id, actor] of Object.entries(def.cast ?? {})) {
+      const sheet = sheets.get(actor.sprite ?? '');
+      if (!sheet) continue;
+      const frames = sheetFrames(sheet.path, sheet.frameWidth, sheet.frameHeight);
+      for (const [name, anim] of Object.entries(actor.anims ?? {})) {
+        for (const frame of anim.frames) expect(frames.has(String(frame)), `${id} ${name}: ${frame}`).toBe(true);
+      }
+    }
   });
 
   it('runs between 20 s and 2 min', () => {

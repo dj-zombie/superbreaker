@@ -329,9 +329,11 @@ export interface AssetRef {
   /** Under public/assets/. */
   path: string;
 }
+/** A sheet of equal frames, or an atlas when `path` is its JSON (src/art/sheets.ts). */
 export interface SheetRef extends AssetRef {
-  frameWidth: number;
-  frameHeight: number;
+  /** Size of one frame in a sheet. An atlas says its own. */
+  frameWidth?: number;
+  frameHeight?: number;
 }
 
 export interface ActorAnim {
