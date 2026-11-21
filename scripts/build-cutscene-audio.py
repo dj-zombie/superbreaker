@@ -101,6 +101,21 @@ FURNACE = (
     "lowpass=f=4200,aecho=0.8:0.6:45|110:0.35|0.18"
 )
 
+# The narrator is something vast under the Foundry: two semitones down at the same pace, a
+# ghost of itself an octave below, driven into grit, and a hall's echo after. `pace` speeds a
+# line up without changing its pitch, for lines that have to fit between the score's hits.
+def titan(pace: float = 1.0) -> str:
+    return (
+        "aresample=44100,asplit=2[dry][sub];"
+        "[sub]asetrate=44100*0.5,aresample=44100,atempo=2,lowpass=f=900,volume=0.35[low];"
+        "[dry][low]amix=inputs=2:weights=1 1:normalize=0,"
+        f"asetrate=44100*0.89,aresample=44100,atempo={pace / 0.89:.4f},highpass=f=45,"
+        "equalizer=f=110:t=q:w=1:g=5,equalizer=f=420:t=q:w=1.2:g=-3,"
+        "equalizer=f=2600:t=q:w=1.5:g=1.5,volume=6dB,asoftclip=type=tanh,"
+        "acompressor=threshold=0.1:ratio=5:attack=4:release=120:makeup=2,"
+        "lowpass=f=6000,aecho=0.8:0.55:70|140|260:0.32|0.2|0.12"
+    )
+
 # Name, source under art-src/cutscenes/, ffmpeg filters before the loudness pass, loudness
 # (LUFS), fade-out (s), channels, bitrate. The score keeps its own silence at the top: the scene
 # times its beats to it.
@@ -111,12 +126,12 @@ SOURCED = (
     ("cs_riser", "audio/riser.mp3", "", -15, 0.1, 2, "128k"),
     ("cs_volley", "audio/volley.mp3", "", -16, 0.4, 2, "128k"),
     ("cs_anvil", "audio/anvil.mp3", "", -12, 0.6, 2, "128k"),
-    ("vo_intro_01", "vo/vo_intro_01.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
-    ("vo_intro_02", "vo/vo_intro_02.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
-    ("vo_intro_03", "vo/vo_intro_03.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
-    ("vo_intro_04", "vo/vo_intro_04.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
-    ("vo_intro_05", "vo/vo_intro_05.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
-    ("vo_intro_06", "vo/vo_intro_06.mp3", "highpass=f=70", -16, 0.15, 1, "96k"),
+    ("vo_intro_01", "vo/vo_intro_01.mp3", titan(), -14, 0.5, 1, "96k"),
+    ("vo_intro_02", "vo/vo_intro_02.mp3", titan(), -14, 0.5, 1, "96k"),
+    ("vo_intro_03", "vo/vo_intro_03.mp3", titan(1.1), -14, 0.5, 1, "96k"),
+    ("vo_intro_04", "vo/vo_intro_04.mp3", titan(1.1), -14, 0.5, 1, "96k"),
+    ("vo_intro_05", "vo/vo_intro_05.mp3", titan(1.1), -14, 0.5, 1, "96k"),
+    ("vo_intro_06", "vo/vo_intro_06.mp3", titan(1.1), -14, 0.5, 1, "96k"),
     ("vo_crucible_01", "vo/vo_crucible_01.mp3", FURNACE, -15, 0.4, 1, "96k"),
 )
 TRIM = "silenceremove=start_periods=1:start_threshold=-50dB"

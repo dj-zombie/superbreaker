@@ -39,13 +39,13 @@ import {
  * clip runs, so the scene keeps to the score's clock instead of waiting on the voice.
  */
 const VO_MS: Record<string, number> = {
-  vo_intro_01: 4513,
-  vo_intro_02: 2533,
+  vo_intro_01: 4827,
+  vo_intro_02: 3234,
   vo_crucible_01: 3240,
-  vo_intro_03: 5023,
-  vo_intro_04: 4006,
-  vo_intro_05: 2172,
-  vo_intro_06: 3307,
+  vo_intro_03: 7018,
+  vo_intro_04: 4529,
+  vo_intro_05: 3925,
+  vo_intro_06: 3934,
 };
 const RECORDED = new Set<string>(Object.keys(VO_MS));
 const VOICE: AssetRef[] = [...RECORDED].map((key) => ({
@@ -514,7 +514,7 @@ export const CHAPTER_1 = cutscene(
         camera('pushIn', { subject: 'warden', amount: 0.15, ms: 4000 }),
       ],
       [
-        54.4,
+        54.1,
         spoken(
           'narrator',
           'Below the fire,{p:150} the Crypt.{p:250} Below the Crypt,{p:150} the Machine.',
@@ -542,7 +542,7 @@ export const CHAPTER_1 = cutscene(
       ],
       [60, actor('data', { anim: 'spiral' })],
       [
-        61.6,
+        61.2,
         spoken('narrator', 'And beneath it all,{p:300} something that wants out.', 'vo_intro_04'),
       ],
       [61.75, transition('dip', 500), actor('data', { anim: 'stop' })],
@@ -582,7 +582,7 @@ export const CHAPTER_1 = cutscene(
         camera('reset', { ms: 0 }),
         backdrop({ pace: 0.6, glow: 0.3, ms: 0 }),
       ],
-      [66.2, spoken('narrator', 'They built the walls to keep it in.', 'vo_intro_05')],
+      [66, spoken('narrator', 'They built the walls to keep it in.', 'vo_intro_05')],
       [
         69.9,
         enter('spark', [0.5, 0.08], 'cut'),
@@ -601,7 +601,7 @@ export const CHAPTER_1 = cutscene(
         shake(400, 0.01),
       ],
       [
-        70.5,
+        70.3,
         spoken('narrator', 'You were made{p:200} to break them.', 'vo_intro_06'),
         camera('pushIn', { subject: [0.5, 0.56], amount: 0.22, ms: 3300 }),
         actor('breaker', { emote: 'bounce' }),
