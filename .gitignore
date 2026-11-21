@@ -25,6 +25,13 @@ __pycache__/
 art-src/music/source.wav
 art-src/music/boss-source.wav
 
+# Local secrets (API keys for the art and audio tools)
+.env
+
+# Ludo generation scratch: raw takes and downloads. Kept assets live in art-src/ and public/.
+ludo-output/
+ludo-work/
+
 # Signing leftovers
 *.xcuserstate
 *.mobileprovision

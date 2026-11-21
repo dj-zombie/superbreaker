@@ -119,22 +119,22 @@ class Forge implements MoodFx {
     private scene: Phaser.Scene,
   ) {
     if (sys.budgetInfo.moodLights) {
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 3; i++) {
         const light = sys.addLight({
           x: rand(30, WIDTH - 30),
           y: rand(HUD_HEIGHT, HEIGHT),
-          radius: 56,
+          radius: 48,
           color: 0xff7a2a,
-          intensity: 0.3 * sceneryLight(sys.look),
+          intensity: 0.2 * sceneryLight(sys.look),
           flicker: 'candle',
           phase: i * 1.7,
-          halo: 7,
-          haloAlpha: 0.45,
+          halo: 5,
+          haloAlpha: 0.25,
           haloDepth: -3,
           affects: 'backdrop',
           priority: 1,
         });
-        this.embers.push({ light, vy: rand(22, 48), wobble: rand(0, Math.PI * 2) });
+        this.embers.push({ light, vy: rand(14, 30), wobble: rand(0, Math.PI * 2) });
       }
     }
     const kept = Forge.hazes.get(scene);

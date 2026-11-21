@@ -79,6 +79,8 @@ interface Running {
   /** The tint the ribbon was last colored with, so `set({ tint })` can recolor it. */
   ribbonTint?: number;
   haze?: { stop(): void };
+  /** Weather draws on its own emitters, so `setWeatherAlpha` can dim it with the room. */
+  weather?: boolean;
 }
 
 interface LiveSprite {
@@ -92,6 +94,7 @@ interface LiveSprite {
   rot: number;
   spin: number;
   aspect: number;
+  weather: boolean;
 }
 
 export interface FxEngineOptions {
@@ -115,10 +118,11 @@ export class FxEngine {
   private running: Running[] = [];
   private sprites: LiveSprite[] = [];
   private spritePool: Phaser.GameObjects.Image[] = [];
-  private deaths: Array<{ id: string; x: number; y: number; tint: number; world: SceneryId }> = [];
+  private deaths: Array<{ id: string; x: number; y: number; tint: number; world: SceneryId; weather: boolean }> = [];
   private ribbons: FxRibbon[] = [];
   private distort: FxDistort;
   private budget = 0;
+  private weatherAlpha = 1;
   /** Bumped by clear() so queued `then` steps from before it are dropped. */
   private generation = 0;
   private dead = false;
@@ -149,6 +153,10 @@ export class FxEngine {
   }
 
   playDef(def: FxDef, x: number, y: number, opts: FxOpts = {}): void {
+    this.burst(def, x, y, opts, false);
+  }
+
+  private burst(def: FxDef, x: number, y: number, opts: FxOpts, weather: boolean): void {
     const tier = fxTier();
     const rank = tierRank(tier);
     const calm = save.state.settings.reducedMotion;
@@ -171,13 +179,15 @@ export class FxEngine {
       );
       layers.forEach((l, i) => {
         const n = got[i]!;
-        if (n > 0) this.emit(l, n, x, y, opts, pal, tint, scale);
+        if (n > 0) this.emit(l, n, x, y, opts, pal, tint, scale, undefined, undefined, false, weather);
       });
       this.spend(got.reduce((s, n) => s + n, 0));
     }
 
     for (const s of def.sprites ?? []) {
-      if (rank >= tierRank(s.minTier ?? 'low') && here(s.only)) this.spawnSprite(s, x, y, opts, pal, tint, scale);
+      if (rank >= tierRank(s.minTier ?? 'low') && here(s.only)) {
+        this.spawnSprite(s, x, y, opts, pal, tint, scale, weather);
+      }
     }
 
     if (def.distort) this.distort.shock(x, y, def.distort.radius * scale, def.distort.life, def.distort.push);
@@ -229,9 +239,17 @@ export class FxEngine {
         : spawn === 'bottom'
           ? { x: bounds.x, y: bounds.y + bounds.height, width: bounds.width, height: band }
           : bounds;
-    const handle = this.field(id, area, opts);
+    const center = { x: area.x + area.width / 2, y: area.y + area.height / 2 };
+    const handle = this.run(id, center, area, opts, true);
     this.prewarm(id, bounds, opts);
     return handle;
+  }
+
+  /** Fades every weather particle at once, live ones included: weather is additive, so a dark room has to dim it. */
+  setWeatherAlpha(alpha: number): void {
+    if (alpha === this.weatherAlpha) return;
+    this.weatherAlpha = alpha;
+    for (const [key, e] of this.emitters) if (key.startsWith('weather:')) e.setAlpha(alpha);
   }
 
   /** Seeds a field with a lifetime's worth of particles, already mid-flight, so it starts full. */
@@ -251,7 +269,7 @@ export class FxEngine {
       const n = Math.min(300, Math.round((l.rate * density * life) / 1000));
       const cx = bounds.x + bounds.width / 2;
       const cy = bounds.y + bounds.height / 2;
-      if (n > 0) this.emit(l, n, cx, cy, opts, pal, tint, opts.scale ?? 1, undefined, bounds, true);
+      if (n > 0) this.emit(l, n, cx, cy, opts, pal, tint, opts.scale ?? 1, undefined, bounds, true, true);
     }
   }
 
@@ -320,8 +338,9 @@ export class FxEngine {
     this.budget -= n;
   }
 
-  private emitter(channel: ChannelId, depth?: number, parallax = 1): Emitter {
-    const key = depth === undefined && parallax === 1 ? channel : `${channel}@${depth ?? ''}~${parallax}`;
+  private emitter(channel: ChannelId, depth?: number, parallax = 1, weather = false): Emitter {
+    const base = depth === undefined && parallax === 1 ? channel : `${channel}@${depth ?? ''}~${parallax}`;
+    const key = weather ? `weather:${base}` : base;
     let e = this.emitters.get(key);
     if (!e) {
       const c = CHANNELS[channel];
@@ -333,6 +352,7 @@ export class FxEngine {
         blendMode: c.blend,
       });
       e.setDepth(depth ?? c.depth).setScrollFactor(parallax);
+      if (weather) e.setAlpha(this.weatherAlpha);
       this.emitters.set(key, e);
     }
     return e;
@@ -370,6 +390,7 @@ export class FxEngine {
     anchor?: { x: number; y: number },
     area?: Running['area'],
     warm = false,
+    weather = false,
   ): void {
     const names = typeof spec.frames === 'string' ? [spec.frames] : spec.frames;
     const forces: FxForce[] = [...(spec.forces ?? [])];
@@ -393,11 +414,11 @@ export class FxEngine {
       area,
       warm,
       died: spec.onDeath
-        ? (dx, dy, t) => this.deaths.push({ id: spec.onDeath!, x: dx, y: dy, tint: t, world })
+        ? (dx, dy, t) => this.deaths.push({ id: spec.onDeath!, x: dx, y: dy, tint: t, world, weather })
         : undefined,
     };
     pending.current = em;
-    this.emitter(spec.channel, opts.depth, spec.parallax).emitParticleAt(x, y, n);
+    this.emitter(spec.channel, opts.depth, spec.parallax, weather).emitParticleAt(x, y, n);
     pending.current = null;
   }
 
@@ -406,6 +427,7 @@ export class FxEngine {
     target: Running['target'],
     area: Running['area'] | undefined,
     opts: FxOpts,
+    weather = false,
   ): FxHandle {
     const def = registry.get(id);
     const r: Running = {
@@ -414,6 +436,7 @@ export class FxEngine {
       acc: [],
       target,
       area,
+      weather,
       opts: { ...opts },
       stopped: !def || this.dead,
       handle: {
@@ -471,7 +494,11 @@ export class FxEngine {
 
     if (this.deaths.length) {
       const list = this.deaths.splice(0);
-      for (const d of list) this.play(d.id, d.x, d.y, { tint: d.tint, world: d.world, quiet: true });
+      for (const d of list) {
+        const def = registry.get(d.id);
+        if (def) this.burst(def, d.x, d.y, { tint: d.tint, world: d.world, quiet: true }, d.weather);
+        else warnOnce(`no effect "${d.id}"`);
+      }
     }
 
     if (this.running.length) {
@@ -505,7 +532,7 @@ export class FxEngine {
           const n = Math.floor(r.acc[j]!);
           if (n <= 0) return;
           r.acc[j]! -= n;
-          this.emit(l, n, r.target.x, r.target.y, r.opts, pal, tint, scale, r.target, r.area);
+          this.emit(l, n, r.target.x, r.target.y, r.opts, pal, tint, scale, r.target, r.area, false, r.weather);
         });
       }
     }
@@ -540,6 +567,7 @@ export class FxEngine {
     pal: FxPalette,
     tint: number,
     scale: number,
+    weather = false,
   ): void {
     const img = this.spritePool.pop() ?? this.scene.add.image(0, 0, FX_TEXTURE, spec.frame);
     img.setFrame(spec.frame);
@@ -566,6 +594,7 @@ export class FxEngine {
       rot: roll(spec.rotate, 0) + (spec.aim ? (opts.angle ?? 0) : 0),
       spin: roll(spec.spin, 0),
       aspect: spec.aspect ?? 0,
+      weather,
     };
     this.drawSprite(s, 0, 0);
     this.sprites.push(s);
@@ -581,7 +610,8 @@ export class FxEngine {
     img.setScale(Math.max(0, sx), Math.max(0, sy));
     s.rot += (s.spin * delta) / 1000;
     img.setAngle(s.rot);
-    img.setAlpha((spec.alpha ?? 1) * fadeCurve(spec.fade ?? 'linear', t));
+    const dim = s.weather ? this.weatherAlpha : 1;
+    img.setAlpha((spec.alpha ?? 1) * fadeCurve(spec.fade ?? 'linear', t) * dim);
     img.setTint(s.ramp.length > 1 ? rampColor(s.ramp, t) : (s.ramp[0] ?? 0xffffff));
   }
 

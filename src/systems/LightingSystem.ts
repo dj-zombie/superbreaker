@@ -646,6 +646,14 @@ export class LightingSystem {
     this.mood?.onHit?.();
   }
 
+  /** The room's ambient against the world's lit look: 1 in a lit room, near 0 in a blackout or gloom. */
+  get roomLight(): number {
+    const lit = LIGHTING_LOOKS[this.world].ambient;
+    const full = red(lit) * 0.3 + green(lit) * 0.59 + blue(lit) * 0.11;
+    const now = this.ambientRGB[0]! * 0.3 + this.ambientRGB[1]! * 0.59 + this.ambientRGB[2]! * 0.11;
+    return Phaser.Math.Clamp(now / full, 0, 1);
+  }
+
   /** Brightness of the backdrop at (x, y), 1 = as painted. Matches the light map within a few %. */
   brightnessAt(x: number, y: number): number {
     let v = this.ambientRGB[0]! * 0.3 + this.ambientRGB[1]! * 0.59 + this.ambientRGB[2]! * 0.11;

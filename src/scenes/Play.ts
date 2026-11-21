@@ -801,6 +801,7 @@ export class Play extends BaseScene {
 
   override update(_time: number, delta: number): void {
     this.frameMonitor.update();
+    this.fx.setWeatherAlpha(0.5 + 0.5 * this.lighting.roomLight);
     if (this.finished) return;
     const dt = Math.min(delta, 50);
     this.inputSys.update(dt);
