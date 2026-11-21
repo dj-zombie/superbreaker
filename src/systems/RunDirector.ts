@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
 import { ARENA_MID, LEVEL_OFFSET_Y, WIDTH } from '../config';
+import { arcadeBonusFor, type BonusId } from '../core/Bonus';
 import { LEVEL_LIGHTING_DEFAULTS, type LevelLightingSpec } from '../core/Lighting';
 import { hashSeed } from '../core/Rng';
 import {
+  BOSS_EVERY_TIERS,
   BREACH_ROWS,
   DESCENT_RUSH_ROWS,
   DESCENT_START_ROWS,
@@ -50,8 +52,8 @@ export interface RunHost {
   relook(lighting: LevelLightingSpec): void;
   /** A boss fight begins on the field as it stands. Its plans draw from `seed`. */
   startBoss(tier: number, seed: number): void;
-  /** A bonus stage begins on the field the boss left. Its layout draws from `seed`. */
-  startBonus(seed: number): void;
+  /** Bonus stage `id` begins on the field the boss left. Its layout draws from `seed`. */
+  startBonus(id: BonusId, seed: number): void;
 }
 
 const MECHANIC_NAMES: Record<Mechanic, string> = {
@@ -158,7 +160,8 @@ export class RunDirector {
     this.bonusing = true;
     this.relight(host, BONUS_ROOM);
     host.rearm();
-    host.startBonus(hashSeed(this.config.seed, 'bonus', this.state.tier));
+    const tier = this.state.tier;
+    host.startBonus(arcadeBonusFor(tier / BOSS_EVERY_TIERS), hashSeed(this.config.seed, 'bonus', tier));
   }
 
   /** The bonus round's tally is over: Waves counts the wave as cleared, Descent rushes rows back in. */

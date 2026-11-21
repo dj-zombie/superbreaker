@@ -280,9 +280,6 @@ const SLOWMO_TINT = 0xa8c4ff;
 const BONUS_SERVE_MS = 600;
 /** The words over the paddle as a stage played without a ball begins. */
 const FIRE_HINT = { pad: 'PRESS A TO FIRE', touch: 'TAP TO FIRE', desktop: 'CLICK TO FIRE' } as const;
-/** Arcade: the bonus round played after every boss. */
-const ARCADE_BONUS: BonusId = 'gallery';
-
 export class Play extends BaseScene {
   levelIndex = 1;
   /** Campaign: this is a stop after level `levelIndex`, the boss fight or its bonus stage. */
@@ -1276,13 +1273,16 @@ export class Play extends BaseScene {
     audio.sfx(COUNTDOWN_CALLS[n - 1]!, 0.55);
   }
 
-  private spawnExtraBalls(count: number): void {
+  /** New balls split off one in flight, or from `at` when given: a bonus stage's burst. */
+  private spawnExtraBalls(count: number, at?: { x: number; y: number }): void {
     const src = this.ballList.find((b) => !b.attached) ?? this.ballList[0];
-    if (!src) return;
-    const room = this.ballRoom(count, src.x, src.y);
-    const speed = Math.max(src.speed, this.diff.minSpeed);
+    if (!src && !at) return;
+    const x = at?.x ?? src!.x;
+    const y = at?.y ?? src!.y;
+    const room = this.ballRoom(count, x, y);
+    const speed = Math.max(src?.speed ?? 0, this.diff.minSpeed);
     for (let i = 0; i < room; i++) {
-      const b = this.makeBall(src.x, src.y);
+      const b = this.makeBall(x, y);
       b.launch(Phaser.Math.FloatBetween(-2.4, -0.7), speed);
     }
   }
@@ -1387,8 +1387,9 @@ export class Play extends BaseScene {
 
   private processBallBrick(ball: Ball, brick: Brick): boolean {
     if (!brick.isAlive) return false;
-    // Nothing passes through a boss part: the ball always bounces off it.
-    if (brick.owner) return true;
+    // Nothing passes through a boss part: the ball always bounces off it. A bonus stage's
+    // target can let a fireball through.
+    if (brick.owner && !brick.owner.plowable?.(brick)) return true;
     // Fireballs smash straight through bricks they can kill, up to their plow count, then bounce.
     if (
       this.fireActive &&
@@ -1620,7 +1621,7 @@ export class Play extends BaseScene {
     });
     this.lighting.setShadowFocus(main ?? this.paddle);
     this.lighting.setCombo(this.bonus ? this.bonus.state.combo : this.hud.combo);
-    this.lighting.setStageClock(this.bonus?.progress ?? 0);
+    this.lighting.setStageClock(this.bonus?.partyProgress ?? 0);
     this.lighting.setFever(this.fever.active);
     this.syncBeacons();
   }
@@ -1762,9 +1763,13 @@ export class Play extends BaseScene {
     const endgame = !boss && !bonus && this.pacing.endgameAssist(remaining);
     const turn = this.nudgeMs > 0 ? NUDGE_TURN : endgame ? ENDGAME_TURN : 0;
     const lock = boss?.lock;
+    const pull = bonus?.pull;
     if (lock) {
       // A boss's opening marks one part, and every rising ball bends to it and to nothing else.
       for (const b of free) b.steerToward(lock.x, lock.y, LOCK_TURN, dt);
+    } else if (pull) {
+      // A bonus stage can bend rising balls toward its prize, more gently than a boss's opening.
+      for (const b of free) b.steerToward(pull.x, pull.y, pull.turn, dt);
     } else if (turn > 0) {
       const targets = this.bricks.targets.map(homingBox);
       const walls: HomingBox[] = [];
@@ -2364,7 +2369,7 @@ export class Play extends BaseScene {
         this.fever.edgeAlpha = this.lighting.look.lightsOut ? 0.35 : 1;
       },
       startBoss: (tier, seed) => this.startBoss(tier, seed),
-      startBonus: (seed) => this.startBonus(seed),
+      startBonus: (id, seed) => this.startBonus(id, seed),
     };
   }
 
@@ -2402,9 +2407,9 @@ export class Play extends BaseScene {
   }
 
   /** Arcade: the bonus round after a boss, on the field the boss left. */
-  private startBonus(seed: number): void {
+  private startBonus(id: BonusId, seed: number): void {
     this.clearHint();
-    const def = BONUSES[ARCADE_BONUS];
+    const def = BONUSES[id];
     this.bonus = new BonusDirector(def, this.bonusHost(), { seed });
     this.bonusIn();
     // The boss's ball was put back on the paddle; a stage played without one takes it away.
@@ -2504,6 +2509,11 @@ export class Play extends BaseScene {
       stream: (held) => this.laser.stream(held),
       shotsFired: () => this.laser.shots,
       slowmo: (ms) => this.slowmoFor(ms),
+      spawnBalls: (n, x, y) => {
+        if (!this.ballless) this.spawnExtraBalls(n, { x, y });
+      },
+      ballCount: () => this.ballList.filter((b) => !b.attached).length,
+      fireballs: (ms) => this.powerups.grant('fireball', ms),
       credit: () => {
         this.pacing.onBreak();
         this.musicMood.onBreak();

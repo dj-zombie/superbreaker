@@ -191,6 +191,17 @@ export class PowerupSystem {
     this.host.onEffectsChanged();
   }
 
+  /** Runs a timed effect for `ms` without a pickup, as a bonus stage's finale does. 0 ends it. */
+  grant(id: TimedEffect, ms: number): void {
+    if (ms > 0) {
+      if (id === 'fireball') this.effects.delete('pierce');
+      this.start(id, ms);
+    } else if (!this.effects.delete(id)) {
+      return;
+    }
+    this.host.onEffectsChanged();
+  }
+
   private start(id: TimedEffect, ms: number): void {
     const cur = this.effects.get(id);
     // Re-collecting refreshes the timer rather than stacking forever.

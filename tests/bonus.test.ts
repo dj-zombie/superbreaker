@@ -361,9 +361,9 @@ describe('bonus map property', () => {
   });
 
   it('warns about an unknown stage and leaves the level without one', () => {
-    const { level, warnings } = parseLevel(empty({ bonus: 'pinata' }), 'lab', resolve);
+    const { level, warnings } = parseLevel(empty({ bonus: 'whackamole' }), 'lab', resolve);
     expect(level.bonus).toBeUndefined();
-    expect(warnings).toEqual(['Map: unknown bonus stage "pinata"']);
+    expect(warnings).toEqual(['Map: unknown bonus stage "whackamole"']);
   });
 
   it('gives no stage when the property is missing or empty', () => {

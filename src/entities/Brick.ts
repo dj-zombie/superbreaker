@@ -21,6 +21,8 @@ export type DestroyCause = 'ball' | 'laser' | 'explosion' | 'fall' | 'ability' |
 export interface BrickOwner {
   /** Called instead of Brick.takeHit for a live, breakable owned brick. Never 'destroyed'. */
   strike(brick: Brick, damage: number, cause: DestroyCause, opts: HitOptions): HitResult;
+  /** A fireball smashes through this brick instead of bouncing off it. Never, when left out. */
+  plowable?(brick: Brick): boolean;
 }
 
 export class Brick extends Phaser.Physics.Arcade.Image {

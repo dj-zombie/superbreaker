@@ -32,6 +32,30 @@ GALLERY = [
     "assets/images/bonus/medal_gold.png",
 ]
 
+# Piñata Fiesta, in reading order: each piñata whole and cracked, the mini piñata, the candy and
+# the chili. None skips a cell: that star came out cracked, and its whole one is the next sheet's.
+PINATA = [
+    "assets/images/bonus/pinata_donkey.png",
+    "assets/images/bonus/pinata_donkey_cracked.png",
+    None,
+    "assets/images/bonus/pinata_star_cracked.png",
+    "assets/images/bonus/pinata_llama.png",
+    "assets/images/bonus/pinata_llama_cracked.png",
+    "assets/images/bonus/pinata_mini_cracked.png",
+    "assets/images/bonus/candy_red.png",
+    "assets/images/bonus/candy_blue.png",
+    "assets/images/bonus/candy_green.png",
+    "assets/images/bonus/candy_gold.png",
+    "assets/images/bonus/chili.png",
+]
+PINATA_WHOLE = [
+    "assets/images/bonus/pinata_star.png",
+    "assets/images/bonus/pinata_mini.png",
+]
+# Candy and the chili are small on the field; the piñatas are drawn about as big as the bag.
+PINATA_SIZE = (256, 256)
+CANDY_SIZE = (96, 96)
+
 # The gallery's gun is drawn from three poses, row by row: ready, firing, jammed. The fourth cell
 # is not used. The poses are cut into parts the game animates, all on the poses' shared canvas so
 # they line up drawn at the same place. Points below are pixels on that canvas.
@@ -209,10 +233,23 @@ def jack() -> None:
     head_up((width, height))
 
 
+def pinata_sheet(name: str, cols: int, rows: int, targets: list) -> None:
+    """Cuts a piñata sheet: piñatas at their size, candy and the chili at theirs."""
+    print(name)
+    img = art.remove_white_background(Image.open(art.SRC / name))
+    for cell, target in zip(art.cells(img, cols, rows), targets):
+        if target is None:
+            continue
+        small = "candy_" in target or "chili" in target
+        art.save(art.fit(art.trim(cell), CANDY_SIZE if small else PINATA_SIZE, True), target)
+
+
 def main() -> None:
     art.SRC = HERE.parent / "art-src" / "bonus"
     art.sheet("gallery.jpg", 3, 2, GALLERY, (256, 256), keep_aspect=True)
     jack()
+    pinata_sheet("pinata.jpg", 4, 3, PINATA)
+    pinata_sheet("pinata_whole.jpg", 2, 1, PINATA_WHOLE)
 
 
 if __name__ == "__main__":

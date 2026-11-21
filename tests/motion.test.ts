@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { MAGNET_MIN_SPEED, chain, fall, float, linear, magnet, orbit, shuttle, sine, still } from '../src/core/Motion';
+import {
+  MAGNET_MIN_SPEED,
+  chain,
+  fall,
+  float,
+  linear,
+  magnet,
+  orbit,
+  shuttle,
+  sine,
+  still,
+  swing,
+} from '../src/core/Motion';
 
 describe('paths', () => {
   it('stands still and moves straight', () => {
@@ -52,6 +64,23 @@ describe('paths', () => {
     }
     expect(p(1_000).x).toBeCloseTo(300);
     expect(p(2_000).x).toBeCloseTo(100);
+  });
+
+  it('swings on its rope, within its arc, slowest at the ends', () => {
+    const amp = Math.PI / 6;
+    const p = swing(300, 0, 100, amp, 2_000);
+    expect(p(0).x).toBeCloseTo(300);
+    expect(p(0).y).toBeCloseTo(100);
+    // Swung out to the right, it leans back the other way, along its rope.
+    expect(p(500).angle).toBeCloseTo(-amp);
+    for (let t = 0; t < 4_000; t += 41) {
+      expect(Math.hypot(p(t).x - 300, p(t).y)).toBeCloseTo(100);
+      expect(Math.abs(p(t).x - 300)).toBeLessThanOrEqual(100 * Math.sin(amp) + 1e-9);
+    }
+    // A quarter period in, it is at the end of the arc.
+    expect(p(500).x).toBeCloseTo(300 + 100 * Math.sin(amp));
+    const step = (t: number) => Math.hypot(p(t + 20).x - p(t).x, p(t + 20).y - p(t).y);
+    expect(step(990)).toBeGreaterThan(step(490) * 5);
   });
 
   it('hands over from one path to the next where the first left off', () => {

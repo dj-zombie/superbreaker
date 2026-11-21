@@ -100,6 +100,8 @@ export interface TargetSpec {
   hp?: number;
   /** One ball hit pops it, whatever its hit points. */
   ballPops?: boolean;
+  /** A fireball smashes through it rather than bouncing off. */
+  plow?: boolean;
   /** It leaves by itself after this long, in ms. Left out, it stays until hit or off the field. */
   lifeMs?: number;
   /** A pop-up rises out of its slot; anything else is simply there. */
@@ -164,6 +166,8 @@ export interface BonusStage {
   hit(target: Target, cause: HitCause): void;
   /** Takes a target off the field: with a pop and its sparks, or quietly. Nothing is scored. */
   remove(target: Target, how: 'pop' | 'hide'): void;
+  /** Draws a target with another picture at the same size, e.g. as it cracks. */
+  retexture(target: Target, texture: string): void;
   /** Puts a collectible on the field, following `path`. */
   drop(kind: CollectibleKind, path: Path): Collectible | undefined;
   /** Sprays `n` coins out of a point; they fly home to the paddle by themselves. */
@@ -183,6 +187,19 @@ export interface BonusStage {
   counts(): Readonly<Record<string, number>>;
   /** Bullet time for `ms` of real time, without spending the player's charge. */
   slowmo(ms: number): void;
+  /** Launches `n` more balls from a point, up to the ball cap. Nothing in a stage without a ball. */
+  balls(n: number, x: number, y: number): void;
+  /** Balls in flight. */
+  readonly ballCount: number;
+  /** Every ball is a fireball for `ms` of real time. 0 ends it. */
+  fireballs(ms: number): void;
+  /** The party lights go to their peak for the rest of play, whatever the combo and the clock. */
+  hype(): void;
+  /**
+   * Bends every rising ball toward a point, at `turn` radians a second, until called again. Null
+   * lets them fly straight.
+   */
+  steer(at: { x: number; y: number } | null, turn?: number): void;
   /** Words over the field. */
   say(text: string, x: number, y: number, color?: string, size?: number): void;
   /** Keeps a game object for the stage's life: it is destroyed with the stage. */
@@ -264,6 +281,8 @@ export interface BonusDef {
   onShot?(s: BonusStage, shot: RailShot): void;
   /** A target left the field unhit, by its own timer or past the side. */
   onEscape?(s: BonusStage, target: Target): void;
+  /** The timer is out, as the targets leave: the stage tidies away its own scenery. */
+  onTimeUp?(s: BonusStage): void;
   /** The paddle caught a collectible. Coins are the framework's; anything else is the stage's. */
   onCatch?(s: BonusStage, item: Collectible): void;
   /** The stage's rows on the tally, before the score and the coins. */
@@ -367,6 +386,12 @@ export interface BonusHost {
   shotsFired(): number;
   /** Bullet time for `ms`, without spending the charge. 0 ends it. */
   slowmo(ms: number): void;
+  /** Launches `n` more balls from a point, up to the ball cap. */
+  spawnBalls(n: number, x: number, y: number): void;
+  /** Balls in flight. */
+  ballCount(): number;
+  /** Every ball is a fireball for `ms`. 0 ends it. */
+  fireballs(ms: number): void;
   /** A hit landed: pacing, music and the skills hear about it as they do a break. */
   credit(): void;
   addScore(n: number): void;
@@ -435,6 +460,8 @@ export class BonusDirector implements BrickOwner {
   /** The stage clock in ms. It follows the world's time scale and stops for hit-stop. */
   private clock = 0;
   private over = false;
+  private hyped = false;
+  private steering: { x: number; y: number; turn: number } | null = null;
   /** Bolts fired before the stage began, so the accuracy only counts its own. */
   private shotsBefore = 0;
   /** Gatling shots fired as of the last frame, so the clown's head can take each one. */
@@ -529,6 +556,16 @@ export class BonusDirector implements BrickOwner {
     return this.state.progress;
   }
 
+  /** Where the stage bends rising balls, and how hard. Null when it does not, or out of play. */
+  get pull(): { x: number; y: number; turn: number } | null {
+    return this.state.step === 'play' ? this.steering : null;
+  }
+
+  /** How far along the party lights are, 0..1: the timer's progress, or the peak once hyped. */
+  get partyProgress(): number {
+    return this.hyped ? 1 : this.state.progress;
+  }
+
   /** Play is paused: the timer is out and the field holds still for the count. */
   get frozen(): boolean {
     const { step } = this.state;
@@ -580,6 +617,11 @@ export class BonusDirector implements BrickOwner {
     else if (lost.combo > 0) host.juice.popText(x, y - 40, 'COMBO LOST', css(theme().palette.danger), 18);
     audio.sfx('ui_off', 0.45);
     this.showHud();
+  }
+
+  plowable(brick: Brick): boolean {
+    const target = this.byBrick.get(brick);
+    return this.state.step === 'play' && !!target?.live && !!target.spec.plow;
   }
 
   /** Runs inside a physics callback, so it only records the hit. `update` applies it. */
@@ -671,6 +713,7 @@ export class BonusDirector implements BrickOwner {
   private timeUp(): void {
     const { host } = this;
     host.slowmo(0);
+    host.fireballs(0);
     this.gatling?.reset();
     this.rail?.reset();
     this.burst?.stop();
@@ -678,6 +721,7 @@ export class BonusDirector implements BrickOwner {
     host.stream(null);
     this.pending.length = 0;
     for (const t of this.slots) if (t.live) this.remove(t, 'hide');
+    this.def.onTimeUp?.(this.stage);
     this.items.vacuum();
     this.items.dropUnpulled();
     const shots = this.rail ? this.railShots : host.shotsFired() - this.shotsBefore;
@@ -980,6 +1024,7 @@ export class BonusDirector implements BrickOwner {
       t.brick.syncOverlay();
       const rising = t.sprite.originY === 1;
       t.sprite.setPosition(at.x, rising ? at.y + t.spec.height / 2 : at.y);
+      if (at.angle !== undefined) t.sprite.setRotation(at.angle);
       if (t.flashMs > 0) {
         t.flashMs -= tick;
         if (t.flashMs <= 0) t.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
@@ -1138,6 +1183,12 @@ export class BonusDirector implements BrickOwner {
         if (slot?.live) this.pending.push({ target: slot, cause, damage: 1 });
       },
       remove: (target, how) => this.remove(target, how),
+      retexture: (target, texture) => {
+        const slot = this.slots.find((s) => s === target);
+        if (!slot?.live) return;
+        const { width, height } = slot.spec;
+        slot.sprite.setTexture(texture).setDisplaySize(width, height);
+      },
       drop: (kind, path) => this.items.spawn(kind.texture, kind, path),
       coins: (n, x, y) => {
         for (let i = 0; i < n; i++) {
@@ -1170,6 +1221,19 @@ export class BonusDirector implements BrickOwner {
       count: (key, n) => this.state.count(key, n),
       counts: () => this.state.counts,
       slowmo: (ms) => host.slowmo(ms),
+      balls: (n, x, y) => {
+        if (state.step === 'play' && n > 0) host.spawnBalls(n, x, y);
+      },
+      get ballCount() {
+        return host.ballCount();
+      },
+      fireballs: (ms) => host.fireballs(ms),
+      hype: () => {
+        this.hyped = true;
+      },
+      steer: (at, turn = 1) => {
+        this.steering = at ? { x: at.x, y: at.y, turn } : null;
+      },
       say: (text, x, y, color = theme().palette.text, size = 24) => {
         host.juice.popText(x, y, text, color, size, 1.2);
       },

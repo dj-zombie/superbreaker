@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthesizes the shooting gallery's placeholder bed and one-shots.
+"""Synthesizes the bonus stages' placeholder bed and one-shots: the shooting gallery's, and Piñata Fiesta's.
 
 Stand-ins until the real sounds exist. The bed is an original oom-pah in C, written to the
 layout in src/art/galleryMusic.ts: a sync click, then 32 beats at 128 BPM from 0.25s. It is not
@@ -271,6 +271,70 @@ def rail_jam(rng: np.random.Generator) -> np.ndarray:
     return fade_ends(out, 0.001, 0.04)
 
 
+def crinkle(rng: np.random.Generator, seconds: float, decay: float) -> np.ndarray:
+    """Crepe paper: bright noise in little bursts."""
+    n = samples(seconds)
+    grains = (rng.random(n) < 0.012).astype(float) * rng.standard_normal(n)
+    hiss = np.diff(rng.standard_normal(n), prepend=0) * 0.25
+    return lowpass(grains * 3 + hiss, 6000) * env_hit(n, 0.002, decay)
+
+
+def whack(rng: np.random.Generator) -> np.ndarray:
+    """The ball finding a piñata: a hollow papier-mache thump and a rustle of paper."""
+    t = clock(0.22)
+    thump = np.sin(sweep(210, 120, 0.22, 0.04)) * np.exp(-t / 0.045)
+    knock = np.sin(2 * np.pi * 420 * t) * np.exp(-t / 0.012)
+    out = thump + 0.35 * knock
+    put(out, 0.004, crinkle(rng, 0.2, 0.06), 0.9)
+    return fade_ends(out, 0.002, 0.03)
+
+
+def burst(rng: np.random.Generator) -> np.ndarray:
+    """A piñata bursting: paper tearing open, a pop, and a quick festive run up to the top C."""
+    out = np.zeros(samples(0.8))
+    put(out, 0, crinkle(rng, 0.3, 0.12), 1.4)
+    t = clock(0.1)
+    put(out, 0.01, np.sin(sweep(160, 60, 0.1, 0.02)) * np.exp(-t / 0.03), 0.9)
+    for i, note in enumerate((67, 72, 76, 79, 84)):
+        put(out, 0.05 + i * 0.045, tone(note, 0.35, (1, 0.5, 0.35, 0.2, 0.1), 0.1), 0.5)
+    put(out, 0.05, noise(rng, 0.6, 0.15), 0.05)
+    return fade_ends(out, 0.002, 0.08)
+
+
+def candy(rng: np.random.Generator) -> np.ndarray:
+    """A candy caught: a crisp wrapper crunch under a bright plink."""
+    out = np.zeros(samples(0.16))
+    put(out, 0, crinkle(rng, 0.08, 0.02), 0.8)
+    put(out, 0.004, tone(91, 0.14, (1, 0.3, 0.15), 0.04), 0.9)
+    put(out, 0.03, tone(98, 0.1, (1, 0.2), 0.03), 0.35)
+    return fade_ends(out, 0.002, 0.02)
+
+
+def sizzle(rng: np.random.Generator) -> np.ndarray:
+    """The chili caught: a hot pan hiss with crackles, and a comic falling yelp."""
+    n = samples(0.55)
+    hiss = np.diff(rng.standard_normal(n), prepend=0) * env_hit(n, 0.005, 0.2)
+    pops = (rng.random(n) < 0.004).astype(float) * rng.standard_normal(n) * env_hit(n, 0.002, 0.25)
+    out = 0.5 * hiss + 2.5 * pops
+    m = samples(0.25)
+    yelp = np.sin(sweep(900, 380, 0.25, 0.08)) * env_hit(m, 0.01, 0.08)
+    put(out, 0.02, yelp, 0.6)
+    return fade_ends(out, 0.002, 0.06)
+
+
+def fiesta(rng: np.random.Generator) -> np.ndarray:
+    """The fiesta: a brassy da-DA! on C major, a shaker under it and a crash to finish."""
+    out = np.zeros(samples(1.1))
+    brass = (1, 0.8, 0.6, 0.45, 0.3, 0.2)
+    for at, length, level in ((0.0, 0.12, 0.6), (0.16, 0.8, 1.0)):
+        for note in (60, 64, 67, 72):
+            put(out, at, tone(note, length, brass, length * 0.8), level * 0.35)
+    for i in range(8):
+        put(out, i * 0.07, lowpass(np.diff(noise(rng, 0.05, 0.015), prepend=0), 9000), 0.25)
+    put(out, 0.16, np.diff(noise(rng, 0.9, 0.3), prepend=0), 0.18)
+    return fade_ends(np.tanh(out * 1.2), 0.002, 0.12)
+
+
 EFFECTS = (
     ("peck", peck),
     ("quack", quack),
@@ -281,6 +345,11 @@ EFFECTS = (
     ("rail_charge", rail_charge),
     ("rail_perfect", rail_perfect),
     ("rail_jam", rail_jam),
+    ("whack", whack),
+    ("burst", burst),
+    ("candy", candy),
+    ("sizzle", sizzle),
+    ("fiesta", fiesta),
 )
 
 

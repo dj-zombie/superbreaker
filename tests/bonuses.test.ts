@@ -22,7 +22,29 @@ import {
   waveStarts,
   type WaveEvent,
 } from '../src/bonus/gallery';
-import { BONUS_IDS, MEDALS, medalFor, type BonusStats } from '../src/core/Bonus';
+import {
+  CHILI_COINS,
+  DROOP_PX,
+  MINI,
+  PEG_BOW,
+  PEG_TOP,
+  PINATAS,
+  SWING_MAX,
+  candyCoins,
+  newRope,
+  pegLayout,
+  pinata,
+  rollDrop,
+  ropeEnd,
+  spillFor,
+  stepRope,
+  swingFor,
+  threeCoins,
+  tierFor,
+  type DropKind,
+} from '../src/bonus/pinata';
+import { BONUS_IDS, MEDALS, arcadeBonusFor, medalFor, type BonusStats } from '../src/core/Bonus';
+import { MAX_BALLS } from '../src/core/Difficulty';
 import { AUDIO_ASSETS, IMAGE_ASSETS } from '../src/config';
 import { Rng } from '../src/core/Rng';
 import { FIELD_WIDTH } from '../src/core/types';
@@ -120,10 +142,10 @@ describe('bonus sounds', () => {
     expect(found).toBeGreaterThan(10);
   });
 
-  it('has a file on disk behind every gallery sound', () => {
-    const gallery = [...keys].filter((key) => key.startsWith('gallery_'));
-    expect(gallery.length).toBeGreaterThanOrEqual(5);
-    for (const key of gallery) {
+  it('has a file on disk behind every bonus stage sound', () => {
+    const own = [...keys].filter((key) => key.startsWith('gallery_') || key.startsWith('pinata_'));
+    expect(own.length).toBeGreaterThanOrEqual(10);
+    for (const key of own) {
       const path = AUDIO_ASSETS.find((a) => a.key === key)!.path;
       const file = join(__dirname, '..', 'public', 'assets', path);
       expect(existsSync(file), `${key}: ${path}`).toBe(true);
@@ -249,5 +271,149 @@ describe('shooting gallery waves', () => {
     expect(one).toBe(BAG_HP / BAG_HP_PER_COIN);
     expect(three).toBe(one);
     expect(bagCoins(BAG_HP, BAG_HP - 1)).toBe(0);
+  });
+});
+
+describe('arcade bonus rounds', () => {
+  it('takes turns after each boss, starting with the gallery', () => {
+    expect([1, 2, 3, 4].map(arcadeBonusFor)).toEqual(['gallery', 'pinata', 'gallery', 'pinata']);
+    expect(arcadeBonusFor(0)).toBe('gallery');
+  });
+});
+
+describe('piñata fiesta', () => {
+  /** Every piece one playing could spill, as the stage rolls them: `n` hits a piñata, in order. */
+  function drops(seed: number, n: number, fiestaFrom = Infinity): DropKind[][] {
+    const rng = new Rng(seed).fork('drops');
+    let lastChili = false;
+    return Array.from({ length: 6 }, (_, pinata) =>
+      Array.from({ length: n }, (_, i) => {
+        const kind = rollDrop(rng, { pinata, lastChili, fiesta: pinata * n + i >= fiestaFrom });
+        lastChili = kind === 'chili';
+        return kind;
+      }),
+    );
+  }
+
+  it('keeps every piñata over the field and clear of the pegs, at its widest swing and lowest droop', () => {
+    for (let index = 0; index < PINATAS.length + 4; index++) {
+      const tier = tierFor(index);
+      const rope = newRope(tier, FIELD, index);
+      rope.aim = SWING_MAX;
+      for (let t = 0; t < 30_000; t += 16) {
+        stepRope(rope, 16);
+        const at = ropeEnd(rope);
+        const where = `${tier.kind} #${index} at ${t}ms`;
+        expect(at.x - tier.hit[0] / 2, where).toBeGreaterThan(FIELD.left);
+        expect(at.x + tier.hit[0] / 2, where).toBeLessThan(FIELD.right);
+        expect(at.y + tier.hit[1] / 2, where).toBeLessThan(FIELD.top + PEG_TOP - 10);
+      }
+      expect(rope.droop).toBeCloseTo(DROOP_PX, 0);
+    }
+  });
+
+  it('swings wider and quicker with every hit, up to a limit', () => {
+    for (const tier of PINATAS) {
+      let last = swingFor(tier, 0);
+      for (let hits = 1; hits < tier.hp; hits++) {
+        const next = swingFor(tier, hits);
+        expect(next.amp).toBeGreaterThanOrEqual(last.amp);
+        expect(next.periodMs).toBeLessThan(last.periodMs);
+        expect(next.amp).toBeLessThanOrEqual(SWING_MAX);
+        last = next;
+      }
+    }
+  });
+
+  it('lowers each piñata in without a jump, and moves on smoothly when a hit changes its swing', () => {
+    const rope = newRope(PINATAS[0]!, FIELD, 0);
+    let prev = ropeEnd(rope);
+    for (let t = 0; t < 4_000; t += 16) {
+      if (t === 2_000) {
+        const next = swingFor(PINATAS[0]!, 5);
+        rope.aim = next.amp;
+        rope.periodMs = next.periodMs;
+      }
+      stepRope(rope, 16);
+      const at = ropeEnd(rope);
+      expect(Math.hypot(at.x - prev.x, at.y - prev.y), `${t}ms`).toBeLessThan(12);
+      prev = at;
+    }
+  });
+
+  it('builds the multiball from its bursts without ever reaching the cap', () => {
+    const balls = 1 + PINATAS.reduce((sum, t) => sum + t.balls, 0);
+    expect(balls).toBeGreaterThanOrEqual(4);
+    expect(balls).toBeLessThanOrEqual(MAX_BALLS);
+    expect(MINI.balls).toBe(0);
+    expect(PINATAS.map((t) => t.hp)).toEqual([...PINATAS.map((t) => t.hp)].sort((a, b) => a - b));
+    expect(tierFor(PINATAS.length).kind).toBe('mini');
+    expect(tierFor(PINATAS.length).at).not.toBe(tierFor(PINATAS.length + 1).at);
+  });
+
+  it('never drops a chili from the first piñata, two in a row, or in the fiesta', () => {
+    let chilis = 0;
+    for (const seed of SEEDS) {
+      const all = drops(seed, 10, 40);
+      expect(all[0]!.includes('chili'), `seed ${seed}`).toBe(false);
+      const flat = all.flat();
+      flat.forEach((k, i) => {
+        if (k !== 'chili') return;
+        chilis++;
+        expect(flat[i - 1], `seed ${seed}, drop ${i}`).not.toBe('chili');
+        expect(i, `seed ${seed}, drop ${i}`).toBeLessThan(40);
+      });
+    }
+    // Rare enough to be a surprise, common enough to matter.
+    const after = SEEDS.length * 30;
+    expect(chilis / after).toBeGreaterThan(0.06);
+    expect(chilis / after).toBeLessThan(0.2);
+  });
+
+  it('drops a golden candy now and then', () => {
+    const flat = SEEDS.flatMap((seed) => drops(seed, 10).flat());
+    const golden = flat.filter((k) => k === 'golden').length / flat.length;
+    expect(golden).toBeGreaterThan(0.03);
+    expect(golden).toBeLessThan(0.12);
+  });
+
+  it('rolls the same drops from the same seed', () => {
+    expect(drops(7, 10)).toEqual(drops(7, 10));
+    expect(drops(7, 10)).not.toEqual(drops(8, 10));
+  });
+
+  it('lays its pegs across the field, in reach of the ball and under the piñatas', () => {
+    for (const seed of SEEDS.slice(0, 10)) {
+      for (let set = 0; set < 6; set++) {
+        const pegs = pegLayout(set, FIELD, new Rng(seed).fork('pegs', set));
+        expect(pegs).toHaveLength(7);
+        for (const p of pegs) {
+          expect(p.x).toBeGreaterThan(FIELD.left + 20);
+          expect(p.x).toBeLessThan(FIELD.right - 20);
+          expect(p.y).toBeGreaterThan(FIELD.top + PEG_TOP - 10);
+          expect(p.y).toBeLessThan(FIELD.top + PEG_TOP + PEG_BOW + 10);
+        }
+        // Room for the ball between any two neighbours.
+        for (let i = 1; i < pegs.length; i++) expect(pegs[i]!.x - pegs[i - 1]!.x).toBeGreaterThan(60);
+      }
+    }
+  });
+
+  it('spills more and pays more as the combo climbs, and twice as much candy in the fiesta', () => {
+    expect(spillFor(1, false)).toBe(1);
+    expect(spillFor(2, false)).toBe(2);
+    expect(spillFor(1, true)).toBe(2);
+    expect(spillFor(3, true)).toBe(4);
+    expect([1, 1.5, 2, 3].map(candyCoins)).toEqual([1, 2, 2, 3]);
+  });
+
+  it('puts gold within reach of breaking the three piñatas cleanly, without combos', () => {
+    expect(pinata.medalBy).toBe('coins');
+    const most = threeCoins();
+    expect(most).toBeGreaterThanOrEqual(pinata.medals[2]);
+    // Bronze is for showing up: about a third of what the three hold.
+    expect(pinata.medals[0]).toBeLessThanOrEqual(most * 0.35);
+    // A chili stings without undoing a run.
+    expect(CHILI_COINS).toBeLessThan(pinata.medals[0] / 4);
   });
 });

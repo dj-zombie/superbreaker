@@ -5,6 +5,8 @@
 export interface Point {
   x: number;
   y: number;
+  /** How far a path turns what follows it, in radians clockwise. Upright when left out. */
+  angle?: number;
 }
 
 export type Path = (tMs: number) => Point;
@@ -67,6 +69,18 @@ export function orbit(cx: number, cy: number, r: number, periodMs: number, phase
   return (t) => {
     const a = phase + (2 * Math.PI * t) / periodMs;
     return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  };
+}
+
+/**
+ * Hangs `length` px under the pivot (px, py) and swings `amp` radians either side of straight
+ * down, once every `periodMs`, starting `phase` radians into the swing. Slow at the ends of the
+ * arc and fastest through the bottom, like a pendulum. What hangs from it leans along the rope.
+ */
+export function swing(px: number, py: number, length: number, amp: number, periodMs: number, phase = 0): Path {
+  return (t) => {
+    const a = amp * Math.sin(phase + (2 * Math.PI * t) / periodMs);
+    return { x: px + length * Math.sin(a), y: py + length * Math.cos(a), angle: -a };
   };
 }
 

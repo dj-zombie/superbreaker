@@ -1,5 +1,10 @@
-export const BONUS_IDS = ['gallery'] as const;
+export const BONUS_IDS = ['gallery', 'pinata'] as const;
 export type BonusId = (typeof BONUS_IDS)[number];
+
+/** Arcade: the bonus round after the run's `n`th boss, counted from 1. The stages take turns. */
+export function arcadeBonusFor(n: number): BonusId {
+  return BONUS_IDS[Math.max(0, Math.floor(n) - 1) % BONUS_IDS.length]!;
+}
 
 /** The stage flow, in order. A stage without an intro starts in `play`. */
 export type BonusStep = 'intro' | 'play' | 'scoring' | 'tally' | 'done';
