@@ -1,209 +1,204 @@
-{ "class":"LevelLighting",
- "compressionlevel":-1,
- "height":50,
- "infinite":false,
- "layers":[
-        {
-         "draworder":"topdown",
-         "id":1,
-         "name":"Bricks",
-         "objects":[
-                {
-                 "gid":11,
-                 "height":16,
-                 "id":1,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":90,
-                 "y":336
-                }, 
-                {
-                 "gid":11,
-                 "height":16,
-                 "id":2,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":120,
-                 "y":336
-                }, 
-                {
-                 "gid":11,
-                 "height":16,
-                 "id":3,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":450,
-                 "y":336
-                }, 
-                {
-                 "gid":11,
-                 "height":16,
-                 "id":4,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":480,
-                 "y":336
-                }, 
-                {
-                 "gid":8,
-                 "height":16,
-                 "id":5,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":60,
-                 "y":368
-                }, 
-                {
-                 "gid":8,
-                 "height":16,
-                 "id":6,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":90,
-                 "y":368
-                }, 
-                {
-                 "gid":8,
-                 "height":16,
-                 "id":7,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":480,
-                 "y":368
-                }, 
-                {
-                 "gid":8,
-                 "height":16,
-                 "id":8,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":510,
-                 "y":368
-                }, 
-                {
-                 "gid":1,
-                 "height":16,
-                 "id":9,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":90,
-                 "y":400
-                }, 
-                {
-                 "gid":1,
-                 "height":16,
-                 "id":10,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":120,
-                 "y":400
-                }, 
-                {
-                 "gid":1,
-                 "height":16,
-                 "id":11,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":450,
-                 "y":400
-                }, 
-                {
-                 "gid":1,
-                 "height":16,
-                 "id":12,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":30,
-                 "x":480,
-                 "y":400
-                }],
-         "opacity":1,
-         "type":"objectgroup",
-         "visible":true,
-         "x":0,
-         "y":0
-        }],
- "nextlayerid":2,
- "nextobjectid":13,
- "orientation":"orthogonal",
- "properties":[
-        {
-         "name":"boss",
-         "type":"string",
-         "value":"warden"
-        }, 
-        {
-         "name":"lightning",
-         "type":"bool",
-         "value":true
-        }, 
-        {
-         "name":"lightsOut",
-         "type":"bool",
-         "value":true
-        }, 
-        {
-         "name":"title",
-         "type":"string",
-         "value":"The Warden"
-        }],
- "renderorder":"right-down",
- "tiledversion":"1.12.2",
- "tileheight":16,
- "tilesets":[
-        {
-         "firstgid":1,
-         "source":"..\/tilesets\/bricks.tsj"
-        }],
- "tilewidth":30,
- "type":"map",
- "version":"1.10",
- "width":20
+{
+ "class": "LevelLighting",
+ "compressionlevel": -1,
+ "height": 50,
+ "infinite": false,
+ "layers": [
+  {
+   "draworder": "topdown",
+   "id": 1,
+   "name": "Bricks",
+   "objects": [
+    {
+     "gid": 6,
+     "height": 16,
+     "id": 1,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 60,
+     "y": 352
+    },
+    {
+     "gid": 9,
+     "height": 16,
+     "id": 2,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 90,
+     "y": 352
+    },
+    {
+     "gid": 6,
+     "height": 16,
+     "id": 3,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 120,
+     "y": 352
+    },
+    {
+     "gid": 10,
+     "height": 16,
+     "id": 4,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 60,
+     "y": 368
+    },
+    {
+     "gid": 18,
+     "height": 16,
+     "id": 5,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 90,
+     "y": 368
+    },
+    {
+     "gid": 10,
+     "height": 16,
+     "id": 6,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 120,
+     "y": 368
+    },
+    {
+     "gid": 6,
+     "height": 16,
+     "id": 7,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 450,
+     "y": 352
+    },
+    {
+     "gid": 9,
+     "height": 16,
+     "id": 8,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 480,
+     "y": 352
+    },
+    {
+     "gid": 6,
+     "height": 16,
+     "id": 9,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 510,
+     "y": 352
+    },
+    {
+     "gid": 10,
+     "height": 16,
+     "id": 10,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 450,
+     "y": 368
+    },
+    {
+     "gid": 18,
+     "height": 16,
+     "id": 11,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 480,
+     "y": 368
+    },
+    {
+     "gid": 10,
+     "height": 16,
+     "id": 12,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 510,
+     "y": 368
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "nextlayerid": 2,
+ "nextobjectid": 13,
+ "orientation": "orthogonal",
+ "properties": [
+  {
+   "name": "boss",
+   "type": "string",
+   "value": "crucible"
+  },
+  {
+   "name": "title",
+   "type": "string",
+   "value": "The Crucible"
+  }
+ ],
+ "renderorder": "right-down",
+ "tiledversion": "1.12.2",
+ "tileheight": 16,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "../tilesets/bricks.tsj"
+  }
+ ],
+ "tilewidth": 30,
+ "type": "map",
+ "version": "1.10",
+ "width": 20
 }

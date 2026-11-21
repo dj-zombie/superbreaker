@@ -36,6 +36,11 @@
       "after": 5,
       "map": "boss05.tmj",
       "bonus": "gallery.tmj"
+    },
+    {
+      "after": 10,
+      "map": "boss10.tmj",
+      "bonus": "pinata.tmj"
     }
   ]
 }
