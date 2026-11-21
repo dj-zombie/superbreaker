@@ -1,6 +1,6 @@
 import { F } from '../atlas';
 import type { FxDef } from '../types';
-import { flutterAir } from './shared';
+import { GOLD, flutterAir } from './shared';
 
 /** Celebrations. Colors come from the world's party palette. */
 export const FANFARE_FX: Record<string, FxDef> = {
@@ -138,6 +138,210 @@ export const FANFARE_FX: Record<string, FxDef> = {
       { at: 900, fx: 'fanfare.cannon', dx: 265, dy: 380, angle: -110 },
       { at: 1050, fx: 'fanfare.firework', dx: [-220, 220], dy: 400 },
       { at: 1300, fx: 'fanfare.firework', dx: [-220, 220], dy: 400 },
+    ],
+  },
+
+  /** A fountain of coins that arcs up, spins and bounces on `opts.floor`. */
+  'fanfare.coins': {
+    layers: [
+      {
+        channel: 'debris',
+        frames: 'coin',
+        count: 24,
+        angle: [-115, -65],
+        speed: [380, 640],
+        gravity: 1100,
+        flutter: 2.6,
+        life: [1300, 1900],
+        size: [0.6, 0.85],
+        color: GOLD[1],
+        bounce: 0.4,
+        fade: 'late',
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'twinkle',
+        count: 14,
+        angle: [-120, -60],
+        speed: [200, 480],
+        gravity: 700,
+        drag: 0.6,
+        life: [600, 1100],
+        size: [0.25, 0.45],
+        color: GOLD,
+        fade: 'flicker',
+      },
+    ],
+    sprites: [
+      { frame: 'star4', from: 20, to: 90, life: 240, fade: 'quick', color: GOLD[0], rotate: 45 },
+      { frame: 'glow', from: 30, to: 90, life: 260, fade: 'quick', alpha: 0.8, color: GOLD[1] },
+    ],
+    light: { color: GOLD[1], radius: 100, life: 300 },
+  },
+
+  /** A combo tick: a ring and a crown of streaks. Raise `intensity` and `scale` with the combo. */
+  'fanfare.combo': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: 'streak',
+        count: 12,
+        zone: { ring: 8 },
+        radial: true,
+        speed: [200, 420],
+        drag: 4,
+        life: [160, 320],
+        size: [0.26, 0.42],
+        stretch: 0.004,
+        thin: 0.6,
+        color: ['@core', '@tint'],
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'twinkle',
+        count: 6,
+        zone: { circle: 16 },
+        speed: [20, 80],
+        life: [300, 600],
+        size: [0.24, 0.4],
+        color: '@core',
+        fade: 'flicker',
+      },
+    ],
+    sprites: [
+      { frame: 'ring', from: 14, to: 80, life: 280, ease: 'expo', alpha: 0.85, color: '@tint' },
+      { frame: 'glow', from: 20, to: 60, life: 200, fade: 'quick', alpha: 0.7, color: '@tint' },
+    ],
+  },
+
+  /** A big combo milestone: the combo tick, doubled, with a star and party glitter. */
+  'fanfare.combo_big': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: 'streak',
+        count: 26,
+        zone: { ring: 12 },
+        radial: true,
+        speed: [320, 680],
+        drag: 3.5,
+        life: [200, 420],
+        size: [0.32, 0.52],
+        stretch: 0.004,
+        thin: 0.6,
+        color: ['@core', '@tint'],
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'twinkle',
+        count: 16,
+        zone: { circle: 30 },
+        speed: [60, 200],
+        drag: 2,
+        life: [500, 900],
+        size: [0.3, 0.5],
+        pick: ['@party'],
+        fade: 'flicker',
+      },
+    ],
+    sprites: [
+      { frame: 'star6', from: 30, to: 140, life: 300, fade: 'quick', color: '@core', rotate: [0, 60] },
+      { frame: 'ring', from: 20, to: 140, life: 340, ease: 'expo', alpha: 0.9, color: '@tint' },
+      { frame: 'ringThick', delay: 80, from: 20, to: 100, life: 300, ease: 'expo', alpha: 0.6, color: '@tint' },
+      { frame: 'flare', from: 100, to: 260, life: 260, fade: 'quick', alpha: 0.7, color: '@tint' },
+    ],
+    light: { color: '@tint', radius: 130, life: 320 },
+    shake: [100, 0.004],
+  },
+
+  /** Fever starts: speed lines rush out from the center and party glitter fills the air. */
+  'fanfare.fever': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: 'streak',
+        count: 50,
+        zone: { ring: 60 },
+        radial: true,
+        speed: [700, 1200],
+        drag: 1,
+        life: [300, 520],
+        size: [0.4, 0.66],
+        stretch: 0.003,
+        thin: 0.5,
+        pick: ['@party'],
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'twinkle',
+        count: 30,
+        zone: { circle: 260 },
+        speed: [10, 50],
+        life: [500, 1100],
+        size: [0.3, 0.55],
+        pick: ['@party'],
+        fade: 'flicker',
+      },
+    ],
+    sprites: [
+      { frame: 'flare', from: 300, to: 900, life: 420, fade: 'quick', alpha: 0.8, color: '@accent' },
+      { frame: 'shock', from: 40, to: 600, life: 520, ease: 'expo', alpha: 0.7, color: '@accent2' },
+    ],
+    light: { color: '@accent', radius: 260, life: 500, intensity: 1.3 },
+    shake: [160, 0.005],
+    scenery: 0.8,
+  },
+
+  /** A burst of gold stars: a rating, a reward. */
+  'fanfare.stars': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: 'conf_star',
+        count: 16,
+        zone: { circle: 6 },
+        radial: true,
+        speed: [180, 380],
+        drag: 2.4,
+        gravity: 200,
+        spin: [-360, 360],
+        life: [700, 1200],
+        size: [0.9, 1.4],
+        color: GOLD,
+        fade: 'late',
+        essential: true,
+      },
+      {
+        channel: 'glow',
+        frames: 'twinkle',
+        count: 12,
+        zone: { circle: 30 },
+        speed: [20, 90],
+        life: [400, 900],
+        size: [0.3, 0.5],
+        color: GOLD,
+        fade: 'flicker',
+      },
+    ],
+    sprites: [
+      { frame: 'star6', from: 30, to: 150, life: 320, fade: 'quick', color: GOLD[0], rotate: [0, 60] },
+      { frame: 'glow', from: 40, to: 120, life: 300, fade: 'quick', alpha: 0.8, color: GOLD[1] },
+    ],
+    light: { color: GOLD[1], radius: 140, life: 360 },
+  },
+
+  /** Level clear: stars at the center, then the full celebration. Play at the board's center. */
+  'fanfare.levelclear': {
+    layers: [],
+    sprites: [{ frame: 'flare', from: 300, to: 900, life: 500, fade: 'quick', alpha: 0.8, color: '@core' }],
+    scenery: 1,
+    then: [
+      { at: 0, fx: 'fanfare.stars' },
+      { at: 120, fx: 'fanfare.celebrate' },
     ],
   },
 };
