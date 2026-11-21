@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import type { BossAnim } from '../core/Boss';
+import type { FxEngine } from '../fx';
 import type { JuiceSystem } from './JuiceSystem';
 import type { LightingSystem } from './LightingSystem';
 import type { ParallaxBackdrop } from './ParallaxBackdrop';
@@ -9,6 +10,7 @@ export interface RigContext {
   readonly scene: Phaser.Scene;
   readonly lighting: LightingSystem;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly scenery: ParallaxBackdrop;
   /** Centre of the box around every part at rest, in field px. */
   readonly anchor: { x: number; y: number };

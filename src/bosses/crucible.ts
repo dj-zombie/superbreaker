@@ -28,10 +28,16 @@ function inField(x: number, margin: number): number {
   return Math.min(FIELD_WIDTH - margin, Math.max(margin, x));
 }
 
-/** Steam from the fists' vents: a white puff either side of the body. */
+/** How long a blast of steam from the fists hisses, in ms. */
+const STEAM_MS = 650;
+
+/** Steam from the fists' vents: a jet down and out either side of the body, `count` as loud as 18. */
 function steam(s: BossStage, count: number): void {
   const { x, y } = s.center;
-  for (const dx of [-95, 95]) s.juice.burst(x + dx, y + 70, STEAM, count);
+  for (const dx of [-95, 95]) {
+    const jet = s.fx.attach('steam.vent', { x: x + dx, y: y + 70 }, { angle: dx < 0 ? 120 : 60, intensity: count / 18 });
+    s.scene.time.delayedCall(STEAM_MS, () => jet.stop());
+  }
 }
 
 /**
@@ -57,8 +63,7 @@ const entrance: Cutscene = {
         s.audio.sfx('crucible_clank', 0.7);
         s.juice.shake(260, 0.01);
         s.lighting.dip(0.5);
-        s.juice.burst(x - 140, y + 150, FURNACE, 10);
-        s.juice.burst(x + 140, y + 150, FURNACE, 10);
+        for (const dx of [-140, 140]) s.fx.play('fire.burst', x + dx, y + 150, { scale: 0.5, bare: true });
       },
     },
     {
@@ -226,7 +231,11 @@ const death: Cutscene = {
         const { x, y } = heart(s);
         s.impact(x + dx, y + dy, scale, i === 2 ? WHITE_HOT : FURNACE);
         s.audio.sfx(i === 2 ? 'boss_explode' : 'brick_tnt', 0.45 + 0.1 * i, i * 100, { x: x + dx });
-        s.juice.burst(x + dx, y + dy, FURNACE, 14 + 6 * i);
+        s.fx.play(i === 2 ? 'boss.phase' : 'boss.part_break', x + dx, y + dy, {
+          tint: i === 2 ? WHITE_HOT : FURNACE,
+          scale,
+          bare: true,
+        });
       },
     })),
     {
@@ -235,7 +244,7 @@ const death: Cutscene = {
         rig(s)?.cool();
         s.audio.sfx('crucible_cool', 0.55);
         const { x, y } = heart(s);
-        s.juice.burst(x, y - 20, STEAM, 24);
+        s.fx.play('smoke.puff', x, y - 20, { tint: STEAM, scale: 1.4, bare: true });
         steam(s, 10);
         // The room cools with it: the furnace light sinks into the dark.
         const chill = s.light({ x: FIELD_WIDTH / 2, y, radius: 700, color: 0x000000, intensity: 0, negative: true });

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { POP_FONT } from '../art/fonts';
+import type { FxEngine } from '../fx';
 import { save } from '../services';
 import { audio } from './AudioSystem';
 
@@ -14,10 +15,13 @@ const PUNCH_MAX_MS = 280;
 /** Shards per frame across every burst. A 30-brick chain would otherwise spawn 500 at once. */
 const BURST_BUDGET = 72;
 
-/** Screen shake, hit-stop, particles and pop-up text. Respects the reduced-motion setting. */
+/**
+ * Screen shake, hit-stop, particles and pop-up text. Respects the reduced-motion setting.
+ * Given the scene's FxEngine, `burst` and `sparkle` play its presets, which share its budget.
+ */
 export class JuiceSystem {
-  private shards: Phaser.GameObjects.Particles.ParticleEmitter;
-  private sparks: Phaser.GameObjects.Particles.ParticleEmitter;
+  private shards?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private sparks?: Phaser.GameObjects.Particles.ParticleEmitter;
   private stopDepth = 0;
   private budget = BURST_BUDGET;
   private budgetFrame = -1;
@@ -29,7 +33,11 @@ export class JuiceSystem {
   /** Something else has the world stopped, so a hit-stop ending must not start it. */
   holdWorld: () => boolean = () => false;
 
-  constructor(private scene: Phaser.Scene) {
+  constructor(
+    private scene: Phaser.Scene,
+    private fx?: FxEngine,
+  ) {
+    if (fx) return;
     this.shards = scene.add.particles(0, 0, 'shard', {
       lifespan: { min: 450, max: 800 },
       speed: { min: 90, max: 280 },
@@ -122,19 +130,27 @@ export class JuiceSystem {
   }
 
   burst(x: number, y: number, tint: number, count = 12): void {
+    if (this.fx) {
+      this.fx.play('impact.shards', x, y, { tint, intensity: count / 12, bare: true });
+      return;
+    }
     const n = this.spend(count);
     if (n <= 0) return;
-    this.shards.setParticleTint(tint);
-    this.shards.explode(n, x, y);
-    this.sparks.setParticleTint(0xffffff);
-    this.sparks.explode(Math.ceil(n / 2), x, y);
+    this.shards!.setParticleTint(tint);
+    this.shards!.explode(n, x, y);
+    this.sparks!.setParticleTint(0xffffff);
+    this.sparks!.explode(Math.ceil(n / 2), x, y);
   }
 
   sparkle(x: number, y: number, tint: number, count = 6): void {
+    if (this.fx) {
+      this.fx.play('impact.sparkle', x, y, { tint, intensity: count / 6, bare: true });
+      return;
+    }
     const n = this.spend(count);
     if (n <= 0) return;
-    this.sparks.setParticleTint(tint);
-    this.sparks.explode(n, x, y);
+    this.sparks!.setParticleTint(tint);
+    this.sparks!.explode(n, x, y);
   }
 
   ring(x: number, y: number, tint: number, radius: number, duration = 360): void {

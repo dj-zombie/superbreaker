@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import type { WorldId } from '../art/backdrops';
-import { FIRE_FRAMES } from '../art/procedural';
 import { HUD_HEIGHT, PADDLE_Y, WIDTH } from '../config';
 import { powerupStats, type PowerupStats } from '../core/Economy';
 import {
@@ -25,6 +24,7 @@ import {
 } from '../core/Laser';
 import type { Brick } from '../entities/Brick';
 import type { Paddle } from '../entities/Paddle';
+import type { FxEngine, FxHandle } from '../fx';
 import { save } from '../services';
 import { audio } from './AudioSystem';
 import type { BrickSystem } from './BrickSystem';
@@ -42,6 +42,7 @@ export const FORCED_LASER_MODE = ((): LaserMode | undefined => {
 export interface LaserHost {
   readonly bricks: BrickSystem;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly lights: LightingSystem;
   readonly paddle: Paddle;
   readonly powerups: PowerupSystem;
@@ -89,13 +90,10 @@ export const POD_DEPTH = -0.5;
 const KICK_PX = 3;
 const FLASH_MS = 60;
 const TRAIL_EVERY_MS = 22;
-const SMOKE_EVERY_MS = 32;
 const STEAM_EVERY_MS = 70;
 /** At most one shot sound this often, whatever the fire rate. */
 const SHOT_SOUND_GAP_MS = 100;
 const IMPACT_SOUND_GAP_MS = 70;
-/** Sparks per frame across every laser effect. */
-const SPARK_BUDGET = 36;
 const STEEL_HEAT = 0x9aa3b5;
 const DEG = Math.PI / 180;
 /** From one mouth, a pattern's two pods become two streams this many degrees either side of up. */
@@ -117,6 +115,8 @@ class Bolt extends Phaser.Physics.Arcade.Image {
   target: Brick | null = null;
   retargetIn = 0;
   trailAcc = 0;
+  /** A missile's exhaust, stopped when the bolt goes back to the pool. */
+  exhaust?: FxHandle;
 }
 
 interface Pod {
@@ -198,17 +198,12 @@ export class LaserSystem {
   /** 0 = pods out, 1 = tucked behind the paddle. */
   private readonly deploy = { t: 1 };
   private steamAcc = 0;
-  private readonly trail: Phaser.GameObjects.Particles.ParticleEmitter;
-  private readonly sparks: Phaser.GameObjects.Particles.ParticleEmitter;
-  private readonly smoke: Phaser.GameObjects.Particles.ParticleEmitter;
   private readonly casings: [
     Phaser.GameObjects.Particles.ParticleEmitter,
     Phaser.GameObjects.Particles.ParticleEmitter,
   ];
   private shotSoundAt = -Infinity;
   private impactSoundAt = -Infinity;
-  private budget = SPARK_BUDGET;
-  private budgetFrame = -1;
   private targetBoxes: Target[] | null = null;
   private wallBoxes: HomingBox[] = [];
   /** The held trigger, while a bonus stage has the guns out. */
@@ -253,40 +248,6 @@ export class LaserSystem {
     this.pods = [pod(-1), pod(1)];
     this.center = this.flashImage();
 
-    this.trail = scene.add.particles(0, 0, 'spark', {
-      lifespan: 150,
-      scale: { start: 0.55, end: 0 },
-      alpha: { start: 0.55, end: 0 },
-      blendMode: Phaser.BlendModes.ADD,
-      emitting: false,
-      maxAliveParticles: 220,
-    });
-    this.trail.setDepth(4);
-    this.sparks = scene.add.particles(0, 0, 'spark', {
-      lifespan: { min: 140, max: 320 },
-      speed: { min: 80, max: 260 },
-      angle: { min: 30, max: 150 },
-      gravityY: 520,
-      scale: { start: 0.7, end: 0 },
-      alpha: { start: 1, end: 0 },
-      blendMode: Phaser.BlendModes.ADD,
-      emitting: false,
-      maxAliveParticles: 160,
-    });
-    this.sparks.setDepth(9);
-    this.smoke = scene.add.particles(0, 0, 'fire', {
-      frame: FIRE_FRAMES[4],
-      lifespan: { min: 380, max: 620 },
-      speed: { min: 12, max: 55 },
-      angle: { min: 240, max: 300 },
-      gravityY: -60,
-      rotate: { min: 0, max: 360 },
-      scale: { start: 0.5, end: 1.5 },
-      alpha: { start: 0.4, end: 0 },
-      emitting: false,
-      maxAliveParticles: 120,
-    });
-    this.smoke.setDepth(1);
     const casing = (min: number, max: number) =>
       scene.add
         .particles(0, 0, this.look.casingKey, {
@@ -374,12 +335,12 @@ export class LaserSystem {
     if (save.state.settings.reducedMotion) return;
     const mouth = this.mouth;
     if (mouth) {
-      this.smoke.explode(this.spend(5), mouth.x, mouth.y);
+      this.vent(mouth.x, mouth.y, 0.6);
       return;
     }
     for (const p of this.pods) {
       const m = this.muzzle(p);
-      this.smoke.explode(this.spend(3), m.x, m.y);
+      this.vent(m.x, m.y, 0.4);
     }
   }
 
@@ -462,10 +423,10 @@ export class LaserSystem {
     const mouth = this.mouth;
     this.source = null;
     const calm = save.state.settings.reducedMotion;
-    if (mouth && !calm) this.smoke.explode(this.spend(10), mouth.x, mouth.y);
+    if (mouth && !calm) this.vent(mouth.x, mouth.y, 1.2);
     for (const p of this.pods) {
       const { x, y } = this.muzzle(p);
-      if (!calm && !mouth) this.smoke.explode(this.spend(8), x, y);
+      if (!calm && !mouth) this.vent(x, y, 1);
       p.light?.kill();
       p.light = undefined;
     }
@@ -642,6 +603,10 @@ export class LaserSystem {
     b.retargetIn = 0;
     b.trailAcc = 0;
     b.body.setVelocity(Math.sin(angle) * speed, -Math.cos(angle) * speed);
+    b.exhaust?.stop();
+    b.exhaust = missile
+      ? this.host.fx.attach('weapon.exhaust', b, { tint, angle: Phaser.Math.RadToDeg(angle) + 90 })
+      : undefined;
     this.shots++;
     return b;
   }
@@ -669,14 +634,17 @@ export class LaserSystem {
       if ((b.mode !== 'gun' && b.mode !== 'scatter') || b.weave) {
         b.setRotation(Math.atan2(v.y, v.x) + Math.PI / 2);
       }
+      // A missile's exhaust is attached; it only needs pointing back along the new heading.
+      if (b.exhaust) {
+        b.exhaust.set({ angle: Phaser.Math.RadToDeg(Math.atan2(-v.y, -v.x)) });
+        continue;
+      }
       if (calm || density <= 0) continue;
       b.trailAcc += dtMs;
-      const every = (b.mode === 'swarm' ? SMOKE_EVERY_MS : TRAIL_EVERY_MS) / density;
+      const every = TRAIL_EVERY_MS / density;
       if (b.trailAcc < every) continue;
       b.trailAcc -= every;
-      if (b.mode === 'swarm') this.smoke.emitParticleAt(b.x, b.y, 1);
-      this.trail.setParticleTint(b.tail);
-      this.trail.emitParticleAt(b.x, b.y, 1);
+      this.host.fx.play('weapon.bolt_trail', b.x, b.y, { tint: b.tail });
     }
   }
 
@@ -745,7 +713,7 @@ export class LaserSystem {
         this.bounceOff(bolt, brick);
         return;
       }
-      this.spray(bolt, STEEL_SPARK, 5);
+      this.spray(bolt, STEEL_SPARK, 5, 'impact.steel');
       this.impactSound(bolt.x, 500);
       this.kill(bolt);
       return;
@@ -756,7 +724,7 @@ export class LaserSystem {
       const cracked = brick.armor < armor;
       if (cracked) audio.sfx('brick_armor', 0.3, 0, { x: brick.x });
       else this.impactSound(bolt.x, 300);
-      this.spray(bolt, STEEL_SPARK, cracked ? 8 : 4);
+      this.spray(bolt, STEEL_SPARK, cracked ? 8 : 4, 'impact.steel');
     } else {
       if (res === 'damaged') this.impactSound(bolt.x, 0);
       this.spray(bolt, bolt.tail, res === 'destroyed' ? 7 : 4);
@@ -783,11 +751,13 @@ export class LaserSystem {
   }
 
   private ricochet(b: Bolt): void {
-    this.spray(b, STEEL_SPARK, 4);
+    this.spray(b, STEEL_SPARK, 4, 'impact.steel');
     audio.sfx('laser_ricochet', 0.2, Phaser.Math.Between(200, 700), { x: b.x });
   }
 
   private kill(b: Bolt): void {
+    b.exhaust?.stop();
+    b.exhaust = undefined;
     b.target = null;
     b.disableBody(true, true);
   }
@@ -827,7 +797,7 @@ export class LaserSystem {
       const m = this.muzzle(p);
       this.showFlash(p.flash, m.x, m.y, p.glow * flashAlpha, p.glow > 0.95);
       if (p.light) p.light.gain = 0.3 + p.glow * 0.9;
-      if (cooling && this.steamAcc >= STEAM_EVERY_MS && !calm) this.smoke.emitParticleAt(m.x, m.y, 1);
+      if (cooling && this.steamAcc >= STEAM_EVERY_MS && !calm) this.vent(m.x, m.y, 0.15);
     }
     if (this.steamAcc >= STEAM_EVERY_MS) this.steamAcc = 0;
     this.centerGlow = Math.max(0, this.centerGlow - dtMs / FLASH_MS);
@@ -852,26 +822,25 @@ export class LaserSystem {
     return p < 0.7 ? mix(STEEL_HEAT, this.look.glow, p / 0.7) : mix(this.look.glow, 0xffffff, (p - 0.7) / 0.3);
   }
 
-  /** Sparks thrown back the way the bolt came, off whatever it hit. */
-  private spray(b: Bolt, tint: number, count: number): void {
-    const n = this.spend(count);
-    if (n <= 0) return;
+  /**
+   * An impact thrown back the way the bolt came, off whatever it hit. `count` is how hard, with 8
+   * a full hit; a missile always lands as a missile.
+   */
+  private spray(b: Bolt, tint: number, count: number, look = 'impact.laser'): void {
     const v = b.body.velocity;
-    const back = Math.atan2(-v.y, -v.x) / DEG;
-    this.sparks.setEmitterAngle({ min: back - 55, max: back + 55 });
-    this.sparks.setParticleTint(tint);
-    this.sparks.explode(n, b.x, b.y);
+    const id = b.mode === 'swarm' ? 'weapon.missile_hit' : look;
+    this.host.fx.play(id, b.x, b.y, {
+      tint,
+      angle: Math.atan2(-v.y, -v.x) / DEG,
+      intensity: count / 8,
+      scale: id === 'weapon.missile_hit' ? 0.7 : 1,
+      bare: true,
+    });
   }
 
-  private spend(count: number): number {
-    const frame = this.scene.game.loop.frame;
-    if (frame !== this.budgetFrame) {
-      this.budgetFrame = frame;
-      this.budget = SPARK_BUDGET * this.host.juice.particleScale;
-    }
-    const n = Math.min(Math.round(count * this.host.juice.particleScale), Math.floor(this.budget));
-    this.budget -= Math.max(0, n);
-    return n;
+  /** Smoke and heat off the barrels; `amount` 1 is a full vent. */
+  private vent(x: number, y: number, amount: number): void {
+    this.host.fx.play('weapon.vent', x, y, { intensity: amount, bare: true });
   }
 
   // ---------------------------------------------------------------- sound

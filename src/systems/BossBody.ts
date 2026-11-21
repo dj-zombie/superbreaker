@@ -344,7 +344,7 @@ export class BossBody {
 
   /** The rig, when the boss has one and every piece of it loaded. It hides the parts under it. */
   private addRig(parts: readonly Brick[]): void {
-    const { scene, lighting, juice, scenery } = this.host;
+    const { scene, lighting, juice, fx, scenery } = this.host;
     const factory = this.def.rig;
     if (!factory || !factory.assets.every((a) => scene.textures.exists(a.key))) return;
     const homes = new Map<string, { x: number; y: number }>();
@@ -353,6 +353,7 @@ export class BossBody {
       scene,
       lighting,
       juice,
+      fx,
       scenery,
       anchor: this.anchor,
       homes,

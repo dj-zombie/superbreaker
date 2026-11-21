@@ -5,6 +5,7 @@ import type { Paddle } from '../entities/Paddle';
 import { calm, css, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
 import { type JackLook, JackRig } from './JackRig';
+import type { FxEngine } from '../fx';
 import type { JuiceSystem } from './JuiceSystem';
 import type { LightingSystem } from './LightingSystem';
 import { particleDensity } from './Quality';
@@ -128,7 +129,6 @@ function shadowTexture(scene: Phaser.Scene): string {
 /** A rail gun's look and sound. It holds no rules: the director says what happened. */
 export class RailGunFx {
   private readonly coils: Phaser.GameObjects.Image[] = [];
-  private readonly sparks: Phaser.GameObjects.Particles.ParticleEmitter;
   private readonly pellets: Phaser.GameObjects.Image[] = [];
   private readonly rig?: JackRig;
   private recoil?: Phaser.Tweens.Tween;
@@ -138,6 +138,7 @@ export class RailGunFx {
   constructor(
     private scene: Phaser.Scene,
     private juice: JuiceSystem,
+    private fx: FxEngine,
     private lighting: LightingSystem,
     private paddle: Paddle,
     private look?: RailLook,
@@ -160,18 +161,6 @@ export class RailGunFx {
           .setScale(0.6),
       );
     }
-    this.sparks = scene.add
-      .particles(0, 0, 'spark', {
-        lifespan: { min: 260, max: 520 },
-        speedX: { min: -150, max: 150 },
-        speedY: { min: -60, max: 60 },
-        scale: { start: 0.7, end: 0 },
-        alpha: { start: 1, end: 0 },
-        blendMode: Phaser.BlendModes.ADD,
-        emitting: false,
-        maxAliveParticles: 260,
-      })
-      .setDepth(BEAM_DEPTH);
   }
 
   /** Every update of play, with the gun as it stands: the capacitor's lamps fill along the gun. */
@@ -272,6 +261,12 @@ export class RailGunFx {
 
     this.kick(over);
     this.rig?.fire();
+    this.fx.play('weapon.rail_muzzle', shot.x, bottom, {
+      tint: glowTint,
+      angle: -90,
+      scale: over ? 1.3 : 1,
+      bare: true,
+    });
     juice.ring(shot.x, bottom, glowTint, over ? 110 : 70, 280);
     if (over) juice.ring(shot.x, bottom, 0xffffff, 160, 420);
     juice.punch(over ? 200 : 150, over ? 0.011 : 0.0075);
@@ -291,6 +286,7 @@ export class RailGunFx {
   jam(): void {
     const { paddle, juice } = this;
     this.rig?.jam();
+    this.fx.play('smoke.puff', paddle.x, paddle.y - 14, { tint: 0x8a8a8a, scale: 0.6, bare: true });
     juice.sparkle(paddle.x, paddle.y - 14, 0x8a8a8a, 10);
     juice.shake(90, 0.004);
     juice.popText(paddle.x, this.calloutY, 'JAM!', '#9a9a9a', 16);
@@ -334,7 +330,6 @@ export class RailGunFx {
       pel.destroy();
     }
     this.pellets.length = 0;
-    this.sparks.destroy();
   }
 
   /** The paddle kicks down under the shot and springs back. */
@@ -354,12 +349,11 @@ export class RailGunFx {
   private helix(x: number, bottom: number, top: number, halfWidth: number, tint: number): void {
     const density = particleDensity();
     if (density <= 0) return;
-    this.sparks.setParticleTint(tint);
     const step = HELIX_STEP / Math.max(0.35, density);
     const phase = Math.random() * Math.PI * 2;
     for (let y = bottom; y > top; y -= step) {
       const k = (bottom - y) * 0.045 + phase;
-      this.sparks.emitParticleAt(x + Math.sin(k) * halfWidth * 1.8, y, 1);
+      this.fx.play('weapon.rail_spark', x + Math.sin(k) * halfWidth * 1.8, y, { tint, bare: true });
     }
   }
 

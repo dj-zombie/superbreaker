@@ -33,6 +33,7 @@ import { calm, css, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
 import type { BrickSystem } from './BrickSystem';
 import { COIN, CollectibleSystem, type Collectible, type CollectibleKind } from './CollectibleSystem';
+import type { FxEngine } from '../fx';
 import type { JuiceSystem } from './JuiceSystem';
 import type { LaserStream } from './LaserSystem';
 import type { LightingSystem } from './LightingSystem';
@@ -144,6 +145,7 @@ export interface Field {
 export interface BonusStage {
   readonly scene: Phaser.Scene;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly lighting: LightingSystem;
   readonly paddle: Paddle;
   readonly audio: typeof audio;
@@ -366,6 +368,7 @@ export interface BonusHost {
   readonly scene: Phaser.Scene;
   readonly bricks: BrickSystem;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly lighting: LightingSystem;
   readonly paddle: Paddle;
   /** The physics time scale: above 1 is slower. */
@@ -496,7 +499,7 @@ export class BonusDirector implements BrickOwner {
     const guns = def.guns;
     if (guns?.rail) {
       this.rail = new RailGun({ ...DEFAULT_RAIL, ...guns.rail });
-      this.railFx = new RailGunFx(host.scene, host.juice, host.lighting, host.paddle, guns.railLook);
+      this.railFx = new RailGunFx(host.scene, host.juice, host.fx, host.lighting, host.paddle, guns.railLook);
     }
     if (guns && (!guns.rail || guns.burst)) {
       this.gatling = new Gatling({ ...DEFAULT_GATLING, ...guns.gatling });
@@ -1153,6 +1156,7 @@ export class BonusDirector implements BrickOwner {
     return {
       scene: host.scene,
       juice: host.juice,
+      fx: host.fx,
       lighting: host.lighting,
       paddle: host.paddle,
       audio,

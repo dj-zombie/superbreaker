@@ -87,6 +87,7 @@ import { BONUSES } from '../bonus';
 import type { BonusId } from '../core/Bonus';
 import { BOSS_IDS, type BossMood } from '../core/Boss';
 import { BALL_SIZE, Ball } from '../entities/Ball';
+import { FxEngine, type FxHandle } from '../fx';
 import type { Brick, HitResult } from '../entities/Brick';
 import { Paddle } from '../entities/Paddle';
 import { celebrate, gameplayStart, gameplayStop, reportProgress } from '../platform/crazygames';
@@ -266,6 +267,16 @@ const NEW_BEST_MS = 1_250;
 const INTRO_HOLD_MS = 1_500;
 /** Radius of a boss's blow at scale 1, in px: the ring's reach, and half its light's. */
 const BOSS_IMPACT_RADIUS = 70;
+/** Pickups with their own catch effect; the rest play `powerup.pickup` in their color. */
+const PICKUP_FX: Partial<Record<PowerupId, string>> = {
+  coin: 'powerup.coin',
+  extraLife: 'powerup.life',
+  shield: 'powerup.shield',
+  balls: 'powerup.multiball',
+  hyper: 'powerup.hyper',
+  mystery: 'powerup.mystery',
+  smaller: 'powerup.bad',
+};
 /** Spoken calls for the last three seconds, then "go" as the ball launches. Index 0 is "1". */
 const COUNTDOWN_CALLS = ['count_1', 'count_2', 'count_3'] as const;
 /** Cents over the combo callout for combo 5, 10, 15 and 20. A voice, so it only lifts a little. */
@@ -320,6 +331,9 @@ export class Play extends BaseScene {
   private beacons = new Map<Brick, Light>();
   private shieldLight?: Light;
   private ballFx!: BallFx;
+  /** Every particle effect in the level, on one atlas and one frame budget. */
+  private fx!: FxEngine;
+  private magnetFx?: FxHandle;
   private frameMonitor!: FrameMonitor;
   private pacing!: PacingDirector;
   private musicMood!: MusicIntensity;
@@ -501,9 +515,21 @@ export class Play extends BaseScene {
     this.shieldLight = undefined;
     this.setupPhysics();
 
-    this.juice = new JuiceSystem(this);
+    this.fx = new FxEngine(this, {
+      world: scenery.id,
+      hooks: {
+        light: (x, y, color, radius, life, intensity, grow) =>
+          this.lighting.flash(x, y, color, radius, life, intensity, grow),
+        shake: (ms, k) => this.juice.shake(ms, k),
+        punch: (ms, k) => this.juice.punch(ms, k),
+        hitStop: (ms) => this.juice.hitStop(ms),
+        scenery: (amount) => this.scenery.flash(amount * 0.3),
+      },
+    });
+    this.juice = new JuiceSystem(this, this.fx);
     this.juice.particleScale = particleDensity();
-    this.ballFx = new BallFx(this);
+    this.ballFx = new BallFx(this.fx);
+    this.startWeather(scenery.id);
     this.frameMonitor = new FrameMonitor(this.game);
     this.paddle = new Paddle(this, world);
     this.balls = this.physics.add.group();
@@ -517,11 +543,14 @@ export class Play extends BaseScene {
         onDestroyed: (b, cause, chain) => this.onBrickDestroyed(b, cause, chain),
         onExplosion: (x, y, chain) => this.onExplosion(x, y, chain),
         onRegrow: (b) => {
-          this.juice.sparkle(b.x, b.y, COLORS.good, 8);
+          this.fx.play('brick.regen', b.x, b.y, { tint: COLORS.good, w: b.displayWidth, h: b.displayHeight });
+          this.addBrickFx([b]);
           audio.sfx('brick_regen', 0.35, 0, { x: b.x });
         },
         onHit: (b, res, cause) => this.onBrickHit(b, res, cause),
         onCollapseStart: () => {
+          const low = this.bricks.lowestBottom();
+          this.fx.play('brick.collapse', WIDTH / 2, Number.isFinite(low) ? low : ARENA_MID, { w: WIDTH, h: 24, bare: true });
           this.juice.popText(WIDTH / 2, ARENA_MID - 40, 'COLLAPSE!', '#ffc93c', 30);
           this.juice.shake(400, 0.006);
           audio.sfx('brick_collapse', 0.5);
@@ -553,6 +582,7 @@ export class Play extends BaseScene {
     this.initialBreakables = Math.max(1, this.bricks.remaining);
     this.lighting.attach(this.bricks.bricks, this.paddle);
     this.addBrickLights(this.bricks.bricks);
+    this.addBrickFx(this.bricks.bricks);
     this.pacing = new PacingDirector();
     this.musicMood = new MusicIntensity();
     this.fever = new FeverSystem(
@@ -562,6 +592,7 @@ export class Play extends BaseScene {
       (active) => {
         this.onEffectsChanged();
         this.scenery.setPace((active ? 3.5 : 1) * this.sceneryPace);
+        if (active) this.fx.play('fanfare.fever', WIDTH / 2, ARENA_MID, { tint: this.fever.trailColor, quiet: true });
       },
       this.lighting.look.lightsOut ? 0.35 : 1,
     );
@@ -581,6 +612,9 @@ export class Play extends BaseScene {
         fever: this.fever.active,
       }),
       onSpawned: (p) => {
+        const tint = POWERUP_INFO[p.kind].color;
+        this.fx.play('powerup.spawn', p.x, p.y, { tint });
+        this.fx.attach('powerup.aura', p, { tint });
         this.lighting.addLight({
           follow: p,
           radius: 64,
@@ -598,6 +632,7 @@ export class Play extends BaseScene {
       {
         bricks: this.bricks,
         juice: this.juice,
+        fx: this.fx,
         lights: this.lighting,
         paddle: this.paddle,
         powerups: this.powerups,
@@ -609,6 +644,7 @@ export class Play extends BaseScene {
     this.abilities = new AbilitySystem(this, {
       bricks: this.bricks,
       juice: this.juice,
+      fx: this.fx,
       backdrop: this.backdrop,
       lights: this.lighting,
       paddlePos: () => ({ x: this.paddle.x, y: this.paddle.y }),
@@ -776,7 +812,7 @@ export class Play extends BaseScene {
     this.updateAttachedBalls(dt);
     this.updateCoach(dt);
     this.syncFreeze();
-    this.ballFx.update(this.ballList, dt, this.juice.particleScale);
+    this.ballFx.update(this.ballList);
     this.syncLights();
     this.updateSkills(dt);
     this.updateTimeScale();
@@ -1091,7 +1127,9 @@ export class Play extends BaseScene {
     ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
     this.refillPlow(ball);
     audio.sfx('wall', 0.2, 0, { x: ball.x });
-    this.juice.sparkle(ball.x, ball.y, 0x7fe9ff, 3);
+    const hit = ball.body.blocked;
+    const normal = hit.left ? 0 : hit.right ? 180 : 90;
+    this.fx.play('impact.wall', ball.x, ball.y, { tint: ball.trailTint, angle: normal, bare: true });
   }
 
   private setupColliders(): void {
@@ -1357,6 +1395,12 @@ export class Play extends BaseScene {
       5,
     );
     audio.hit(ball.x);
+    this.fx.play('impact.paddle', ball.x, this.paddle.y - 8, {
+      tint: ball.trailTint,
+      angle: -90,
+      intensity: Phaser.Math.Clamp(ball.speed / this.diff.maxSpeed, 0.5, 1.2),
+      bare: true,
+    });
     this.hud.combo = 0;
     this.pacing.onPaddleHit();
     this.refillPlow(ball);
@@ -1408,7 +1452,7 @@ export class Play extends BaseScene {
       ball.pierced.set(brick.spec.id, now + 200);
       ball.plowLeft--;
       this.bricks.hit(brick, FIREBALL_DAMAGE, 'ball', { stripArmor: true });
-      this.juice.sparkle(brick.x, brick.y, 0xffa53c, 6);
+      this.fx.play('impact.fireball', brick.x, brick.y, { bare: true });
       ball.speed = Math.min(ball.speed + this.diff.speedStep * 0.5, this.diff.maxSpeed);
       return false;
     }
@@ -1417,6 +1461,12 @@ export class Play extends BaseScene {
       if ((ball.pierced.get(brick.spec.id) ?? 0) < now) {
         ball.pierced.set(brick.spec.id, now + 200);
         this.bricks.hit(brick, PIERCE_DAMAGE, 'ball', { stripArmor: true });
+        const v = ball.body.velocity;
+        this.fx.play('impact.pierce', brick.x, brick.y, {
+          tint: ball.trailTint,
+          angle: Phaser.Math.RadToDeg(Math.atan2(v.y, v.x)),
+          bare: true,
+        });
       }
       return false;
     }
@@ -1441,13 +1491,23 @@ export class Play extends BaseScene {
       },
     );
     this.refillPlow(ball);
+    // Sprays face back out of the brick, toward the ball.
+    const normal = Phaser.Math.RadToDeg(Math.atan2(ball.y - brick.y, ball.x - brick.x));
+    const at = { angle: normal, bare: true };
     if (res === 'immune') {
       audio.sfx('brick_steel', 0.3, 0, { x: brick.x });
-      this.juice.sparkle(ball.x, ball.y, 0xcfd6e6, 5);
+      this.fx.play('impact.steel', ball.x, ball.y, at);
     } else if (res === 'armor') {
       audio.sfx('brick_armor', 0.4, 0, { x: brick.x });
+      this.fx.play('impact.armor', brick.x, brick.y, {
+        ...at,
+        tint: brick.tintColor,
+        w: brick.displayWidth,
+        h: brick.displayHeight,
+      });
     } else if (res !== 'destroyed') {
       audio.hit(brick.x);
+      this.fx.play('impact.wall', ball.x, ball.y, { ...at, tint: brick.tintColor });
     }
     if (fire && res !== 'immune') this.juice.shake(80, 0.004);
     if (res === 'destroyed') {
@@ -1463,7 +1523,14 @@ export class Play extends BaseScene {
       return;
     }
     this.creditBreak(b, cause, chain);
-    this.juice.burst(b.x, b.y, b.tintColor, cause === 'explosion' ? 8 : 12);
+    this.fx.play('brick.shatter', b.x, b.y, {
+      tint: b.tintColor,
+      w: b.displayWidth,
+      h: b.displayHeight,
+      intensity: cause === 'explosion' ? 0.7 : 1,
+      floor: this.paddle.y + 18,
+      bare: true,
+    });
     const glow = b.spec.light;
     this.lighting.flash(
       b.x,
@@ -1508,6 +1575,11 @@ export class Play extends BaseScene {
       const p = theme().palette;
       const color = tier >= 4 ? '#ffffff' : css(tier >= 2 ? p.accentHi : p.gold);
       this.juice.popText(b.x, b.y - 10, `COMBO x${this.hud.combo}`, color, 18 + tier * 4, 1 + tier * 0.12);
+      this.fx.play(tier >= 4 ? 'fanfare.combo_big' : 'fanfare.combo', b.x, b.y, {
+        tint: Phaser.Display.Color.HexStringToColor(color).color,
+        scale: 0.8 + tier * 0.1,
+        quiet: true,
+      });
       if (tier >= 4 && save.state.settings.screenShake) this.juice.shake(120, 0.002 * tier);
       const detune = COMBO_DETUNE[tier - 1];
       if (detune !== undefined) {
@@ -1518,8 +1590,8 @@ export class Play extends BaseScene {
   }
 
   private onExplosion(x: number, y: number, chain: number): void {
-    this.juice.ring(x, y, 0xff8a1f, EXPLOSION_RADIUS * 1.4);
-    this.juice.burst(x, y, 0xff5a1f, 18);
+    // A long chain trades the full fireball for the lighter chain pop, so 30 blasts stay readable.
+    this.fx.play(chain >= 3 ? 'brick.chain' : 'brick.explode', x, y, { floor: this.paddle.y + 18, bare: true });
     this.juice.shake(160 + chain * 40, 0.008 + chain * 0.002);
     this.juice.hitStop(45);
     this.juice.flash(80, 255, 140, 60);
@@ -1585,6 +1657,58 @@ export class Play extends BaseScene {
             })
           : undefined;
       if (light) this.brickLights.push({ brick: b, light });
+    }
+  }
+
+  /**
+   * The room's weather, from its lighting mood: rain and mist in a storm, embers in a forge,
+   * digital rain on the beat, confetti at a party, ash in Hell. It sits behind the bricks, and
+   * reduced motion turns it off.
+   */
+  private startWeather(scenery: SceneryId): void {
+    if (calm()) return;
+    const mood = this.lighting.look.mood;
+    const ids =
+      mood === 'storm'
+        ? ['weather.rain', 'weather.mist']
+        : mood === 'forge'
+          ? ['weather.embers']
+          : mood === 'beat'
+            ? ['weather.digital']
+            : mood === 'party'
+              ? ['weather.confetti']
+              : scenery === 'hell'
+                ? ['weather.ash']
+                : [];
+    const bounds = { x: -WING, y: 0, width: WIDTH + WING * 2, height: HEIGHT };
+    for (const id of ids) this.fx.weather(id, bounds);
+  }
+
+  /**
+   * Movers kick up grit as they slide, and armored and regen bricks glint. Each effect ends with
+   * the brick's life (a regen brick's when it goes dormant; `onRegrow` starts it again), and an
+   * armored brick's glint when its plating is gone. Boss parts are the boss's to dress.
+   */
+  private addBrickFx(bricks: readonly Brick[]): void {
+    for (const b of bricks) {
+      if (b.owner) continue;
+      const moving = b.spec.moveX !== 0;
+      const regen = b.spec.kind === 'regen';
+      if (!moving && !regen && b.armor <= 0) continue;
+      const box = { tint: b.tintColor, w: b.displayWidth, h: b.displayHeight };
+      const follow = (live: () => boolean) => ({
+        get x() {
+          return b.x;
+        },
+        get y() {
+          return b.y;
+        },
+        get active() {
+          return live();
+        },
+      });
+      if (moving) this.fx.attach('brick.dust', follow(() => b.isAlive), box);
+      if (regen || b.armor > 0) this.fx.attach('brick.shimmer', follow(() => b.isAlive && (regen || b.armor > 0)), box);
     }
   }
 
@@ -1663,9 +1787,9 @@ export class Play extends BaseScene {
     if (id !== 'coin') {
       const name = id === 'laser' ? `${LASER_MODE_DEFS[this.laser.nextMode()].label}!` : info.label;
       this.juice.popText(x, y - 24, name.toUpperCase(), '#ffffff', 18);
-      this.juice.ring(x, y, info.color, 40);
       haptic('medium');
     }
+    this.fx.play(PICKUP_FX[id] ?? 'powerup.pickup', x, y, { tint: info.color });
     const sfx: Partial<Record<PowerupId, string>> = {
       magnet: 'sfx_magnet',
       fireball: 'sfx_fireball',
@@ -1685,6 +1809,16 @@ export class Play extends BaseScene {
   private onEffectsChanged(): void {
     const mode = this.currentMode();
     for (const b of this.ballList) b.setMode(mode);
+    const magnet = this.powerups.is('magnet');
+    if (magnet && !this.magnetFx?.alive) {
+      this.magnetFx = this.fx.attach('powerup.magnet', this.paddle, {
+        tint: POWERUP_INFO.magnet.color,
+        w: this.paddle.displayWidth,
+      });
+    } else if (!magnet) {
+      this.magnetFx?.stop();
+      this.magnetFx = undefined;
+    }
   }
 
   private addCoin(x: number, y: number): void {
@@ -1820,7 +1954,15 @@ export class Play extends BaseScene {
     if (!walls.length) return;
     if (guardedShare(this.bricks.targets.map(homingBox), walls) < WALLS_DOWN_SHARE) return;
     this.wallsDown = true;
-    for (const b of this.bricks.shatterSteel()) this.juice.burst(b.x, b.y, 0xcfd6e6, 4);
+    for (const b of this.bricks.shatterSteel()) {
+      this.fx.play('brick.armor_break', b.x, b.y, {
+        tint: 0xcfd6e6,
+        w: b.displayWidth,
+        h: b.displayHeight,
+        intensity: 0.6,
+        bare: true,
+      });
+    }
     this.juice.popText(WIDTH / 2, ARENA_MID, 'WALLS DOWN!', '#7fe9ff', 30);
     this.juice.flash(120, 200, 230, 255);
     this.juice.shake(400, 0.006);
@@ -2108,6 +2250,7 @@ export class Play extends BaseScene {
   private bossImpact(x: number, y: number, scale: number, color: number): void {
     this.juice.ring(x, y, color, BOSS_IMPACT_RADIUS * scale);
     this.juice.burst(x, y, color, Math.round(14 * scale));
+    this.fx.play('spark.impact', x, y, { tint: color, angle: -90, scale, bare: true });
     this.juice.shake(140 * scale, 0.007 * scale);
     this.lighting.flash(x, y, color, BOSS_IMPACT_RADIUS * 2 * scale, 480, 0.8, 1.3, 8, true);
     // The backdrop only flares with a flash the limiter allowed, so a run of blows cannot strobe.
@@ -2167,7 +2310,10 @@ export class Play extends BaseScene {
     if (!bossLevel) audio.fanfare();
     haptic('heavy');
     this.lighting.celebrate();
-    if (!bossLevel) this.juice.flash(250, 255, 240, 200);
+    if (!bossLevel) {
+      this.juice.flash(250, 255, 240, 200);
+      this.fx.play('fanfare.levelclear', WIDTH / 2, ARENA_MID - 60, { floor: this.paddle.y + 18 });
+    }
     for (const b of this.ballList) b.body.setVelocity(0, 0);
     const data: ResultsData = {
       win: true,
@@ -2450,6 +2596,7 @@ export class Play extends BaseScene {
       scene: this,
       bricks: this.bricks,
       juice: this.juice,
+      fx: this.fx,
       lighting: this.lighting,
       scenery: this.scenery,
       powerups: this.powerups,
@@ -2501,6 +2648,7 @@ export class Play extends BaseScene {
       scene: this,
       bricks: this.bricks,
       juice: this.juice,
+      fx: this.fx,
       lighting: this.lighting,
       paddle: this.paddle,
       timeScale: () => this.physics.world.timeScale,
@@ -2592,6 +2740,7 @@ export class Play extends BaseScene {
 
   private onBricksAdded(bricks: readonly Brick[], board: boolean): void {
     this.addBrickLights(bricks);
+    this.addBrickFx(bricks);
     const remaining = this.bricks.remaining;
     if (board) {
       this.pacing = new PacingDirector();

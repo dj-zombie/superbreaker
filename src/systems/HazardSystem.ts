@@ -14,13 +14,16 @@ import type { Paddle } from '../entities/Paddle';
 import { solid } from '../ui/shapes';
 import { calm, css, theme } from '../ui/theme';
 import { audio } from './AudioSystem';
+import type { FxEngine, FxHandle } from '../fx';
 import type { JuiceSystem } from './JuiceSystem';
 import type { Light, LightingSystem } from './LightingSystem';
+import { fxTier } from './Quality';
 
 /** What the hazards need from the fight. Built from closures, like every host. */
 export interface HazardHost {
   readonly scene: Phaser.Scene;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly lighting: LightingSystem;
   readonly paddle: Paddle;
   /** Centre of a part now, or undefined once it has left the field. */
@@ -138,6 +141,11 @@ function radiusOf(spec: HazardSpec): number {
   return SHOT_RADIUS;
 }
 
+/** Degrees from (`toX`, `toY`) back toward (`fromX`, `fromY`): the way a trail streams. */
+function angleBack(fromX: number, fromY: number, toX: number, toY: number): number {
+  return Phaser.Math.RadToDeg(Math.atan2(fromY - toY, fromX - toX));
+}
+
 /** One hazard of the armed plan, with everything drawn for it. */
 interface Entry {
   spec: HazardSpec;
@@ -171,6 +179,8 @@ interface Entry {
   /** A beam's column. */
   column?: Image;
   light?: Light;
+  /** What streams off the shot, skull or glob in flight, on Medium and High. */
+  trail?: FxHandle;
 }
 
 /**
@@ -370,6 +380,7 @@ export class HazardSystem {
       else glob.setTint(SLAG_COLOR);
       e.body = glob;
       e.trailAt = spec.at;
+      this.follow(e, 'boss.hazard_trail');
       audio.sfx(SLAG_TOSS_SFX, 0.4, 0, { x: e.fromX });
       if (this.lit < MAX_LIGHTS) {
         e.light = host.lighting.addLight({
@@ -393,6 +404,7 @@ export class HazardSystem {
         .setTint(0xff9a8a)
         .setDisplaySize(2 * SHOT_RADIUS * 1.1, SHOT_LENGTH * 1.25)
         .setRotation(Math.atan2(host.paddle.y - e.fromY, spec.x - e.fromX) - Math.PI / 2);
+      this.follow(e, 'weapon.exhaust', 0.7);
       audio.sfx(SHOT_SFX, 0.35, 0, { x: e.fromX });
       return;
     }
@@ -401,11 +413,13 @@ export class HazardSystem {
       body
         .setDisplaySize(SHOT_LENGTH, 2 * SHOT_RADIUS)
         .setRotation(Math.atan2(host.paddle.y - e.fromY, spec.x - e.fromX));
+      this.follow(e, 'weapon.exhaust', 0.7);
       audio.sfx(SHOT_SFX, 0.35, 0, { x: e.fromX });
       return;
     }
     // A skull stays upright and steady all the way down: coins spin and pickups rock.
     body.setDisplaySize(SKULL_SIZE, SKULL_SIZE);
+    this.follow(e, 'ability.meteor_trail', 0.6);
     audio.sfx(SKULL_LAUNCH_SFX, 0.45, 0, { x: e.fromX });
     if (this.lit < MAX_LIGHTS) {
       e.light = host.lighting.addLight({
@@ -488,13 +502,13 @@ export class HazardSystem {
         const x = Phaser.Math.Linear(e.caughtX!, target.x, k);
         const y = Phaser.Math.Linear(paddle.y, target.y, k);
         body?.setPosition(x, y).setRotation(body.rotation - 0.4);
+        e.trail?.set({ angle: angleBack(x, y, target.x, target.y) });
         this.trail(e, now, x, y);
         return;
       }
       this.finish(e);
       if (!this.host.returned(e.target!, spec.hits)) return;
-      juice.burst(target.x, target.y, SLAG_COLOR, POP_SPARKS);
-      juice.ring(target.x, target.y, SLAG_COLOR, POP_RING);
+      this.host.fx.play('boss.part_break', target.x, target.y, { tint: SLAG_COLOR, scale: 0.7, bare: true });
       juice.popText(target.x, target.y - WORD_LIFT, 'CRACK!', css(SLAG_COLOR), WORD_SIZE + 4, 1.3);
       audio.sfx(SLAG_RETURN_SFX, 0.55, 0, { x: target.x });
       return;
@@ -530,17 +544,27 @@ export class HazardSystem {
     for (const img of [e.mark, e.ring]) img?.setVisible(false);
   }
 
-  /** A spark off a glob in flight, every SLAG_TRAIL_MS. */
+  /**
+   * Streams `id` off a hazard's body from where it sets off, pointed back along its flight to the
+   * paddle line. Low tier and reduced motion go without.
+   */
+  private follow(e: Entry, id: string, scale = 1): void {
+    if (this.still || !e.body || fxTier() === 'low') return;
+    const angle = angleBack(e.fromX, e.fromY, e.spec.x, this.host.paddle.y);
+    e.trail = this.host.fx.attach(id, e.body, { angle, scale });
+  }
+
+  /** A spark off a glob in flight, every SLAG_TRAIL_MS, where it has no trail of its own. */
   private trail(e: Entry, now: number, x: number, y: number): void {
-    if (this.still || now - (e.trailAt ?? 0) < SLAG_TRAIL_MS) return;
+    if (e.trail || this.still || now - (e.trailAt ?? 0) < SLAG_TRAIL_MS) return;
     e.trailAt = now;
     this.host.juice.sparkle(x, y, SLAG_COLOR, 1);
   }
 
   /** A missed glob splashes on the paddle line and is gone. Harmless. */
   private splash(x: number, y: number): void {
-    const { scene, juice, looks } = this.host;
-    juice.sparkle(x, y, SLAG_COLOR, MISS_SPARKS + 2);
+    const { scene, fx, looks } = this.host;
+    fx.play('boss.slag_splash', x, y);
     audio.sfx(SLAG_SPLASH_SFX, 0.4, 0, { x });
     if (!looks?.splash || !scene.textures.exists(looks.splash)) return;
     const img = scene.add
@@ -622,6 +646,8 @@ export class HazardSystem {
     e.fill = undefined;
     e.column = undefined;
     e.light = undefined;
+    e.trail?.stop();
+    e.trail = undefined;
   }
 
   /** An image from the pool, in the danger colour and reset to plain. */

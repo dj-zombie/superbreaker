@@ -52,6 +52,7 @@ import { BossBody } from './BossBody';
 import type { BossRig, RigFactory } from './BossRig';
 import type { BrickSystem } from './BrickSystem';
 import { HazardSystem, type HazardLooks } from './HazardSystem';
+import type { FxEngine } from '../fx';
 import type { JuiceSystem } from './JuiceSystem';
 import type { Light, LightOptions, LightingSystem } from './LightingSystem';
 import type { ParallaxBackdrop } from './ParallaxBackdrop';
@@ -166,6 +167,7 @@ export interface BossStage {
   readonly scene: Phaser.Scene;
   readonly bricks: BrickSystem;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly lighting: LightingSystem;
   readonly scenery: ParallaxBackdrop;
   readonly powerups: PowerupSystem;
@@ -267,6 +269,7 @@ export interface BossHost {
   readonly scene: Phaser.Scene;
   readonly bricks: BrickSystem;
   readonly juice: JuiceSystem;
+  readonly fx: FxEngine;
   readonly lighting: LightingSystem;
   readonly scenery: ParallaxBackdrop;
   readonly powerups: PowerupSystem;
@@ -506,6 +509,7 @@ export class BossDirector implements BrickOwner {
     this.hazards = new HazardSystem({
       scene: host.scene,
       juice: host.juice,
+      fx: host.fx,
       lighting: host.lighting,
       paddle: host.paddle,
       partPos: (id) => this.cast?.body.part(id),
@@ -1167,6 +1171,7 @@ export class BossDirector implements BrickOwner {
       scene: host.scene,
       bricks: host.bricks,
       juice: host.juice,
+      fx: host.fx,
       lighting: host.lighting,
       scenery: host.scenery,
       powerups: host.powerups,

@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { RENDER_ZOOM, SCENES } from '../config';
+import { FxEngine } from '../fx';
 import { BossDirector } from '../systems/BossDirector';
 import { LightingSystem } from '../systems/LightingSystem';
+import { fxTier } from '../systems/Quality';
 
 /** Dev builds only: the running boss fight in one line, or nothing without one. */
 function bossLine(): string {
@@ -17,7 +19,8 @@ function bossLine(): string {
 
 /**
  * `?debug` in the URL shows frame rate, CPU time per frame, physics bodies, live particles, render
- * zoom and the lighting tier, light count and light map cost, refreshed twice a second. Meant for
+ * zoom, the FX engine's tier and load, and the lighting tier, light count and light map cost,
+ * refreshed twice a second. `particles` counts every emitter, the engine's included. Meant for
  * checking a real phone against `pnpm preview --host`. A dev build adds the boss fight's state.
  */
 export function mountDebugOverlay(game: Phaser.Game): void {
@@ -70,10 +73,16 @@ export function mountDebugOverlay(game: Phaser.Game): void {
       ? `\nlight ${lighting.stats.tier}  ${lighting.stats.drawn}/${lighting.stats.lights} drawn  ` +
         `map ${lighting.stats.map}  ${lighting.stats.ms.toFixed(2)}ms`
       : '';
+    const fx = FxEngine.current?.stats();
+    const fxLine = fx
+      ? `\nfx ${fxTier()}  ${fx.particles} particles  ${fx.effects} running  ` +
+        `${fx.sprites} sprites  ${fx.ribbons} ribbons`
+      : '';
     el.textContent =
       `${game.loop.actualFps.toFixed(0)} fps  cpu ${avg.toFixed(1)}ms (max ${worst.toFixed(0)})\n` +
       `bodies ${bodies}  particles ${particles}\n` +
       `zoom ${RENDER_ZOOM}  canvas ${game.canvas.width}x${game.canvas.height}` +
+      fxLine +
       light +
       bossLine();
     frames = 0;

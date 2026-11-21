@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { SPRITE_DEPTH, type BossAnim } from '../core/Boss';
+import type { FxHandle } from '../fx';
 import type { BossRig, RigContext, RigFactory } from '../systems/BossRig';
 import type { Light } from '../systems/LightingSystem';
 
@@ -150,6 +151,8 @@ export class CrucibleRig implements BossRig {
   private readonly heartGlow: Image;
   private readonly belly: Image;
   private readonly jets: Image[];
+  /** The flame each jet blows down, as loud as the jet burns. None in reduced motion. */
+  private readonly vents: FxHandle[];
   private readonly needles: Phaser.GameObjects.Graphics;
   private readonly cables: Phaser.GameObjects.Graphics;
   private readonly heartSpot: Spot = { x: 0, y: 0, active: true };
@@ -236,6 +239,25 @@ export class CrucibleRig implements BossRig {
     this.jets = JETS.map(() =>
       scene.add.image(0, 0, GLOW).setBlendMode(ADD).setTint(JET_COLOR).setDepth(SPRITE_DEPTH + 0.05),
     );
+    this.vents = this.still
+      ? []
+      : this.jets.map((jet) =>
+          ctx.fx.attach(
+            'boss.vent',
+            {
+              get x() {
+                return jet.x;
+              },
+              get y() {
+                return jet.y + 8;
+              },
+              get active() {
+                return jet.active && jet.visible;
+              },
+            },
+            { angle: 90, intensity: 0 },
+          ),
+        );
     this.needles = scene.add.graphics().setDepth(SPRITE_DEPTH + 0.06);
     // The iron takes the room's light; the heart and its fires make their own.
     for (const img of [this.torso, this.cap, ...this.bars.values()]) lighting.addLit(img);
@@ -351,7 +373,7 @@ export class CrucibleRig implements BossRig {
       const heat = health > 0.66 ? 0 : health > 0.33 ? 1 : 2;
       if (heat > (this.heatAt.get(id) ?? 0)) {
         const x = cageX + (BAR_X[i]! - CAGE_SRC_W / 2) * cageScale;
-        this.ctx.juice.burst(x, cageY + 20, 0xff9a40, 8);
+        this.ctx.fx.play('spark.impact', x, cageY + 20, { tint: 0xff9a40, angle: 90, scale: 0.7, bare: true });
         this.ctx.sfx('crucible_rib_crack', 0.45, heat * 120, x);
       }
       this.heatAt.set(id, heat);
@@ -418,6 +440,7 @@ export class CrucibleRig implements BossRig {
       ...this.jets,
     ];
     this.ctx.scene.tweens.add({ targets: all, alpha: 0, duration: 600 });
+    for (const v of this.vents) v.stop();
     this.ctx.scene.tweens.add({ targets: [this.cables, this.needles], alpha: 0, duration: 300 });
     this.heartLight?.kill();
     this.heartLight = undefined;
@@ -431,9 +454,9 @@ export class CrucibleRig implements BossRig {
     bar.setData('flying', true);
     const i = RIBS.indexOf(part as (typeof RIBS)[number]);
     const dir = i < 2 ? -1 : 1;
-    const { scene, juice } = this.ctx;
+    const { scene, fx } = this.ctx;
     const { x, y } = bar;
-    juice.burst(x + dir * 20, y + 20, 0xff9a40, 14);
+    fx.play('boss.part_break', x + dir * 20, y + 20, { tint: 0xff9a40, scale: 0.6, bare: true });
     this.debris(x + dir * 18, y + 10, dir);
     if (this.still) {
       bar.setAlpha(0);
@@ -479,6 +502,7 @@ export class CrucibleRig implements BossRig {
   }
 
   destroy(): void {
+    for (const v of this.vents) v.stop();
     this.heartLight?.kill();
     this.bellyLight?.kill();
     const lighting = this.ctx.lighting;
@@ -570,6 +594,7 @@ export class CrucibleRig implements BossRig {
         .setPosition(tx + x * scale, ty + y * scale + 6 + 10 * this.jetFlare)
         .setDisplaySize(26 * big, 35 * big)
         .setAlpha(Math.min(1, (0.6 + 0.4 * this.jetFlare) * flick) * alpha);
+      this.vents[i]?.set({ intensity: (0.15 + 0.85 * this.jetFlare) * alpha });
     });
     // The needles climb toward full as the boss weakens, with a tremble.
     this.needleK += (this.progressK - this.needleK) * 0.08;
