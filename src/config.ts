@@ -545,6 +545,7 @@ export const SCENES = {
   briefing: 'Briefing',
   transition: 'Transition',
   gallery: 'UiGallery',
+  fxLab: 'FxLab',
 } as const;
 
 applyViewport();

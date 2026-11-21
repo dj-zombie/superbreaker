@@ -1,0 +1,75 @@
+import { F } from '../atlas';
+import type { FxDef } from '../types';
+import { FLAME, emberLift, flameLift, smokeLift, swirl } from './shared';
+
+/** Fire, smoke and the other elements. Plumes are attached effects: `fx.attach(id, target)`. */
+export const ELEMENT_FX: Record<string, FxDef> = {
+  /** A burning plume: flipbook flame tongues, a hot core, curling embers and rising soot. */
+  'fire.plume': {
+    layers: [
+      {
+        channel: 'glow',
+        frames: F.fire,
+        rate: 40,
+        zone: { rect: [16, 4] },
+        angle: [-100, -80],
+        speed: [30, 70],
+        forces: [flameLift],
+        drag: 0.8,
+        life: [380, 720],
+        size: [0.26, 0.44],
+        grow: 0.5,
+        sizeEase: 'linear',
+        rotate: [-14, 14],
+        mirror: true,
+        color: FLAME,
+        alpha: [0.8, 1],
+        fade: 'inOut',
+      },
+      {
+        channel: 'glow',
+        frames: 'glow',
+        rate: 10,
+        zone: { rect: [10, 2] },
+        angle: [-95, -85],
+        speed: [10, 30],
+        life: [220, 380],
+        size: [0.5, 0.8],
+        color: '@hot',
+        alpha: 0.45,
+        fade: 'inOut',
+      },
+      {
+        channel: 'glow',
+        frames: 'ember',
+        rate: 8,
+        zone: { rect: [14, 4] },
+        angle: [-120, -60],
+        speed: [40, 120],
+        forces: [swirl, emberLift],
+        life: [800, 1700],
+        size: [0.3, 0.6],
+        color: ['@core', '@hot', '@warm'],
+        fade: 'flicker',
+      },
+      {
+        channel: 'smoke',
+        frames: F.smoke,
+        rate: 6,
+        zone: { rect: [10, 4] },
+        angle: [-100, -80],
+        speed: [30, 60],
+        forces: [smokeLift, swirl],
+        life: [1700, 2700],
+        size: [0.12, 0.2],
+        grow: 3.2,
+        rotate: [0, 360],
+        spin: [-25, 25],
+        alpha: [0.25, 0.4],
+        fade: 'inOut',
+        color: '@soot',
+        minTier: 'medium',
+      },
+    ],
+  },
+};

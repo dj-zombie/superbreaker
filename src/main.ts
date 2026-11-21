@@ -45,6 +45,7 @@ import { Upgrades } from './scenes/Upgrades';
 import { Settings } from './scenes/Settings';
 import { Transition } from './scenes/Transition';
 import { UiGallery } from './scenes/UiGallery';
+import { FxLab } from './scenes/FxLab';
 
 let framedW = 0;
 let framedH = 0;
@@ -213,7 +214,7 @@ async function start(): Promise<void> {
       Results,
       Upgrades,
       Settings,
-      ...(import.meta.env.DEV ? [UiGallery] : []),
+      ...(import.meta.env.DEV ? [UiGallery, FxLab] : []),
       // Last, so it draws over every other scene.
       Transition,
     ],
