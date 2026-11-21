@@ -6,6 +6,7 @@ import { ACID, FLAME, ICE, drift, emberLift, flameLift, lazySwirl, smokeLift, sw
 export const ELEMENT_FX: Record<string, FxDef> = {
   /** A burning plume: flipbook flame tongues, a hot core, curling embers and rising soot. */
   'fire.plume': {
+    haze: { w: 70, h: 120, push: 5, dy: -30 },
     layers: [
       {
         channel: 'glow',
@@ -133,6 +134,7 @@ export const ELEMENT_FX: Record<string, FxDef> = {
 
   /** Flame left behind a moving body (the fireball ball): attach to it. */
   'fire.trail': {
+    ribbon: { width: 14, life: 200, color: '@hot', tail: '@warm', core: 0.6 },
     layers: [
       {
         channel: 'glow',
@@ -243,6 +245,7 @@ export const ELEMENT_FX: Record<string, FxDef> = {
 
   /** A pressure vent: hissing jets of steam along `opts.angle` (default up). Attach. */
   'steam.vent': {
+    haze: { w: 50, h: 100, push: 4, dy: -40 },
     layers: [
       {
         channel: 'smoke',

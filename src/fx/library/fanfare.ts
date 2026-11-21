@@ -259,6 +259,7 @@ export const FANFARE_FX: Record<string, FxDef> = {
 
   /** Fever starts: speed lines rush out from the center and party glitter fills the air. */
   'fanfare.fever': {
+    distort: { radius: 420, life: 640, push: 16 },
     layers: [
       {
         channel: 'glow',

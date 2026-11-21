@@ -3,10 +3,12 @@ import type { SceneryId } from '../art/backdrops';
 import { save } from '../services';
 import { fxTier, particleDensity } from '../systems/Quality';
 import { FX_TEXTURE } from './atlas';
+import { FxDistort } from './distort';
 import { fadeCurve, rampColor, roll, shareBudget, sizeCurve, tierRank, tierScale } from './math';
 import { FX_PALETTES, resolveColor, type ColorRef, type FxPalette } from './palettes';
 import { FxParticle, pending, type Emission } from './particles';
 import { fxClock, type FxForce } from './processors';
+import { FxRibbon } from './ribbon';
 import type { ChannelId, EmitSpec, FxDef, FxHooks, FxOpts, SpriteSpec } from './types';
 
 type Emitter = Phaser.GameObjects.Particles.ParticleEmitter;
@@ -73,6 +75,8 @@ interface Running {
   opts: FxOpts;
   stopped: boolean;
   handle: FxHandle;
+  ribbon?: FxRibbon;
+  haze?: { stop(): void };
 }
 
 interface LiveSprite {
@@ -107,6 +111,8 @@ export class FxEngine {
   private sprites: LiveSprite[] = [];
   private spritePool: Phaser.GameObjects.Image[] = [];
   private deaths: Array<{ id: string; x: number; y: number; tint: number; world: SceneryId }> = [];
+  private ribbons: FxRibbon[] = [];
+  private distort: FxDistort;
   private budget = 0;
   /** Bumped by clear() so queued `then` steps from before it are dropped. */
   private generation = 0;
@@ -118,6 +124,8 @@ export class FxEngine {
   ) {
     this.world = opts.world ?? 'hell';
     this.hooks = opts.hooks ?? {};
+    this.distort = new FxDistort(scene);
+    this.distort.prime();
     this.refillBudget();
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.update, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
@@ -165,6 +173,8 @@ export class FxEngine {
     for (const s of def.sprites ?? []) {
       if (rank >= tierRank(s.minTier ?? 'low') && here(s.only)) this.spawnSprite(s, x, y, opts, pal, tint, scale);
     }
+
+    if (def.distort) this.distort.shock(x, y, def.distort.radius * scale, def.distort.life, def.distort.push);
 
     const h = this.hooks;
     if (def.light && h.light) {
@@ -255,6 +265,9 @@ export class FxEngine {
     for (const s of this.sprites) this.releaseSprite(s.img);
     this.sprites.length = 0;
     this.deaths.length = 0;
+    for (const rb of this.ribbons) rb.destroy();
+    this.ribbons.length = 0;
+    this.distort.clear();
   }
 
   destroy(): void {
@@ -267,6 +280,9 @@ export class FxEngine {
     this.emitters.clear();
     for (const img of this.spritePool) img.destroy();
     this.spritePool.length = 0;
+    for (const rb of this.ribbons) rb.destroy();
+    this.ribbons.length = 0;
+    this.distort.destroy();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -404,6 +420,26 @@ export class FxEngine {
     if (def.layers?.some((l) => l.count !== undefined) || def.sprites?.length || def.light) {
       this.playDef({ ...def, layers: def.layers?.filter((l) => l.count !== undefined), then: undefined }, target.x, target.y, opts);
     }
+    const rb = def.ribbon;
+    if (rb && tierRank(fxTier()) >= tierRank(rb.minTier ?? 'low')) {
+      const pal = this.palette(opts);
+      const tint = opts.tint ?? pal.accent;
+      const scale = opts.scale ?? 1;
+      r.ribbon = new FxRibbon(this.scene, target, {
+        width: rb.width * scale,
+        life: rb.life,
+        color: resolveColor(rb.color, pal, tint),
+        tail: rb.tail ? resolveColor(rb.tail, pal, tint) : undefined,
+        alpha: rb.alpha,
+        core: rb.core,
+        coreColor: pal.core,
+      });
+      this.ribbons.push(r.ribbon);
+    }
+    if (def.haze) {
+      const s = opts.scale ?? 1;
+      r.haze = this.distort.haze(target, def.haze.w * s, def.haze.h * s, def.haze.push, (def.haze.dy ?? 0) * s);
+    }
     this.running.push(r);
     return r.handle;
   }
@@ -427,6 +463,8 @@ export class FxEngine {
         const r = this.running[i]!;
         if (r.stopped || r.target.active === false) {
           r.stopped = true;
+          r.ribbon?.stop();
+          r.haze?.stop();
           this.running.splice(i, 1);
           continue;
         }
@@ -446,6 +484,11 @@ export class FxEngine {
         });
       }
     }
+
+    for (let i = this.ribbons.length - 1; i >= 0; i--) {
+      if (!this.ribbons[i]!.update(delta)) this.ribbons.splice(i, 1);
+    }
+    this.distort.update(delta);
 
     for (let i = this.sprites.length - 1; i >= 0; i--) {
       const s = this.sprites[i]!;

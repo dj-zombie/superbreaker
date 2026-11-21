@@ -31,6 +31,7 @@ export const POWERUP_FX: Record<string, FxDef> = {
 
   /** A falling powerup's glow trail. Attach to the capsule. */
   'powerup.aura': {
+    ribbon: { width: 10, life: 160, color: '@tint', alpha: 0.6 },
     layers: [
       {
         channel: 'glow',

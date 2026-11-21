@@ -289,7 +289,7 @@ export const BRICK_FX: Record<string, FxDef> = {
     shake: [260, 0.012],
     hitStop: 45,
     scenery: 0.6,
-    distort: { radius: 150, life: 420, strength: 0.06 },
+    distort: { radius: 150, life: 420, push: 10 },
   },
 
   /** A neighbor caught in a chain: a smaller, quicker blast so a chain of ten stays readable. */

@@ -76,6 +76,7 @@ export const BOSS_FX: Record<string, FxDef> = {
 
   /** A vent on the boss blasting flame along `opts.angle`. Attach. */
   'boss.vent': {
+    haze: { w: 80, h: 130, push: 6, dy: -40 },
     layers: [
       {
         channel: 'glow',
@@ -134,6 +135,7 @@ export const BOSS_FX: Record<string, FxDef> = {
 
   /** A piece of the boss blows off: a fireball, metal chunks, sparks and smoke. */
   'boss.part_break': {
+    distort: { radius: 120, life: 360, push: 10 },
     layers: [
       {
         channel: 'glow',
@@ -267,7 +269,7 @@ export const BOSS_FX: Record<string, FxDef> = {
     shake: [360, 0.014],
     hitStop: 80,
     scenery: 1,
-    distort: { radius: 300, life: 600, strength: 0.07 },
+    distort: { radius: 300, life: 600, push: 18 },
   },
 
   /**
@@ -315,6 +317,7 @@ export const BOSS_FX: Record<string, FxDef> = {
 
   /** Molten drips trailing a hazard or a wounded boss. Attach. */
   'boss.hazard_trail': {
+    ribbon: { width: 16, life: 300, color: '@hot', tail: '@warm', alpha: 0.8, minTier: 'medium' },
     layers: [
       {
         channel: 'glow',

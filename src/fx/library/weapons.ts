@@ -54,6 +54,7 @@ export const WEAPON_FX: Record<string, FxDef> = {
 
   /** A bright tracer line behind a fast round: attach to the bullet. */
   'weapon.tracer': {
+    ribbon: { width: 5, life: 110, color: '@tint', core: 1 },
     layers: [
       {
         channel: 'glow',
@@ -82,6 +83,7 @@ export const WEAPON_FX: Record<string, FxDef> = {
 
   /** A missile's exhaust, blowing out behind it along `opts.angle` (point it backward). Attach. */
   'weapon.exhaust': {
+    ribbon: { width: 12, life: 200, color: '@hot', tail: '@cool', core: 0.8 },
     layers: [
       {
         channel: 'glow',
@@ -134,6 +136,7 @@ export const WEAPON_FX: Record<string, FxDef> = {
 
   /** A missile lands: a compact fireball, sparks and a smoke puff. */
   'weapon.missile_hit': {
+    distort: { radius: 100, life: 320, push: 8 },
     layers: [
       {
         channel: 'glow',
@@ -266,6 +269,7 @@ export const WEAPON_FX: Record<string, FxDef> = {
 
   /** The rail fires: a blinding muzzle, side-blasted sparks and a ring along the shot. */
   'weapon.rail_muzzle': {
+    distort: { radius: 80, life: 260, push: 8 },
     layers: [
       {
         channel: 'glow',

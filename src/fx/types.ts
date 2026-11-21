@@ -125,8 +125,21 @@ export interface FxDef {
   scenery?: number;
   /** Follow-up effects, for staged sequences (a boss coming apart). */
   then?: ReadonlyArray<{ at: number; fx: string; dx?: Range; dy?: Range; scale?: number; angle?: Range }>;
-  /** High-tier screen distortion ring. */
-  distort?: { radius: number; life: number; strength?: number };
+  /** High-tier screen distortion ring; `push` is how far it shoves pixels at its peak, in px. */
+  distort?: { radius: number; life: number; push?: number };
+  /** A tapered glowing trail behind an attached target, in px and ms. */
+  ribbon?: {
+    width: number;
+    life: number;
+    color: ColorRef;
+    tail?: ColorRef;
+    alpha?: number;
+    /** A thin white-hot core, at this alpha. */
+    core?: number;
+    minTier?: LightingTier;
+  };
+  /** High-tier heat shimmer in a box above an attached target, in px. */
+  haze?: { w: number; h: number; push?: number; dy?: number };
   /** Where `fx.weather` spawns this preset relative to the bounds it is given. */
   spawn?: 'top' | 'bottom' | 'fill';
 }

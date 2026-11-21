@@ -12,6 +12,7 @@ import { smokeLift, swirl } from './shared';
  */
 export const ABILITY_FX: Record<string, FxDef> = {
   'ability.blackhole': {
+    haze: { w: 150, h: 150, push: 7, dy: 75 },
     layers: [
       // Accretion disk: streaks spawn on a ring and spiral in until the horizon swallows them.
       {
@@ -92,6 +93,7 @@ export const ABILITY_FX: Record<string, FxDef> = {
 
   /** The black hole closes: it pinches shut and spits a ring of light. */
   'ability.blackhole_close': {
+    distort: { radius: 190, life: 420, push: 16 },
     layers: [
       {
         channel: 'glow',
@@ -130,6 +132,7 @@ export const ABILITY_FX: Record<string, FxDef> = {
 
   /** A meteor's burning tail. Attach, with `opts.angle` pointing back along its path. */
   'ability.meteor_trail': {
+    ribbon: { width: 26, life: 280, color: '@hot', tail: '@cool', core: 0.9 },
     layers: [
       {
         channel: 'glow',
@@ -198,6 +201,7 @@ export const ABILITY_FX: Record<string, FxDef> = {
 
   /** A meteor lands: a fireball, a ring of dust thrown low, chunks and a crater mark. */
   'ability.meteor_impact': {
+    distort: { radius: 170, life: 460, push: 14 },
     layers: [
       {
         channel: 'glow',
@@ -506,7 +510,7 @@ export const ABILITY_FX: Record<string, FxDef> = {
     shake: [420, 0.02],
     hitStop: 70,
     scenery: 1,
-    distort: { radius: 280, life: 560, strength: 0.08 },
+    distort: { radius: 280, life: 560, push: 20 },
   },
 
   /** Where the sweeping laser cuts: a fountain of sparks and smoke. Attach to the cut point. */
@@ -597,6 +601,7 @@ export const ABILITY_FX: Record<string, FxDef> = {
 
   /** A frenzy ball's charged trail. Attach. */
   'ability.frenzy_trail': {
+    ribbon: { width: 14, life: 220, color: '@tint', core: 0.7 },
     layers: [
       {
         channel: 'glow',
