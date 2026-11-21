@@ -25,13 +25,13 @@ pnpm dev          # http://localhost:5173
 | `pnpm desktop:dev`  | Electron window on the Vite dev server, with hot reload      |
 | `pnpm desktop:dist` | Build the desktop app and package installers into `release/` |
 
-In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=5` plays the campaign's boss stop after level 5 (the Warden). The Phaser game is also available as `window.game` in the browser console:
+In dev builds, `?level=24` starts that level straight away and `?map=level24.tmj` does the same by file name (a map that isn't in `index.json` yet is played as an extra level). `?arcade=waves` or `?arcade=descent` starts an Arcade run, optionally with `&goal=rounds` (or `timed`, default `endless`) and `&seed=1K9ZQ2` (base 36, as the results screen shows it). `?lighting=low`, `medium` or `high` pins the lighting tier, for comparing them side by side. `?world=hell`, `crypt` or `mainframe` skins the menus as that world, `?logo=1` to `4` pins the title logo, and `?ui=gallery` opens a sheet of every UI component in the current skin. `?laser=gun`, `helix`, `scatter`, `swarm` or `ricochet` makes every laser fire that way, and L hands out a laser during play, so `?level=24&laser=helix` tries a mode on a given layout. `?map=bosslab.tmj` plays the boss lab, a level that is one boss fight: `&phase=2` starts the fight in that phase, `&attack=volley` makes every attack that one, `&debug` draws the boss's hit zones, the `]` key empties the current phase's pool, and the running fight is `window.boss` in the console. `?stop=5` plays the campaign's boss stop after level 5 (the Warden). `?fx=lab` opens the FX Lab, a test bench for every particle effect (see [FX engine](#fx-engine)). The Phaser game is also available as `window.game` in the browser console:
 
 ```js
 game.scene.getScene('Title').scene.start('Play', { index: 24 });
 ```
 
-To check performance on a phone, run `pnpm build && pnpm preview --host`, open the printed network URL with `?debug` appended, and watch the overlay: frame rate, CPU time per frame, physics bodies, live particles, render zoom and the lighting tier, light count, light map size and lighting CPU time. When frames stay slow the game steps quality down by itself: first the High lighting extras, then the render resolution (2x, then 1.5x, then 1.25x), and last the light map drops to Low. Settings has a Battery saver toggle that forces the lowest steps and halves particles.
+To check performance on a phone, run `pnpm build && pnpm preview --host`, open the printed network URL with `?debug` appended, and watch the overlay: frame rate, CPU time per frame, physics bodies, live particles, render zoom, the FX engine's tier and load (particles, running effects, sprites and ribbon trails), and the lighting tier, light count, light map size and lighting CPU time. When frames stay slow the game steps quality down by itself: first the High lighting extras, then the render resolution (2x, then 1.5x, then 1.25x), and last the light map drops to Low. Settings has a Battery saver toggle that forces the lowest steps and halves particles.
 
 The preview serves `dist/` as it was at the last build, so run `pnpm build` again after editing levels or code. The phone picks up the new build when it next reloads the page (it may reload once by itself).
 
@@ -58,6 +58,8 @@ src/
     SaveStore.ts     Versioned save data with legacy Cordova migration
   entities/          Ball, Paddle, Brick game objects
   systems/           Bricks, powerups, input, audio, juice (shake/hit-stop/particles), lighting, Arcade runs, boss fights
+  fx/                The particle engine, its texture atlas and color palettes
+    library/         The effect presets, one file per group (bricks, impacts, weapons, boss, weather...)
   bosses/            One file per boss, and the list a level's `boss` property picks from
   scenes/            Boot, Preload, Title, Worlds, WorldPath, Briefing, ArcadeSelect, Play, Hud, Pause, Results, Upgrades, Settings, Transition
   ui/                Per-world themes, baked frames, buttons, cards, controls and widgets
@@ -76,6 +78,7 @@ scripts/build-foreground.py  Cuts the per-world brick, paddle and ball renders i
 scripts/build-backdrops.py  Keys, loops and splits the backdrop layers, and cuts the world cards
 scripts/process-logo.py  Splits the logo concepts into a base and a glow layer
 scripts/build-bosses.py  Cuts the boss sprite sheets
+scripts/build-fx.py  Cuts the generated particle sheets into strips for the fx atlas
 scripts/build-boss-audio.py  Synthesizes the placeholder boss sound effects
 scripts/build-boss-music.py  Cuts the placeholder boss track from a recording
 archive/             Retired levels and the old static backgrounds
@@ -291,6 +294,50 @@ python3 scripts/build-backdrops.py hell --stills /tmp/hell.jpg --video /tmp/hell
 `--stills` and `--video` composite the world with sample bricks to check readability and the loop. Each run also writes the world carousel cards (`public/assets/images/ui/world_<id>.webp`, cropped from `key.jpg`); `--thumbs-only` writes just those.
 
 Any texture missing at runtime is replaced by a procedural canvas drawing (`src/art/procedural.ts`), so new brick kinds or powerups can be prototyped before their art exists.
+
+### FX engine
+
+Every particle effect in the game goes through one engine, `src/fx/FxEngine.ts`, which plays named presets from `src/fx/library/`. There are 100 of them in ten groups:
+
+- bricks: shatter, chain explosions, armor chips, regrowth and moving-brick dust
+- impacts: wall, paddle and brick hits, and the ball trails
+- elements: fire, smoke, steam, electricity, plasma, frost and acid
+- weapons: muzzle flashes, tracers, missile exhaust and the rail gun's sparks
+- abilities, powerups and boss: the moments each of those needs
+- fanfare: combos, fever and the level-clear celebration
+- weather: rain, mist, embers, ash, confetti and digital rain, picked by the level's lighting mood
+- screen: lens flares, flashes and speed lines
+
+```ts
+fx.play('brick.shatter', x, y, { tint, w, h }); // one shot
+const trail = fx.attach('ball.fire', ball, { tint }); // follows a target until stopped
+fx.weather('weather.rain', bounds); // fills an area
+trail.set({ intensity: 0.5 });
+trail.stop();
+```
+
+A preset is plain data (`FxDef` in `src/fx/types.ts`). It is built from:
+
+- particle layers, with counts or rates, forces such as turbulence, heat, wind or a vortex, and color over life;
+- pooled sprites such as rings, flares and decals;
+- a ribbon trail;
+- a light, shake, hit-stop or backdrop flash;
+- follow-up effects on a timeline.
+
+Colors can name the world's palette (`@hot`, `@spark`, `@tint`...), so one preset reads as forge fire in Hell, spectral flame in the Crypt and plasma in the Mainframe. The caller's tint fills `@tint`. Pass `bare: true` when the caller already lights and shakes the moment itself.
+
+The engine follows the lighting tier. Low halves the particle counts and skips the layers marked `minTier`. High adds the shockwave and heat-haze distortion. A per-frame budget shares what is left between the layers of a burst, and layers marked `essential` keep at least one particle. Reduced motion cuts particles to about a third, and battery saver halves them.
+
+`?fx=lab` in a dev build opens the FX Lab. It has a field of bricks, a button for every preset, the world and tier switches, Showcase and Loop. Clicking a brick or the field plays the selected effect there. In the console, `fxLab.fire(id, x, y)`, `fxLab.tier(i)`, `fxLab.world(id)` and `fxLab.ids()` drive it from scripts.
+
+Most frames are painted in code into the `fx` atlas when the game loads (`src/fx/atlas.ts`): glows, sparks, shards, rings and decals. The flipbooks are generated sheets on black in `art-src/fx/`: fire, smoke, explosions, electric arcs and wisps. `scripts/build-fx.py` (numpy, Pillow) turns brightness into alpha and cuts each sheet into a strip in `public/assets/images/fx/`, which the atlas packs at load:
+
+```sh
+python3 scripts/build-fx.py          # every sheet
+python3 scripts/build-fx.py smoke    # just one
+```
+
+`tests/fx.test.ts` validates every preset against the atlas's frames, the palettes and each other. It also fails on any preset id that the game code names but the library lacks.
 
 ### Boss sprites
 
