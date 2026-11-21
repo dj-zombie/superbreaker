@@ -82,8 +82,11 @@ the glyph scale, so a plain scale would push letters apart).
 ### Calm and low tier
 
 `calm` (reduced motion) drops shakes, sway, drift, whips, letter motion and most emotes, and
-types lines at once. Without rich effects (the low lighting tier) the grade falls back to a
-backdrop tint, wipes fall back to a dip, and there is no blur. The script doesn't change.
+types lines at once. The grade's filter passes (color matrix, duotone, blur) are a High-tier
+extra, checked every frame; below High the grade falls back to a multiply tint on the backdrop
+and the actors. The vignette is a single image and shows on every tier. Without rich effects
+(the Low tier) wipes fall back to a dip. The cutscene runs the same `FrameMonitor` as play, so a
+slow machine steps down resolution and tier mid-scene. The script doesn't change.
 
 ## 3. Routing
 

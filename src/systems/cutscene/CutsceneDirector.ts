@@ -102,7 +102,7 @@ export class CutsceneDirector {
     this.timeline = compile(def, { calm: calm() });
     this.playhead = new Playhead(this.timeline);
     this.camera = new CameraRig(world);
-    this.grade = new GradeFx(world, (tint) => {
+    this.grade = new GradeFx(world, ui, UI_DEPTH, (tint) => {
       this.lowTint = tint;
       this.stage.tint(tint);
     });
@@ -110,7 +110,7 @@ export class CutsceneDirector {
     // A story plate covers the stage; front fields still drift over it.
     this.plates = new PlateLayer(scene, world, () => PLATE_DEPTH);
     this.fields = new AmbientFields(fx, world, (b) => backdrop.bandDepth(b));
-    this.letterbox = new LetterboxView(scene, ui, UI_DEPTH);
+    this.letterbox = new LetterboxView(scene, ui, UI_DEPTH + 1);
     this.card = new CardView(scene, () => this.worldTheme(), UI_DEPTH + 20);
     this.dialog = new DialogView(scene, ui, def.cast ?? {}, () => this.worldTheme(), UI_DEPTH + 10);
     this.skipControl = new SkipControl(scene, ui, UI_DEPTH + 40);

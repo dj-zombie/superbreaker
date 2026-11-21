@@ -10,6 +10,7 @@ import { onPadButton, PadButton } from '../platform/gamepad';
 import { save } from '../services';
 import { CutsceneDirector } from '../systems/cutscene/CutsceneDirector';
 import { ParallaxBackdrop, type BackdropSnapshot } from '../systems/ParallaxBackdrop';
+import { FrameMonitor } from '../systems/Quality';
 import { transitionTo, transitioning } from '../ui/fx/transitions';
 import { onBack } from '../ui/nav';
 import { BaseScene } from './BaseScene';
@@ -88,6 +89,7 @@ export class Cutscene extends BaseScene {
   private director?: CutsceneDirector;
   private backdrop!: ParallaxBackdrop;
   private fx!: FxEngine;
+  private frameMonitor!: FrameMonitor;
   private pressAt = -1;
   private leaving = false;
   private skippable = false;
@@ -146,6 +148,7 @@ export class Cutscene extends BaseScene {
   }
 
   create(): void {
+    this.frameMonitor = new FrameMonitor(this.game);
     const world = this.setupCamera();
     const ui = this.cameras.add(0, 0, this.scale.width, this.scale.height, false, 'cutscene-ui');
     const layout = () => {
@@ -233,6 +236,7 @@ export class Cutscene extends BaseScene {
   }
 
   override update(_time: number, delta: number): void {
+    this.frameMonitor.update();
     const d = this.director;
     if (!d) return;
     if (this.pressAt >= 0 && this.skippable && !this.leaving) {
