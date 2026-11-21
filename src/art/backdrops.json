@@ -278,5 +278,87 @@
         ]
       }
     }
+  },
+  "crucible": {
+    "sky": "images/backdrops/crucible/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 720,
+        "height": 999,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/far.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "fog1": {
+        "width": 180,
+        "height": 320,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/fog1.webp",
+            "x": 0,
+            "width": 180
+          }
+        ]
+      },
+      "mid": {
+        "width": 720,
+        "height": 1998,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/mid_l.webp",
+            "x": 0,
+            "width": 305
+          },
+          {
+            "path": "images/backdrops/crucible/mid_r.webp",
+            "x": 429,
+            "width": 291
+          }
+        ]
+      },
+      "fog2": {
+        "width": 180,
+        "height": 320,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/fog2.webp",
+            "x": 0,
+            "width": 180
+          }
+        ]
+      },
+      "near": {
+        "width": 720,
+        "height": 1998,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/near_l.webp",
+            "x": 0,
+            "width": 226
+          },
+          {
+            "path": "images/backdrops/crucible/near_r.webp",
+            "x": 511,
+            "width": 209
+          }
+        ]
+      },
+      "chamber": {
+        "width": 720,
+        "height": 618,
+        "y": 11,
+        "parts": [
+          {
+            "path": "images/backdrops/crucible/chamber.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      }
+    }
   }
 }

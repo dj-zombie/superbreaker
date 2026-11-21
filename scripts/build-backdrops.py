@@ -107,6 +107,25 @@ WORLDS = {
             {"name": "near", "haze": 0.1, "haze_rgb": (20, 10, 26), "gain": 0.55, "speed": 36},
         ],
     },
+    # The Crucible's arena: the forge's shaft a level below Hell, iron instead of rock. It scrolls
+    # while the fight arrives and stops in the boss's chamber, a still plate behind the boss.
+    "crucible": {
+        "key": "green",
+        "haze": (120, 34, 14),
+        "despill": 0.7,
+        "card": False,
+        "layers": [
+            {"name": "far", "haze": 0.5, "haze_rgb": (70, 20, 10), "gain": 0.75, "speed": 6},
+            {"name": "fog1", "fog": (170, 60, 24), "alpha": 0.3, "scale": 1.0, "seed": 9, "speed": 11},
+            {"name": "mid", "haze": 0.18, "haze_rgb": (60, 16, 8), "gain": 0.72, "speed": 17},
+            {"name": "fog2", "fog": (110, 32, 14), "alpha": 0.38, "scale": 0.6, "seed": 10, "speed": 26},
+            {"name": "near", "haze": 0.0, "gain": 0.7, "speed": 36},
+        ],
+        # Not scrolled: keyed, graded and cut to the rows it covers.
+        "stills": [
+            {"name": "chamber", "haze": 0.1, "haze_rgb": (60, 16, 8), "gain": 0.8, "feather": 110},
+        ],
+    },
 }
 
 
@@ -324,6 +343,28 @@ def build(world: str, keep: bool = False) -> tuple[dict, dict]:
             parts = [{"path": rel(f"{name}.webp"), "x": 0, "width": SRC_WIDTH}]
             print(f"{world}/{name}: {SRC_WIDTH}x{tile.shape[0]}")
         entry["layers"][name] = {"width": SRC_WIDTH, "height": tile.shape[0], "parts": parts}
+    for opts in spec.get("stills", []):
+        name = opts["name"]
+        plate = grade(
+            key_out(load(find_image(src, name)), spec["key"], spec["despill"]),
+            opts.get("haze_rgb", spec["haze"]), opts["haze"], opts["gain"],
+        )
+        # The plate's top edge fades out, so a tall view shows the shaft above it, not a cut.
+        feather = opts.get("feather", 0)
+        if feather:
+            ramp = np.clip(np.arange(plate.shape[0]) / feather, 0, 1) ** 1.5
+            plate = plate * ramp[:, None, None]
+        rows = np.flatnonzero(plate[..., 3].max(axis=1) > 8)
+        top, bottom = int(rows[0]), int(rows[-1]) + 1
+        plate = plate[top:bottom]
+        if keep:
+            layers[name] = plate
+        save_rgba(plate, out / f"{name}.webp")
+        entry["layers"][name] = {
+            "width": SRC_WIDTH, "height": plate.shape[0], "y": top,
+            "parts": [{"path": rel(f"{name}.webp"), "x": 0, "width": SRC_WIDTH}],
+        }
+        print(f"{world}/{name}: still {SRC_WIDTH}x{plate.shape[0]} from row {top}")
     try:
         key_path = find_image(src, "key")
     except FileNotFoundError:
