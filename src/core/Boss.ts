@@ -3,7 +3,7 @@ import type { Rng } from './Rng';
 import { BRICK_HEALTH } from './procgen/grid';
 import { FIELD_WIDTH, type DifficultyId } from './types';
 
-export const BOSS_IDS = ['warden'] as const;
+export const BOSS_IDS = ['crucible', 'warden'] as const;
 export type BossId = (typeof BOSS_IDS)[number];
 
 /** The fight flow, in order. A fight without an intro starts in `fight`. */
