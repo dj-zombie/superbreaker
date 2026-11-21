@@ -166,6 +166,7 @@ export class CutsceneDirector {
       this.heldMs = 0;
       return true;
     }
+    if (this.timeline.def.scored) return false;
     if (d && !d.complete) {
       this.fireAll(this.playhead.advanceTo(d.line.at + d.line.line.revealMs));
       return true;

@@ -183,6 +183,7 @@ export const CHAPTER_1 = cutscene(
     opens: { scenery: 'hell', grade: 'night', pace: 0.3 },
     closes: { scenery: 'hell', pace: 1, handoff: 'continuous' },
     skip: 'always',
+    scored: true,
     cast: {
       spark: {
         name: 'Spark',

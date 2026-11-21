@@ -36,7 +36,7 @@ type Opts<S, K extends keyof S = never> = Partial<Omit<S, K | 'do'>>;
 export function cutscene(
   id: string,
   frame: Pick<CutsceneDef, 'opens' | 'closes'> &
-    Partial<Pick<CutsceneDef, 'cast' | 'assets' | 'skip'>>,
+    Partial<Pick<CutsceneDef, 'cast' | 'assets' | 'skip' | 'scored'>>,
   script: Step[],
 ): CutsceneDef {
   return { id, skip: frame.skip ?? 'always', ...frame, script };

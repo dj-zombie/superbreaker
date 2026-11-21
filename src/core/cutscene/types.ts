@@ -382,6 +382,11 @@ export interface CutsceneDef {
   };
   /** `after-seen` lets a player skip only once they have watched it through. */
   skip: 'always' | 'after-seen' | 'never';
+  /**
+   * Keeps time with its music: a tap doesn't hurry the lines, which would run the picture ahead
+   * of the score. Holds still wait for a tap.
+   */
+  scored?: boolean;
   script: Step[];
 }
 

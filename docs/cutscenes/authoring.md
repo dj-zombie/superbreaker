@@ -205,7 +205,8 @@ furnace voice). `python3 scripts/build-cutscene-audio.py vo_intro_01` rebuilds o
 
 A scene scored to one long track, like Chapter I, can place every cue on the score's clock
 instead of in sequence: give each line a numeric `hold` (the clip's length) so no line stops the
-clock, and the picture stays on the music.
+clock, and set `scored: true` in the frame so a tap doesn't hurry a line and run the picture
+ahead of the music (a tap then only shows the skip hint).
 
 ### Voice-over
 
