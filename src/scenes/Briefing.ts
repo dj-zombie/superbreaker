@@ -5,6 +5,7 @@ import { DIFFICULTY } from '../core/Difficulty';
 import { BONUSES } from '../bonus';
 import { BOSSES } from '../bosses';
 import { stepKey, stopLevel, stopOf, type CampaignStep, type StopKind } from '../core/Campaign';
+import { ELEMENT_INFO, elementsOf, type ElementId } from '../core/bricks/rules';
 import { DIFFICULTIES, type LevelSpec } from '../core/types';
 import { save } from '../services';
 import { Button } from '../ui/Button';
@@ -26,13 +27,21 @@ interface BriefingData extends OverlayData {
 }
 
 const SHEET_H = 560;
+/** Room for the line that explains a new element. */
+const RULE_H = 30;
 
-/** What makes a level different, read from its bricks and lighting. */
-function features(spec: LevelSpec): Array<[IconName, string]> {
+/**
+ * What makes a level different, read from its bricks and lighting. Elements in `fresh` are new to
+ * the campaign here and say so.
+ */
+function features(spec: LevelSpec, fresh: readonly ElementId[]): Array<[IconName, string]> {
   const kinds = new Set(spec.bricks.map((b) => b.kind));
   const out: Array<[IconName, string]> = [];
   if (spec.boss) out.push(['skull', BOSSES[spec.boss].name]);
   if (spec.bonus) out.push(['gun', BONUSES[spec.bonus].name]);
+  for (const id of elementsOf(kinds)) {
+    out.push([id, fresh.includes(id) ? `${ELEMENT_INFO[id].name} · New` : ELEMENT_INFO[id].name]);
+  }
   if (kinds.has('steel')) out.push(['steel', 'Steel']);
   if (kinds.has('explosive')) out.push(['tnt', 'TNT']);
   if (kinds.has('armored')) out.push(['armored', 'Armored']);
@@ -68,7 +77,8 @@ export class Briefing extends Overlay {
     const t = (this.t = useWorld(world));
     const spec = this.stop ? stopLevel(this.stopAfter(this.index), this.stop) : this.levels[this.index - 1];
     const step: CampaignStep = { index: this.index, stop: this.stop };
-    const height = SHEET_H + SAFE_BOTTOM;
+    const fresh = spec && !this.stop ? this.freshElements(spec) : [];
+    const height = SHEET_H + (fresh.length ? RULE_H : 0) + SAFE_BOTTOM;
     this.sheet = new Sheet(this, {
       height,
       blur: this.scene.get(this.from),
@@ -101,11 +111,16 @@ export class Briefing extends Overlay {
 
     let y = top + 184;
     add(label(this, 0, y, 'Featuring', 11));
-    const feats = spec ? features(spec) : [];
+    const feats = spec ? features(spec, fresh) : [];
     if (feats.length) {
       const chips = feats.map(([g, text]) => add(chip(this, g, text, t)));
       const rows = flowRow(chips, 0, y + 32, WIDTH - 80);
       y += 32 + (rows - 1) * 38;
+      const first = fresh[0];
+      if (first) {
+        y += RULE_H;
+        add(body(this, 0, y + 4, ELEMENT_INFO[first].rule, 15, { color: css(t.palette.accentHi) }));
+      }
     } else {
       add(body(this, 0, y + 30, 'Classic bricks. Warm up and go for three stars.', 15, { color: t.palette.textDim }));
       y += 30;
@@ -154,6 +169,14 @@ export class Briefing extends Overlay {
       this.paintLoadout();
     });
     this.input.keyboard?.on('keydown-ENTER', () => this.play());
+  }
+
+  /** Elements this level shows that no earlier campaign level does. */
+  private freshElements(spec: LevelSpec): ElementId[] {
+    const before = new Set(
+      this.levels.slice(0, this.index - 1).flatMap((l) => elementsOf(l.bricks.map((b) => b.kind))),
+    );
+    return elementsOf(spec.bricks.map((b) => b.kind)).filter((id) => !before.has(id));
   }
 
   /** Icons for what's stocked for the next run. */

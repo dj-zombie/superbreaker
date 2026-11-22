@@ -20,6 +20,7 @@
  "properties":[
         {
          "name":"bonus",
+         "propertytype":"Bonus",
          "type":"string",
          "value":"gallery"
         }, 

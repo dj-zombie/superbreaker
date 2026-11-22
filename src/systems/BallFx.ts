@@ -43,4 +43,10 @@ export class BallFx {
       this.live.delete(b);
     }
   }
+
+  /** The ball jumped (through a portal): its trail starts again where it came out. */
+  cut(b: Ball): void {
+    this.live.get(b)?.handle.stop();
+    this.live.delete(b);
+  }
 }

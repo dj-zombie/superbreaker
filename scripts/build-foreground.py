@@ -2,13 +2,15 @@
 """Cuts the per-world foreground renders into game sprites.
 
 art-src/foreground/<world>/ holds rendered plates on flat white: one color brick master,
-the four special bricks (steel, explosive, armored, regen), the paddle and the ball. The
-background is removed with a flood fill from the border. The master's glass is gradient
-mapped to each of the 16 tile hues so a red brick stays red in every world, and the frame
-keeps the world's material.
+the four special bricks (steel, explosive, armored, regen), the level elements
+(docs/bricks/design.md), the paddle and the ball. The background is removed with a flood fill
+from the border. The master's glass is gradient mapped to each of the 16 tile hues so a red brick
+stays red in every world, and the frame keeps the world's material. The switch, gate and portal
+masters glow cyan, and that glow is mapped the same way to each channel's or link's color.
 
 The cut sprites go to art-src/foreground/<world>/sprites/. The original brick PNGs under
-public/assets/images/bricks/ are the Tiled tileset and are never touched.
+public/assets/images/bricks/ are the Tiled tileset and are never touched, except the level
+elements': PREVIEW_WORLD's sprites are copied there, for Tiled and as the shared fallback.
 
 Each world's sprites are then packed into the one atlas the game loads,
 public/assets/images/foreground/<world>.webp + <world>.json, plus a normal map atlas with the same
@@ -35,8 +37,17 @@ SRC = ROOT / "art-src" / "foreground"
 OUT = ROOT / "public" / "assets" / "images" / "foreground"
 WORLDS = ("hell", "crypt", "mainframe")
 SPECIALS = ("steel", "explosive", "armored", "regen")
+# Level elements cut as they are, and those whose cyan glow is mapped per channel or link.
+ELEMENTS = ("fuse", "phantom", "virus_core", "virus")
+CHANNEL_ELEMENTS = ("switch", "gate")
+# Same colors as CHANNEL_COLORS and LINK_COLORS in src/core/bricks.
+CHANNEL_COLORS = {1: 0xFFB02E, 2: 0x3CE7FF, 3: 0xFF4FD8}
+LINK_COLORS = {1: 0xFF8A2A, 2: 0x3C9DFF, 3: 0xB45CFF}
+PREVIEW_WORLD = "hell"
+TILESET = ROOT / "public" / "assets" / "images" / "bricks"
 
 BRICK_SIZE = (120, 64)  # 30x16 tiles at 4x
+PORTAL_SIZE = (120, 128)  # 30x32, two rows tall
 PADDLE_SIZE = (416, 96)  # 104x24 paddle at 4x
 BALL_SIZE = 96
 
@@ -75,6 +86,8 @@ GLASS = {
     "crypt": Glass(hue=272, hue_width=30, gamma=0.8),
     "mainframe": Glass(hue=212, hue_width=26, gamma=0.95),
 }
+# The cyan glow the switch, gate and portal masters are rendered with, in every world.
+GLOW = Glass(hue=188, hue_width=26, gamma=0.85)
 
 
 def smooth(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
@@ -188,7 +201,17 @@ def save(img: Image.Image, path: Path) -> None:
 
 # ---------------------------------------------------------------- normals and atlas
 
-SPRITES = [f"brick_{n}" for n in BRICK_COLORS] + [f"brick_{k}" for k in SPECIALS] + ["paddle", "ball"]
+ELEMENT_SPRITES = (
+    [f"brick_{k}" for k in ELEMENTS]
+    + [f"brick_{k}{c}" for k in CHANNEL_ELEMENTS for c in CHANNEL_COLORS]
+    + [f"brick_portal{l}" for l in LINK_COLORS]
+)
+SPRITES = (
+    [f"brick_{n}" for n in BRICK_COLORS]
+    + [f"brick_{k}" for k in SPECIALS]
+    + ELEMENT_SPRITES
+    + ["paddle", "ball"]
+)
 GUTTER = 2  # extruded edge pixels around each frame, so filtering never samples a neighbour
 ATLAS_WIDTH = 1024
 BEVEL_PX = 5.0  # at 4x, about a game pixel
@@ -307,10 +330,28 @@ def build(world: str) -> None:
     for name, color in BRICK_COLORS.items():
         tile = gradient_map(master, mask, color, GLASS[world].gamma)
         save(image(tile).resize(BRICK_SIZE, Image.LANCZOS), out / f"brick_{name}.png")
-    for kind in SPECIALS:
+    for kind in SPECIALS + ELEMENTS:
         save(image(cut(src / f"{kind}.jpg")).resize(BRICK_SIZE, Image.LANCZOS), out / f"brick_{kind}.png")
+    for kind in CHANNEL_ELEMENTS:
+        plate = cut(src / f"{kind}.jpg")
+        glow = glass_mask(plate, GLOW)
+        for channel, color in CHANNEL_COLORS.items():
+            tile = gradient_map(plate, glow, color, GLOW.gamma)
+            save(image(tile).resize(BRICK_SIZE, Image.LANCZOS), out / f"brick_{kind}{channel}.png")
+    plate = cut(src / "portal.jpg")
+    glow = glass_mask(plate, GLOW)
+    for link, color in LINK_COLORS.items():
+        tile = gradient_map(plate, glow, color, GLOW.gamma)
+        save(image(tile).resize(PORTAL_SIZE, Image.LANCZOS), out / f"brick_portal{link}.png")
     save(image(cut(src / "paddle.jpg")).resize(PADDLE_SIZE, Image.LANCZOS), out / "paddle.png")
     save(square(image(cut(src / "ball.jpg")), BALL_SIZE), out / "ball.png")
+
+
+def previews() -> None:
+    """The level elements' tileset images: PREVIEW_WORLD's sprites."""
+    for name in ELEMENT_SPRITES:
+        img = Image.open(SRC / PREVIEW_WORLD / "sprites" / f"{name}.png")
+        save(img, TILESET / f"{name}.png")
 
 
 def main() -> None:
@@ -319,6 +360,7 @@ def main() -> None:
         if not pack_only:
             build(world)
         pack(world)
+    previews()
 
 
 if __name__ == "__main__":

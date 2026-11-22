@@ -406,7 +406,7 @@ export class AbilitySystem {
   private bombLandingY(x: number, fromY: number): number {
     let land = HUD_HEIGHT + 20;
     for (const brick of this.host.bricks.bricks) {
-      if (!brick.isAlive) continue;
+      if (!brick.isAlive || !brick.solid || brick.kind === 'portal') continue;
       if (Math.abs(brick.x - x) >= brick.displayWidth / 2 + BOMB_HIT_R) continue;
       const touch = brick.y + brick.displayHeight / 2 + BOMB_HIT_R;
       if (touch < fromY && touch > land) land = touch;

@@ -176,6 +176,7 @@
  "properties":[
         {
          "name":"boss",
+         "propertytype": "Boss",
          "type":"string",
          "value":"warden"
         }, 

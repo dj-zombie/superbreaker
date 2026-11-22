@@ -286,6 +286,77 @@ const GLYPHS: Record<string, (ctx: Ctx) => void> = {
     c.closePath();
     c.fill();
   },
+  fuse: (c) => {
+    c.lineWidth = 6;
+    c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(6, 46);
+    c.bezierCurveTo(20, 20, 30, 56, 46, 26);
+    c.stroke();
+    c.beginPath();
+    c.arc(50, 20, 7, 0, Math.PI * 2);
+    c.fill();
+  },
+  phantom: (c) => {
+    c.beginPath();
+    c.moveTo(14, 56);
+    c.lineTo(14, 28);
+    c.arc(32, 28, 18, Math.PI, 0);
+    c.lineTo(50, 56);
+    for (const x of [44, 38, 32, 26, 20]) c.lineTo(x, x % 12 === 8 ? 48 : 56);
+    c.closePath();
+    c.fill();
+    c.globalCompositeOperation = 'destination-out';
+    for (const x of [25, 39]) {
+      c.beginPath();
+      c.arc(x, 28, 4, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.globalCompositeOperation = 'source-over';
+  },
+  switch: (c) => {
+    c.lineWidth = 5;
+    c.beginPath();
+    c.arc(32, 32, 22, 0, Math.PI * 2);
+    c.stroke();
+    c.beginPath();
+    c.moveTo(32, 16);
+    c.lineTo(44, 32);
+    c.lineTo(32, 48);
+    c.lineTo(20, 32);
+    c.closePath();
+    c.fill();
+  },
+  portal: (c) => {
+    c.lineWidth = 5;
+    c.lineCap = 'round';
+    c.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const a = i * 0.21;
+      const r = 4 + i * 0.42;
+      const x = 32 + Math.cos(a) * r;
+      const y = 32 + Math.sin(a) * r;
+      if (i === 0) c.moveTo(x, y);
+      else c.lineTo(x, y);
+    }
+    c.stroke();
+  },
+  virus: (c) => {
+    c.beginPath();
+    c.arc(32, 32, 14, 0, Math.PI * 2);
+    c.fill();
+    c.lineWidth = 4;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      c.beginPath();
+      c.moveTo(32 + Math.cos(a) * 14, 32 + Math.sin(a) * 14);
+      c.lineTo(32 + Math.cos(a) * 24, 32 + Math.sin(a) * 24);
+      c.stroke();
+      c.beginPath();
+      c.arc(32 + Math.cos(a) * 26, 32 + Math.sin(a) * 26, 4, 0, Math.PI * 2);
+      c.fill();
+    }
+  },
   waves: (c) => {
     for (let r = 0; r < 3; r++) {
       for (let i = 0; i < 4; i++) c.fillRect(6 + i * 14, 10 + r * 16, 11, 10);

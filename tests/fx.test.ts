@@ -28,6 +28,7 @@ import { BRICK_FX } from '../src/fx/library/bricks';
 import { ELEMENT_FX } from '../src/fx/library/elements';
 import { FANFARE_FX } from '../src/fx/library/fanfare';
 import { IMPACT_FX } from '../src/fx/library/impacts';
+import { LEVEL_FX } from '../src/fx/library/level';
 import { POWERUP_FX } from '../src/fx/library/powerups';
 import { SCREEN_FX } from '../src/fx/library/screen';
 import { WEAPON_FX } from '../src/fx/library/weapons';
@@ -58,6 +59,7 @@ const GROUPS = {
   AMBIENT_FX,
   BOSS_FX,
   BRICK_FX,
+  LEVEL_FX,
   ELEMENT_FX,
   FANFARE_FX,
   IMPACT_FX,

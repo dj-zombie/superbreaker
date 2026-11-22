@@ -1,6 +1,6 @@
 import { ARENA_MIN, BELOW_HUD } from '../Layout';
-import { FIELD_WIDTH, type PowerupId } from '../types';
-import { BH, BW, COLS, type Grid, isBreakableCell } from './grid';
+import { FIELD_WIDTH, type BrickKind, type PowerupId } from '../types';
+import { BH, BW, COLS, type Cell, type Grid, PORTAL_ROWS, isBreakableCell } from './grid';
 
 /** EXPLOSION_RADIUS in config.ts. */
 const BLAST_R = 52;
@@ -22,35 +22,39 @@ function inBlast(ar: number, ac: number, br: number, bc: number): boolean {
   return dx * dx + dy * dy <= BLAST_R * BLAST_R;
 }
 
-/** Breakable bricks one explosion at (r, c) clears, following the chain through other bombs. */
+const lights = (cell: Cell | null) => cell?.kind === 'explosive' || cell?.kind === 'fuse';
+
+/**
+ * Breakable bricks one explosion or lit fuse at (r, c) takes. A fuse burns into every fuse and
+ * bomb touching it, diagonals included; a blast breaks what's in range and sets off what it hits.
+ */
 export function chainSize(g: Grid, r: number, c: number): number {
   const key = (y: number, x: number) => y * COLS + x;
-  const exploded = new Set<number>([key(r, c)]);
-  let wave: Array<[number, number]> = [[r, c]];
-  while (wave.length) {
-    const next: Array<[number, number]> = [];
-    for (const [sr, sc] of wave) {
-      for (let y = sr - 4; y <= sr + 4; y++) {
-        for (let x = sc - 3; x <= sc + 3; x++) {
-          const cell = g.get(y, x);
-          if (!cell || !isBreakableCell(cell) || exploded.has(key(y, x))) continue;
-          if (!inBlast(sr, sc, y, x)) continue;
-          exploded.add(key(y, x));
-          if (cell.kind === 'explosive') next.push([y, x]);
-        }
+  const gone = new Set<number>([key(r, c)]);
+  const queue: Array<[number, number]> = [[r, c]];
+  for (let head = 0; head < queue.length; head++) {
+    const [sr, sc] = queue[head]!;
+    const fuse = g.get(sr, sc)?.kind === 'fuse';
+    const [dy, dx] = fuse ? [1, 1] : [4, 3];
+    for (let y = sr - dy; y <= sr + dy; y++) {
+      for (let x = sc - dx; x <= sc + dx; x++) {
+        const cell = g.get(y, x);
+        if (!cell || !isBreakableCell(cell) || gone.has(key(y, x))) continue;
+        if (fuse ? !lights(cell) : !inBlast(sr, sc, y, x)) continue;
+        gone.add(key(y, x));
+        if (lights(cell)) queue.push([y, x]);
       }
     }
-    wave = next;
   }
-  return exploded.size;
+  return gone.size;
 }
 
-/** The share of breakable bricks the worst single explosion chain clears. */
+/** The share of breakable bricks the worst single explosion or fuse chain clears. */
 export function chainFraction(g: Grid): number {
   const total = g.count(isBreakableCell);
   if (total === 0) return 0;
   let worst = 0;
-  for (const [r, c] of g.positions((cell) => cell.kind === 'explosive')) {
+  for (const [r, c] of g.positions(lights)) {
     worst = Math.max(worst, chainSize(g, r, c));
   }
   return worst / total;
@@ -89,11 +93,35 @@ export function isEnclosed(g: Grid, r: number, c: number): boolean {
   return false;
 }
 
-/** Regen and armored bricks that sit inside a steel enclosure. */
+const STUBBORN: readonly BrickKind[] = ['regen', 'armored', 'virus'];
+
+/** Regen, armored and virus bricks that sit inside a steel enclosure. */
 export function enclosedStubborn(g: Grid): Array<[number, number]> {
-  return g.positions(
-    (cell, r, c) => (cell.kind === 'regen' || cell.kind === 'armored') && isEnclosed(g, r, c),
-  );
+  return g.positions((cell, r, c) => STUBBORN.includes(cell.kind) && isEnclosed(g, r, c));
+}
+
+/**
+ * Portals come in linked pairs, with the cell under each left for its lower half and air beside
+ * and below, so the ball always comes out clear.
+ */
+export function portalProblems(g: Grid): string[] {
+  const problems: string[] = [];
+  const ends = new Map<number, number>();
+  g.forEach((cell, r, c) => {
+    if (cell.kind !== 'portal') return;
+    const link = cell.props?.link ?? 1;
+    ends.set(link, (ends.get(link) ?? 0) + 1);
+    if (r + PORTAL_ROWS > g.rows) problems.push(`portal at ${r},${c} runs off the grid`);
+    for (let y = r; y <= r + PORTAL_ROWS; y++) {
+      for (let x = c - 1; x <= c + 1; x++) {
+        if ((y !== r || x !== c) && (y < r + PORTAL_ROWS || x === c) && g.get(y, x)) {
+          problems.push(`portal at ${r},${c} is boxed in at ${y},${x}`);
+        }
+      }
+    }
+  });
+  for (const [link, n] of ends) if (n !== 2) problems.push(`portal link ${link} has ${n} ends`);
+  return problems;
 }
 
 /** Movers stay in the field, keep to their own row and never sweep through another brick. */
@@ -114,7 +142,8 @@ export function moverProblems(g: Grid): string[] {
     const hi = Math.max(x, x + cell.moveX) + BW;
     if (lo < 0 || hi > FIELD_WIDTH) problems.push(`mover at ${r},${c} leaves the field`);
     for (let cc = 0; cc < COLS; cc++) {
-      if (cc === c || !g.get(r, cc)) continue;
+      // A portal above reaches down into this row.
+      if (cc === c || (!g.get(r, cc) && g.get(r - 1, cc)?.kind !== 'portal')) continue;
       const ox = cc * BW;
       if (ox < hi - 0.1 && ox + BW > lo + 0.1)
         problems.push(`mover at ${r},${c} sweeps into ${r},${cc}`);
@@ -131,13 +160,16 @@ export function moverProblems(g: Grid): string[] {
 export function unreachableBricks(g: Grid): Array<[number, number]> {
   const targets = g.positions(isBreakableCell);
   if (!g.count((cell) => cell.kind === 'steel')) return [];
+  // The ball passes ghosts and portals (which only ever take it somewhere else), so neither seals.
+  const passable = (cell: Cell) =>
+    !!cell.moveX || cell.kind === 'phantom' || cell.kind === 'portal';
 
   const gw = Math.floor(FIELD_WIDTH / STEP);
   const gh = Math.floor(FLOOD_H / STEP);
   const rect = (r: number, c: number): Rect => ({ x: c * BW, y: r * BH, w: BW, h: BH });
   const blockers = new Map<number, Rect>();
   g.forEach((cell, r, c) => {
-    if (!cell.moveX) blockers.set(r * COLS + c, rect(r, c));
+    if (!passable(cell)) blockers.set(r * COLS + c, rect(r, c));
   });
 
   type Rect = { x: number; y: number; w: number; h: number };
@@ -227,7 +259,7 @@ export interface CheckRules {
   coins?: number;
   /** Drops allowed at this tier. Coins are always allowed. */
   powerupPool?: readonly PowerupId[];
-  noKinds?: ReadonlyArray<'steel' | 'regen' | 'explosive' | 'armored'>;
+  noKinds?: readonly BrickKind[];
   /** Worst share of bricks one blast chain may clear. */
   maxChain?: number;
 }
@@ -263,6 +295,7 @@ export function checkGrid(g: Grid, rules: CheckRules = {}): string[] {
     problems.push(`${stubborn.length} regen or armored bricks behind steel, first at ${stubborn[0]!.join(',')}`);
   }
   problems.push(...moverProblems(g));
+  problems.push(...portalProblems(g));
 
   const powerups = g.positions((cell) => !!cell.powerup).map(([r, c]) => g.get(r, c)!);
   for (const cell of powerups) {

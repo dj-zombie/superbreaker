@@ -371,6 +371,9 @@ describe('bonus map property', () => {
     const blank = parseLevel(empty({ bonus: '' }), 'lab', resolve);
     expect(blank.level.bonus).toBeUndefined();
     expect(blank.warnings).toEqual([]);
+    const none = parseLevel(empty({ bonus: 'none' }), 'lab', resolve);
+    expect(none.level.bonus).toBeUndefined();
+    expect(none.warnings).toEqual([]);
   });
 
   it('warns when a map names a boss and a bonus stage', () => {

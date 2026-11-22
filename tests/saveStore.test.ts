@@ -208,6 +208,14 @@ describe('skill hints', () => {
   });
 });
 
+describe('element intros', () => {
+  it('keeps known elements once each and drops the rest', () => {
+    expect(normalizeSave({}).seenElements).toEqual([]);
+    const s = normalizeSave({ seenElements: ['virus', 'anvil', 'fuse', 'virus'] } as unknown);
+    expect(s.seenElements).toEqual(['fuse', 'virus']);
+  });
+});
+
 describe('SaveStore', () => {
   it('persists purchases and wins', async () => {
     const storage = memoryStorage();

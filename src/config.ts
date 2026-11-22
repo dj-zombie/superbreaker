@@ -1,6 +1,9 @@
 import type { AbilityId } from './core/Abilities';
 import { computeLayout, computeStage } from './core/Layout';
 import { SKILL_IDS } from './core/Skills';
+import { CHANNELS, CHANNEL_COLORS } from './core/bricks/gates';
+import { LINKS, LINK_COLORS } from './core/bricks/portal';
+import { VIRUS_COLOR } from './core/bricks/virus';
 import { FIELD_HEIGHT, FIELD_WIDTH, type PowerupId } from './core/types';
 
 export const WIDTH = FIELD_WIDTH;
@@ -110,6 +113,19 @@ export const BRICK_TINT: Record<string, number> = {
   brick_explosive: 0xff5a1f,
   brick_armored: 0x7f8aa3,
   brick_regen: 0x5cff8a,
+  brick_fuse: 0xffa12e,
+  brick_phantom: 0xbfd8ff,
+  brick_switch1: CHANNEL_COLORS[1],
+  brick_switch2: CHANNEL_COLORS[2],
+  brick_switch3: CHANNEL_COLORS[3],
+  brick_gate1: CHANNEL_COLORS[1],
+  brick_gate2: CHANNEL_COLORS[2],
+  brick_gate3: CHANNEL_COLORS[3],
+  brick_portal1: LINK_COLORS[1],
+  brick_portal2: LINK_COLORS[2],
+  brick_portal3: LINK_COLORS[3],
+  brick_virus_core: VIRUS_COLOR,
+  brick_virus: VIRUS_COLOR,
 };
 
 export const BRICK_COLORS = [
@@ -132,6 +148,16 @@ export const BRICK_COLORS = [
 ] as const;
 
 export const NEW_BRICK_KINDS = ['steel', 'explosive', 'armored', 'regen'] as const;
+
+/** Level element textures (docs/bricks/design.md); switches and gates come per channel, portals per link. */
+export const ELEMENT_TEXTURES = [
+  'brick_fuse',
+  'brick_phantom',
+  ...CHANNELS.flatMap((c) => [`brick_switch${c}`, `brick_gate${c}`]),
+  ...LINKS.map((l) => `brick_portal${l}`),
+  'brick_virus_core',
+  'brick_virus',
+] as const;
 
 export interface PowerupInfo {
   label: string;
@@ -339,6 +365,7 @@ export interface ImageAsset {
 export const IMAGE_ASSETS: ImageAsset[] = [
   ...BRICK_COLORS.map((c) => ({ key: `brick_${c}`, path: `images/bricks/brick_${c}.png` })),
   ...NEW_BRICK_KINDS.map((k) => ({ key: `brick_${k}`, path: `images/bricks/brick_${k}.png` })),
+  ...ELEMENT_TEXTURES.map((k) => ({ key: k, path: `images/bricks/${k}.png` })),
   ...(Object.keys(POWERUP_INFO) as PowerupId[])
     .filter((id) => id !== 'coin')
     .map((id) => ({ key: `pu_${id}`, path: `images/powerups/${id}.png` })),
@@ -468,6 +495,16 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'brick_tnt', path: 'audio/bricks/tnt.mp3' },
   { key: 'brick_collapse', path: 'audio/bricks/collapse.mp3' },
   { key: 'brick_mover', path: 'audio/bricks/mover.mp3' },
+  // Level elements, from scripts/build-brick-audio.py.
+  { key: 'brick_fuse', path: 'audio/bricks/fuse.mp3' },
+  { key: 'brick_phantom_in', path: 'audio/bricks/phantom-in.mp3' },
+  { key: 'brick_phantom_out', path: 'audio/bricks/phantom-out.mp3' },
+  { key: 'brick_switch', path: 'audio/bricks/switch.mp3' },
+  { key: 'brick_gate_open', path: 'audio/bricks/gate-open.mp3' },
+  { key: 'brick_gate_close', path: 'audio/bricks/gate-close.mp3' },
+  { key: 'brick_portal', path: 'audio/bricks/portal.mp3' },
+  { key: 'brick_virus_spread', path: 'audio/bricks/virus-spread.mp3' },
+  { key: 'brick_virus_purge', path: 'audio/bricks/virus-purge.mp3' },
   { key: 'combo', path: 'audio/combo.mp3' },
   { key: 'fever_start', path: 'audio/fever-start.mp3' },
   { key: 'fever_end', path: 'audio/fever-end.mp3' },

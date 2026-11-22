@@ -4,6 +4,13 @@ import { EXPLOSION_RADIUS, FALL_SHATTER_Y } from '../config';
 import { MAX_REGROWS, collapseThreshold } from '../core/Difficulty';
 import type { BrickSpec, LevelSpec } from '../core/types';
 import {
+  createBehaviors,
+  type BallLike,
+  type BrickBehavior,
+  type BrickHost,
+  type ElementEvent,
+} from '../bricks';
+import {
   Brick,
   type BrickOwner,
   type DestroyCause,
@@ -25,8 +32,12 @@ export interface BrickEvents {
   /** A hit that didn't destroy the brick: damage, armor or a steel ping. */
   onHit?(brick: Brick, result: HitResult, cause: DestroyCause): void;
   onCollapseStart(): void;
-  /** True while a ball is close enough that a regrowing brick would trap it. */
-  regrowBlocked(brick: Brick): boolean;
+  /** True while a ball is close enough that the brick turning solid (regrowing, closing) would trap it. */
+  occupied(brick: Brick): boolean;
+  /** A ball is in flight, not waiting on the paddle. */
+  live?(): boolean;
+  /** A level element did something worth seeing or hearing. */
+  onElement?(e: ElementEvent): void;
   /** Once few enough bricks remain, the collapse still waits until this says the level is slow. */
   collapseReady?(): boolean;
 }
@@ -45,6 +56,9 @@ export class BrickSystem {
   private nextCluster = 0;
   /** A live brick slid along its track on the last update. */
   moving = false;
+  private behaviors = createBehaviors();
+  private behaviorList = [...new Set(this.behaviors.values())];
+  private readonly host: BrickHost;
 
   constructor(
     private scene: Phaser.Scene,
@@ -55,6 +69,20 @@ export class BrickSystem {
   ) {
     this.group = scene.physics.add.group({ allowGravity: false, immovable: true });
     this.collapse = opts.collapse ?? true;
+    this.host = {
+      scene,
+      bricks: this.bricks,
+      now: () => this.elapsedMs,
+      live: () => events.live?.() ?? true,
+      occupied: (b) => events.occupied(b),
+      destroy: (b, cause, chain) => {
+        if (!b.isAlive || !b.breakable) return;
+        b.takeHit(0, { lethal: true });
+        this.destroy(b, cause, chain);
+      },
+      emit: (e) => events.onElement?.(e),
+      changed: () => this.invalidate(),
+    };
     this.load(level);
   }
 
@@ -67,6 +95,8 @@ export class BrickSystem {
     }
     this.bricks.length = 0;
     this.collapsing = false;
+    this.behaviors = createBehaviors();
+    this.behaviorList = [...new Set(this.behaviors.values())];
     this.append(level.bricks);
     const initial = this.remaining;
     this.fallThreshold = this.collapse ? Math.min(collapseThreshold(initial), initial - 1) : -1;
@@ -89,6 +119,10 @@ export class BrickSystem {
       return b;
     });
     this.assignRegenClusters(added);
+    for (const behavior of this.behaviorList) {
+      const mine = added.filter((b) => !b.owner && behavior.kinds.includes(b.kind));
+      if (mine.length) behavior.added?.(mine, this.host);
+    }
     if (!owner) this.introAnimation(added);
     this.invalidate();
     return added;
@@ -196,16 +230,31 @@ export class BrickSystem {
       if (b.spec.moveX !== 0 || b.falling) b.syncOverlay();
     }
     this.moving = moving;
+    for (const behavior of this.behaviorList) behavior.update?.(dtMs, this.host);
     this.checkCollapse();
+  }
+
+  private behaviorOf(b: Brick): BrickBehavior | undefined {
+    return b.owner ? undefined : this.behaviors.get(b.kind);
+  }
+
+  /** A ball touched a live brick: false lets it through, which a portal does after moving it. */
+  contact(b: Brick, ball: BallLike): boolean {
+    if (!b.isAlive || !b.solid) return false;
+    return this.behaviorOf(b)?.contact?.(b, ball, this.host) ?? true;
   }
 
   /** Applies damage and handles destruction side effects. An owned brick's owner takes the hit. */
   hit(b: Brick, damage: number, cause: DestroyCause, opts: HitOptions = {}): HitResult {
     const wasAlive = b.isAlive;
+    const special = wasAlive
+      ? this.behaviorOf(b)?.hit?.(b, damage, cause, opts, this.host)
+      : undefined;
     const res =
-      b.owner && wasAlive && b.breakable
+      special ??
+      (b.owner && wasAlive && b.breakable
         ? b.owner.strike(b, damage, cause, opts)
-        : b.takeHit(damage, opts);
+        : b.takeHit(damage, opts));
     if (res === 'destroyed') this.destroy(b, cause, 0);
     else if (res !== 'immune') b.flash();
     if (res !== 'destroyed' && wasAlive) this.events.onHit?.(b, res, cause);
@@ -226,11 +275,11 @@ export class BrickSystem {
     return this.targetsCache;
   }
 
-  /** Breaks every standing steel brick, for when the player is stuck behind it. Returns them. */
+  /** Breaks every standing steel brick and gate, for when the player is stuck behind them. Returns them. */
   shatterSteel(): Brick[] {
     const out: Brick[] = [];
     for (const b of this.bricks) {
-      if (!b.isAlive || b.breakable) continue;
+      if (!b.isAlive || (b.kind !== 'steel' && b.kind !== 'gate')) continue;
       b.markDead();
       this.scene.tweens.add({
         targets: b,
@@ -265,7 +314,7 @@ export class BrickSystem {
   private destroy(b: Brick, cause: DestroyCause, chain: number): void {
     if (!b.isAlive) return;
     this.invalidate();
-    const regen = b.spec.kind === 'regen';
+    const regen = b.kind === 'regen';
     if (regen && !this.collapsing && b.regrows < MAX_REGROWS) {
       b.setDormant();
       b.regrowAt = this.elapsedMs + b.spec.regenDelay * 1000;
@@ -282,7 +331,8 @@ export class BrickSystem {
     }
     if (regen) this.settleCluster(b.cluster);
     this.events.onDestroyed(b, cause, chain);
-    if (b.spec.kind === 'explosive' && cause !== 'breach') this.explode(b, chain + 1);
+    if (b.kind === 'explosive' && cause !== 'breach') this.explode(b, chain + 1);
+    this.behaviorOf(b)?.destroyed?.(b, cause, chain, this.host);
     this.checkCollapse();
   }
 
@@ -292,18 +342,21 @@ export class BrickSystem {
     this.scene.time.delayedCall(70, () => {
       this.events.onExplosion(x, y, chain);
       for (const b of this.bricks) {
-        if (!b.isAlive || !b.breakable) continue;
+        if (!b.isAlive) continue;
         const dx = Math.max(Math.abs(b.x - x) - b.displayWidth / 2, 0);
         const dy = Math.max(Math.abs(b.y - y) - b.displayHeight / 2, 0);
-        if (dx * dx + dy * dy <= EXPLOSION_RADIUS * EXPLOSION_RADIUS) {
-          // An owned brick takes the blast as a lethal hit and stands.
-          if (b.owner) {
-            this.hit(b, 0, 'explosion', { lethal: true });
-            continue;
-          }
-          b.takeHit(0, { lethal: true });
-          this.destroy(b, 'explosion', chain);
+        if (dx * dx + dy * dy > EXPLOSION_RADIUS * EXPLOSION_RADIUS) continue;
+        if (!b.breakable) {
+          this.behaviorOf(b)?.blast?.(b, this.host);
+          continue;
         }
+        // An owned brick takes the blast as a lethal hit and stands.
+        if (b.owner) {
+          this.hit(b, 0, 'explosion', { lethal: true });
+          continue;
+        }
+        b.takeHit(0, { lethal: true });
+        this.destroy(b, 'explosion', chain);
       }
     });
   }
@@ -316,7 +369,7 @@ export class BrickSystem {
   }
 
   private tryRegrow(b: Brick): void {
-    if (this.events.regrowBlocked(b)) {
+    if (this.events.occupied(b)) {
       b.regrowAt = this.elapsedMs + 300;
       return;
     }
@@ -340,6 +393,7 @@ export class BrickSystem {
     if (this.events.collapseReady && !this.events.collapseReady()) return;
     this.collapsing = true;
     this.events.onCollapseStart();
+    for (const behavior of this.behaviorList) behavior.collapse?.(this.host);
     for (const b of this.bricks) {
       if (b.life === 'dormant') b.markDead();
       if (!b.isAlive) continue;
@@ -355,7 +409,7 @@ export class BrickSystem {
 
   /** Union-find over new regen bricks that touch (including diagonally). */
   private assignRegenClusters(bricks: readonly Brick[]): void {
-    const regen = bricks.filter((b) => b.spec.kind === 'regen');
+    const regen = bricks.filter((b) => b.kind === 'regen');
     const parent = regen.map((_, i) => i);
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
     const touches = (a: Brick, b: Brick) =>
@@ -376,13 +430,15 @@ export class BrickSystem {
       const y = b.y;
       const sx = b.scaleX;
       const sy = b.scaleY;
+      // An open gate pops in see-through.
+      const alpha = b.alpha;
       b.setY(y - 30)
         .setAlpha(0)
         .setScale(sx * 0.6, sy * 0.6);
       this.scene.tweens.add({
         targets: b,
         y,
-        alpha: 1,
+        alpha,
         scaleX: sx,
         scaleY: sy,
         delay: (b.spec.y / 600) * 380 + (b.spec.x / 600) * 120,

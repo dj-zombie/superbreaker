@@ -120,7 +120,11 @@ export function draftBoard(seed: number, tier: number, attempt = 0): Draft {
 
   const allowed = p.unlocked.filter((m) => !(pattern.steel && m === 'steel'));
   const features = chooseFeatures(p, rng.fork('features'), allowed);
-  decorate(g, rng.fork('decorate'), p, { features, area });
+  decorate(g, rng.fork('decorate'), p, {
+    features,
+    area,
+    maxBreakables: p.breakables[1] - p.movers,
+  });
   placePowerups(g, rng.fork('powerups'), {
     coins: 1,
     extra: p.powerups,
@@ -192,8 +196,18 @@ export function generateBoard(seed: number, tier: number, idBase = 1): Generated
 
 // ---------------------------------------------------------------- Descent chunks
 
-/** Mechanics a chunk may carry. Steel could wall off the danger line; regen never settles while rows move. */
-export const CHUNK_MECHANICS: readonly Mechanic[] = ['explosive', 'armored', 'mover'];
+/**
+ * Mechanics a chunk may carry. Steel could wall off the danger line, regen never settles while
+ * rows move, and portals are two rows tall where rows arrive one at a time.
+ */
+export const CHUNK_MECHANICS: readonly Mechanic[] = [
+  'explosive',
+  'fuse',
+  'armored',
+  'mover',
+  'phantom',
+  'virus',
+];
 /** A chunk is small, so one blast may clear more of it than of a board. */
 export const CHUNK_MAX_CHAIN = 0.6;
 
@@ -206,7 +220,7 @@ export function chunkBudget(tier: number): readonly [number, number] {
 export function chunkRules(p: GenParams, index: number): CheckRules {
   return {
     breakables: [6, chunkBudget(p.tier)[1] + 6],
-    noKinds: ['steel', 'regen'],
+    noKinds: ['steel', 'regen', 'portal', 'switch', 'gate'],
     coins: index % 2 === 0 ? 1 : 0,
     powerupPool: p.powerupPool,
     maxChain: CHUNK_MAX_CHAIN,
@@ -222,6 +236,10 @@ function chunkParams(p: GenParams): GenParams {
     explosives: Math.min(1, p.explosives),
     armored: Math.ceil(p.armored / 3),
     movers: Math.min(1, p.movers),
+    fuseCords: Math.min(2, p.fuseCords),
+    phantoms: Math.min(6, p.phantoms),
+    portalLinks: 0,
+    virusCores: Math.min(1, p.virusCores),
   };
 }
 
@@ -235,7 +253,12 @@ export function draftChunk(seed: number, index: number, tier: number, attempt = 
 
   const features = chooseFeatures(p, rng.fork('features'), CHUNK_MECHANICS);
   const area: Area = { top: 0, bottom: g.rows - 1 };
-  decorate(g, rng.fork('decorate'), p, { features, area, maxChain: CHUNK_MAX_CHAIN });
+  decorate(g, rng.fork('decorate'), p, {
+    features,
+    area,
+    maxChain: CHUNK_MAX_CHAIN,
+    maxBreakables: chunkBudget(p.tier)[1] + 6,
+  });
   placePowerups(g, rng.fork('powerups'), {
     coins: index % 2 === 0 ? 1 : 0,
     extra: p.tier >= 8 ? 2 : 1,

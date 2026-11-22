@@ -23,7 +23,19 @@
       "name": "BrickKind",
       "type": "enum",
       "storageType": "string",
-      "values": ["normal", "steel", "explosive", "armored", "regen"],
+      "values": [
+        "normal",
+        "steel",
+        "explosive",
+        "armored",
+        "regen",
+        "fuse",
+        "phantom",
+        "switch",
+        "gate",
+        "portal",
+        "virus"
+      ],
       "valuesAsFlags": false
     },
     {
@@ -57,13 +69,21 @@
       "members": [
         { "name": "kind", "type": "string", "propertyType": "BrickKind", "value": "normal" },
         { "name": "powerup", "type": "string", "propertyType": "Powerup", "value": "magnet" },
+        { "name": "health", "type": "int", "value": 100 },
         { "name": "armor", "type": "int", "value": 2 },
         { "name": "moveX", "type": "float", "value": 0 },
         { "name": "moveSpeed", "type": "float", "value": 60 },
         { "name": "regenDelay", "type": "float", "value": 4 },
         { "name": "light", "type": "color", "value": "" },
         { "name": "lightRadius", "type": "float", "value": 80 },
-        { "name": "lightIntensity", "type": "float", "value": 0.6 }
+        { "name": "lightIntensity", "type": "float", "value": 0.6 },
+        { "name": "channel", "type": "int", "value": 1 },
+        { "name": "open", "type": "bool", "value": false },
+        { "name": "link", "type": "int", "value": 1 },
+        { "name": "period", "type": "float", "value": 3.2 },
+        { "name": "phase", "type": "float", "value": 0 },
+        { "name": "source", "type": "bool", "value": false },
+        { "name": "spreadMs", "type": "float", "value": 4500 }
       ]
     },
     {
@@ -127,7 +147,8 @@
       "drawFill": true,
       "members": [
         { "name": "title", "type": "string", "value": "" },
-        { "name": "boss", "type": "string", "value": "" },
+        { "name": "boss", "type": "string", "propertyType": "Boss", "value": "none" },
+        { "name": "bonus", "type": "string", "propertyType": "Bonus", "value": "none" },
         { "name": "ambient", "type": "color", "value": "" },
         { "name": "backdropStrength", "type": "float", "value": -1 },
         { "name": "brickFloor", "type": "float", "value": -1 },
@@ -141,6 +162,22 @@
         { "name": "lightningInterval", "type": "float", "value": 6 },
         { "name": "sputter", "type": "bool", "value": true }
       ]
+    },
+    {
+      "id": 10,
+      "name": "Boss",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["none", "crucible", "warden"],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 11,
+      "name": "Bonus",
+      "type": "enum",
+      "storageType": "string",
+      "values": ["none", "gallery", "pinata"],
+      "valuesAsFlags": false
     }
   ]
 }

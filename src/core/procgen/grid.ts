@@ -1,4 +1,11 @@
-import type { BrickKind, BrickSpec, PowerupId } from '../types';
+import { VIRUS_ARMOR, VIRUS_CORE_HEALTH } from '../bricks/virus';
+import {
+  isBreakableKind,
+  type BrickKind,
+  type BrickProps,
+  type BrickSpec,
+  type PowerupId,
+} from '../types';
 
 /** The campaign grid: 20 columns of 30x16 bricks across the 600-wide field. */
 export const COLS = 20;
@@ -18,7 +25,12 @@ export interface Cell {
   moveSpeed?: number;
   /** Armored bricks: extra hits before health goes down. */
   armor?: number;
+  /** Element settings: a phantom's phase, a portal's link, a virus core. */
+  props?: BrickProps;
 }
+
+/** Portals are two rows tall: the cell under one stays empty. */
+export const PORTAL_ROWS = 2;
 
 export const mirrorCol = (c: number): number => COLS - 1 - c;
 
@@ -138,6 +150,12 @@ export class Grid {
       explosive: 'X',
       armored: 'A',
       regen: 'R',
+      fuse: 'F',
+      phantom: 'H',
+      switch: 'W',
+      gate: 'G',
+      portal: 'P',
+      virus: 'V',
     };
     const lines: string[] = [];
     for (let r = 0; r < this.rows; r++) {
@@ -155,7 +173,7 @@ export class Grid {
   }
 }
 
-export const isBreakableCell = (cell: Cell): boolean => cell.kind !== 'steel';
+export const isBreakableCell = (cell: Cell): boolean => isBreakableKind(cell.kind);
 export const isNormalStatic = (cell: Cell): boolean =>
   cell.kind === 'normal' && !cell.moveX && !cell.powerup;
 
@@ -221,22 +239,42 @@ export function toBricks(
   const rowOffset = opts.rowOffset ?? 0;
   let id = opts.idBase;
   g.forEach((cell, r, c) => {
+    const core = cell.kind === 'virus' && !!cell.props?.source;
+    let armor = 0;
+    if (cell.kind === 'armored') armor = Math.max(1, cell.armor ?? DEFAULT_ARMOR);
+    else if (cell.kind === 'virus' && !core) armor = VIRUS_ARMOR;
     const brick: BrickSpec = {
       id: id++,
       x: c * BW,
       y: (r + rowOffset) * BH,
       width: BW,
-      height: BH,
-      texture: cell.kind === 'normal' ? colorTexture(style, r, c) : `brick_${cell.kind}`,
+      height: cell.kind === 'portal' ? BH * PORTAL_ROWS : BH,
+      texture: cell.kind === 'normal' ? colorTexture(style, r, c) : cellTexture(cell),
       kind: cell.kind,
-      health: BRICK_HEALTH,
-      armor: cell.kind === 'armored' ? Math.max(1, cell.armor ?? DEFAULT_ARMOR) : 0,
+      health: core ? VIRUS_CORE_HEALTH : BRICK_HEALTH,
+      armor,
       moveX: cell.moveX ?? 0,
       moveSpeed: cell.moveSpeed ?? 60,
       regenDelay: style.regenDelay,
     };
     if (cell.powerup) brick.powerup = cell.powerup;
+    if (cell.props) brick.props = { ...cell.props };
     out.push(brick);
   });
   return out;
+}
+
+/** Art for a mechanic cell, matching the campaign tileset's. */
+function cellTexture(cell: Cell): string {
+  switch (cell.kind) {
+    case 'switch':
+    case 'gate':
+      return `brick_${cell.kind}${cell.props?.channel ?? 1}`;
+    case 'portal':
+      return `brick_portal${cell.props?.link ?? 1}`;
+    case 'virus':
+      return cell.props?.source ? 'brick_virus_core' : 'brick_virus';
+    default:
+      return `brick_${cell.kind}`;
+  }
 }

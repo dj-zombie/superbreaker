@@ -1,11 +1,12 @@
 import type Phaser from 'phaser';
-import { BRICK_COLORS, NEW_BRICK_KINDS } from '../config';
+import { BRICK_COLORS, ELEMENT_TEXTURES, NEW_BRICK_KINDS } from '../config';
 import { WORLD_IDS, type WorldId } from './backdrops';
 
 /** Sprites rendered per world by scripts/build-foreground.py. */
 export const FG_SPRITES = [
   ...BRICK_COLORS.map((c) => `brick_${c}`),
   ...NEW_BRICK_KINDS.map((k) => `brick_${k}`),
+  ...ELEMENT_TEXTURES,
   'paddle',
   'ball',
 ] as const;
@@ -21,6 +22,20 @@ export function fgAtlas(world: WorldId): string {
 /** Texture key and frame of a world sprite, ready to spread into an Image constructor. */
 export function fgTexture(world: WorldId, name: string): [string, string] {
   return [fgAtlas(world), name];
+}
+
+/**
+ * A brick's world sprite, or the shared texture of the same name while the world's atlas has no
+ * frame for it yet (a new kind whose art isn't built).
+ */
+export function fgBrickTexture(
+  scene: Phaser.Scene,
+  world: WorldId,
+  name: string,
+): [string, string | undefined] {
+  const atlas = fgAtlas(world);
+  if (!scene.textures.exists(atlas) || scene.textures.get(atlas).has(name)) return [atlas, name];
+  return scene.textures.exists(name) ? [name, undefined] : [atlas, name];
 }
 
 /** World sprites that also have a looping animation, packed as `<name>_00`, `<name>_01`, ... */

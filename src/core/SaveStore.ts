@@ -12,6 +12,7 @@ import { MEDALS, type Medal } from './Bonus';
 import { MAX_UPGRADE_LEVEL, canPurchase, upgradeCost, type PurchaseResult } from './Economy';
 import { GOAL_KINDS, RUN_LOOPS, type GoalKind, type RunLoop } from './Run';
 import { SKILL_IDS, type SkillId } from './Skills';
+import { ELEMENT_IDS, type ElementId } from './bricks/rules';
 import {
   SESSION_ABILITY_COST,
   SESSION_POWERUP_COST,
@@ -104,6 +105,8 @@ export interface SaveData {
   seenSkills: SkillId[];
   /** Cutscenes watched to the end or skipped, by id: they don't play again on their own. */
   seenScenes: string[];
+  /** Level elements whose one-time intro has shown (fuse, phantom, ...). */
+  seenElements: ElementId[];
 }
 
 export const SAVE_KEY = 'superbreaker.save';
@@ -145,6 +148,7 @@ export function defaultSave(): SaveData {
     seenInstructions: false,
     seenSkills: [],
     seenScenes: [],
+    seenElements: [],
   };
 }
 
@@ -199,6 +203,7 @@ export function normalizeSave(raw: unknown): SaveData {
   }
   d.seenInstructions = r.seenInstructions === true;
   if (Array.isArray(r.seenSkills)) d.seenSkills = SKILL_IDS.filter((id) => r.seenSkills!.includes(id));
+  if (Array.isArray(r.seenElements)) d.seenElements = ELEMENT_IDS.filter((id) => r.seenElements!.includes(id));
   if (Array.isArray(r.seenScenes)) {
     d.seenScenes = [...new Set(r.seenScenes.filter((id): id is string => typeof id === 'string' && id.length > 0))];
   }

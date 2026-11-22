@@ -32,6 +32,9 @@ art-src/music/boss-source.wav
 ludo-output/
 ludo-work/
 
+# Tiled's per-user state: open maps, layout, Live Preview URL
+*.tiled-session
+
 # Signing leftovers
 *.xcuserstate
 *.mobileprovision

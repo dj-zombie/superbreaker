@@ -179,6 +179,7 @@
  "properties": [
   {
    "name": "boss",
+   "propertytype": "Boss",
    "type": "string",
    "value": "crucible"
   },

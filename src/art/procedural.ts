@@ -82,6 +82,96 @@ function brickPainter(texture: string): Painter {
   };
 }
 
+/** Fallback looks for the level elements, readable by shape alone until a world's art loads. */
+function elementPainter(texture: string): Painter | undefined {
+  const base = BRICK_TINT[texture] ?? 0x888888;
+  if (texture.startsWith('brick_portal')) {
+    return (ctx, w, h) => {
+      const g = ctx.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, w / 2);
+      g.addColorStop(0, 'rgba(10,6,24,1)');
+      g.addColorStop(0.55, hex(shade(base, 0.35)));
+      g.addColorStop(1, hex(base, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(w / 2, h / 2, w / 2 - 1, h / 2 - 1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = hex(base);
+      ctx.beginPath();
+      ctx.ellipse(w / 2, h / 2, w / 2 - 4, h / 2 - 4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    };
+  }
+  if (texture.startsWith('brick_switch')) {
+    return (ctx, w, h) => {
+      roundRect(ctx, 1, 1, w - 2, h - 2, 6);
+      ctx.fillStyle = '#3a3f52';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#1c1f2b';
+      ctx.stroke();
+      ctx.fillStyle = hex(base);
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 5);
+      ctx.lineTo(w / 2 + 9, h / 2);
+      ctx.lineTo(w / 2, h - 5);
+      ctx.lineTo(w / 2 - 9, h / 2);
+      ctx.closePath();
+      ctx.fill();
+    };
+  }
+  if (texture.startsWith('brick_gate')) {
+    return (ctx, w, h) => {
+      ctx.fillStyle = '#2a2e3c';
+      ctx.fillRect(1, 1, w - 2, h - 2);
+      ctx.fillStyle = hex(base);
+      for (let x = 6; x < w - 2; x += 10) ctx.fillRect(x, 2, 4, h - 4);
+      ctx.fillRect(1, 1, w - 2, 4);
+      ctx.fillRect(1, h - 5, w - 2, 4);
+    };
+  }
+  if (texture === 'brick_fuse') {
+    return (ctx, w, h) => {
+      roundRect(ctx, 1, 1, w - 2, h - 2, 5);
+      ctx.fillStyle = '#5a3a22';
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = hex(base);
+      ctx.beginPath();
+      ctx.moveTo(4, h / 2);
+      ctx.bezierCurveTo(w * 0.3, 4, w * 0.7, h - 4, w - 4, h / 2);
+      ctx.stroke();
+    };
+  }
+  if (texture === 'brick_phantom') {
+    return (ctx, w, h) => {
+      roundRect(ctx, 2, 2, w - 4, h - 4, 6);
+      ctx.fillStyle = hex(base, 0.55);
+      ctx.fill();
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    };
+  }
+  if (texture.startsWith('brick_virus')) {
+    const core = texture === 'brick_virus_core';
+    return (ctx, w, h) => {
+      roundRect(ctx, 1, 1, w - 2, h - 2, 6);
+      ctx.fillStyle = core ? '#1d3a10' : '#33402a';
+      ctx.fill();
+      ctx.fillStyle = hex(base, core ? 1 : 0.8);
+      const dots = core ? [[w / 2, h / 2, h * 0.32]] : [[w * 0.3, h * 0.4, 4], [w * 0.62, h * 0.62, 5], [w * 0.8, h * 0.3, 3]];
+      for (const [x, y, r] of dots) {
+        ctx.beginPath();
+        ctx.arc(x!, y!, r!, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+  }
+  return undefined;
+}
+
 function powerupPainter(id: PowerupId): Painter {
   const info = POWERUP_INFO[id];
   const letter: Record<PowerupId, string> = {
@@ -270,6 +360,33 @@ function abilityPainter(id: AbilityId): Painter {
 }
 
 const painters: Record<string, [number, number, Painter]> = {
+  /** A portal's spinning arms, white so each link can tint it. */
+  portal_swirl: [
+    96,
+    96,
+    (ctx, w, h) => {
+      const cx = w / 2;
+      const cy = h / 2;
+      ctx.lineCap = 'round';
+      for (let arm = 0; arm < 3; arm++) {
+        const a0 = (arm / 3) * Math.PI * 2;
+        for (let i = 0; i < 28; i++) {
+          const t = i / 28;
+          const r = 6 + t * (w / 2 - 8);
+          const a = a0 + t * 3.4;
+          ctx.fillStyle = `rgba(255,255,255,${(1 - t) * 0.9})`;
+          ctx.beginPath();
+          ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 1.5 + (1 - t) * 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 14);
+      g.addColorStop(0, 'rgba(255,255,255,0.9)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    },
+  ],
   paddle: [
     220,
     48,
@@ -740,13 +857,14 @@ export const ALWAYS_PROCEDURAL = [
   'laser_flash',
   'laser_casing',
   'laser_bit',
+  'portal_swirl',
   ...ABILITY_IDS.map((id) => `ab_${id}`),
 ];
 
 /** Draws `key` procedurally. Returns false if there is no recipe for it. */
 export function paintFallback(scene: Phaser.Scene, key: string): boolean {
   if (key.startsWith('brick_')) {
-    paint(scene, key, 60, 32, brickPainter(key));
+    paint(scene, key, 60, key.startsWith('brick_portal') ? 64 : 32, elementPainter(key) ?? brickPainter(key));
     return true;
   }
   if (key.startsWith('pu_')) {

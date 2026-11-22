@@ -28,6 +28,26 @@ const templates = new Map(
 );
 const resolveTemplate = (path: string) => templates.get(path.split('/').pop()!);
 
+describe('Tiled project types', () => {
+  const project = readJson<{
+    propertyTypes: Array<{
+      name: string;
+      values?: string[];
+      members?: Array<{ name: string; value: unknown }>;
+    }>;
+  }>(join(__dirname, '..', 'superbreaker.tiled-project'));
+  const type = (name: string) => project.propertyTypes.find((t) => t.name === name);
+
+  it('offer every brick kind and powerup the game knows', () => {
+    expect(type('BrickKind')?.values).toEqual([...BRICK_KINDS]);
+    expect(type('Powerup')?.values).toEqual([...POWERUP_IDS]);
+  });
+
+  it('give a brick the health the parser defaults to', () => {
+    expect(type('Brick')?.members?.find((m) => m.name === 'health')?.value).toBe(100);
+  });
+});
+
 describe('brick tileset', () => {
   it('references images that exist', () => {
     for (const t of tileset.tiles) {
@@ -81,19 +101,16 @@ describe('campaign', () => {
     });
     expect(dark.map((l) => l.title)).toEqual([
       'First Light',
-      'Halo',
-      'Lattice',
-      'Fuses',
       'The Vault',
-      'Bullseye',
+      'Powder Keg',
       'Patrol',
-      'Turnstile',
       'Weeds',
+      'Gravekeeper',
+      'Relay',
       'Gauntlet',
-      'Highway',
       'Supernova',
     ]);
-    for (const title of ['Bullseye', 'Patrol', 'Highway']) {
+    for (const title of ['Powder Keg', 'Patrol', 'Gravekeeper']) {
       const level = dark.find((l) => l.title === title)!;
       expect(level.bricks.filter((b) => b.light).length).toBeGreaterThanOrEqual(3);
     }
@@ -101,6 +118,34 @@ describe('campaign', () => {
       expect(level.lighting.lightning, level.title).toBe(true);
       expect(level.lighting.sputter, level.title).toBe(true);
     }
+  });
+});
+
+describe('campaign curriculum', () => {
+  const kinds = manifest.levels.map((file) => {
+    const map = readJson<TiledMap>(join(LEVELS_DIR, file));
+    return new Set(
+      parseLevel(map, file.replace('.tmj', ''), resolve, resolveTemplate).level.bricks.map(
+        (b) => b.kind,
+      ),
+    );
+  });
+  const first = (kind: string) => kinds.findIndex((k) => k.has(kind as never)) + 1;
+
+  it('introduces each element in its own level, in order', () => {
+    expect(first('fuse')).toBe(8);
+    expect(first('phantom')).toBe(12);
+    expect(first('switch')).toBe(14);
+    expect(first('gate')).toBe(14);
+    expect(first('portal')).toBe(21);
+    expect(first('virus')).toBe(23);
+  });
+
+  it('teaches the older mechanics earlier', () => {
+    expect(first('steel')).toBe(4);
+    expect(first('explosive')).toBe(6);
+    expect(first('armored')).toBe(9);
+    expect(first('regen')).toBe(17);
   });
 });
 
@@ -238,6 +283,9 @@ describe('boss map property', () => {
     const empty = parseLevel(steelOnly({ boss: '' }), 'lab', resolve);
     expect(empty.level.boss).toBeUndefined();
     expect(empty.warnings).toEqual([]);
+    const none = parseLevel(steelOnly({ boss: 'none' }), 'lab', resolve);
+    expect(none.level.boss).toBeUndefined();
+    expect(none.warnings).toEqual([]);
   });
 
   it('lets a boss level have no breakable bricks', () => {

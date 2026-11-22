@@ -73,7 +73,7 @@ Play keeps working exactly as before for campaign levels. When it is started wit
 2. **Shape.** A weighted pick from the patterns unlocked at this tier draws normal bricks into the grid. Most patterns are mirrored left to right, which is what makes a random layout look designed.
 3. **Near band.** A row of short segments at the bottom, the quick breaks every campaign level opens with. This also makes the formation span the arena instead of hugging the ceiling.
 4. **Fit.** If the shape came out short of its target, mirrored blocks are added in the open space until it isn't. The structure is then lifted to the top of its area, so a short shape doesn't leave a gap under the ceiling. Last, mirrored pairs of plain bricks are removed from the busiest rows until the count is under the tier's maximum, with room left for the movers decoration may add.
-5. **Decorate.** The board features one to three of the unlocked mechanics, and a mechanic that was just unlocked is always featured for its first two tiers. Explosives are spaced apart and pulled back if one chain would clear too much. Regen bricks come in small, separated clusters. Movers only go into empty rows. Armor runs along a row, like the campaign's Plated. Regen and armor never go inside a steel enclosure (see the rules below).
+5. **Decorate.** The board features one to three of the unlocked mechanics, and a mechanic that was just unlocked is always featured for its first two tiers. Explosives are spaced apart and pulled back if one chain would clear too much. Regen bricks come in small, separated clusters. Movers only go into empty rows. Armor runs along a row, like the campaign's Plated. Fuse cords come in mirrored pairs of 3-6 bricks, usually starting under a bomb, and are pulled back like explosives if the chain grows too big. Phantoms take over the fullest rows with phases in a wave. A virus core goes where at least two plain bricks touch it, one on a random side or two mirrored. Portal pairs join a low spot on one side to a high spot on the other, at least 4 rows apart, with air beside and under each. Regen, armor and virus never go inside a steel enclosure (see the rules below). Switches and gates stay in the campaign: a random layout can't promise the switch is reachable.
 6. **Powerups.** Exactly one coin, plus two to four others from the pool unlocked at this tier.
 7. **Check.** The rules below. A board that fails is regenerated from the next forked seed, up to 8 times. If all of them fail, a plain banded board that always passes is used. The fuzz tests make sure the fallback is rare.
 
@@ -85,11 +85,12 @@ These match the campaign builder, so generated boards play like authored ones.
 
 - Every brick is inside the field, no two static bricks overlap (`validateLevel`).
 - The breakable count is inside the tier's budget, and the formation spans at least 16 rows.
-- No single explosion chain clears more than 42% of the breakable bricks.
+- No single explosion chain clears more than 42% of the breakable bricks. A chain follows lit fuses as well as blasts.
+- Portals come in pairs, each with room beside it and under it for the ball to come out.
 - No regen cluster has more than 6 bricks.
-- No regen or armored brick sits behind steel, meaning steel on its left, its right and somewhere above it, like the inside of a frame or a U. The ball only gets in there through a door, and a brick that needs many hits or grows back turns that into a wait the player can't shorten (`isEnclosed` in `checks.ts`).
+- No regen, armored or virus brick sits behind steel, meaning steel on its left, its right and somewhere above it, like the inside of a frame or a U. The ball only gets in there through a door, and a brick that needs many hits or grows back turns that into a wait the player can't shorten (`isEnclosed` in `checks.ts`).
 - Movers travel 60-270 px at 36-90 px/s, stay in the field, never share a row and never sweep through another brick.
-- Every breakable brick can be reached by a ball-sized flood fill from the paddle, with bricks removed as they are reached. Steel is the only thing that can wall a brick off, so boards without steel skip this check.
+- Every breakable brick can be reached by a ball-sized flood fill from the paddle, with bricks removed as they are reached. Steel is the only thing that can wall a brick off (phantoms, portals and movers let the ball by), so boards without steel skip this check.
 - One coin, three to six powerups in total, and no powerup before its unlock tier.
 
 ### Tier curve
@@ -103,15 +104,16 @@ Mechanics arrive in the same order the campaign teaches them.
 | 3    | Steel accents          |                                                           |
 | 4    |                        | Steel frame pattern with a 6-column door.                 |
 | 5    | Explosives, extra life |                                                           |
-| 6    | Tiny paddle drop       | One more powerup per board.                               |
+| 6    | Fuses, tiny paddle drop | One more powerup per board.                              |
 | 7    | Armored bricks         |                                                           |
 | 8    | Hyperspeed drop        |                                                           |
 | 9    | Movers                 |                                                           |
-| 10   | Pierce drop            |                                                           |
+| 10   | Phantoms, pierce drop  |                                                           |
 | 11   | Regen clusters         |                                                           |
 | 12   |                        | One more powerup per board.                               |
+| 13   | Portals                | Up to two linked pairs.                                   |
 | 14+  |                        | Budget tops out at 76-90 bricks; counts keep creeping up. |
-| 15   | Armor takes 3 hits     |                                                           |
+| 15   | Virus, armor takes 3 hits | One core, two from tier 23.                            |
 
 Ball speed rises 1.5% per tier up to +20%, on top of the chosen difficulty.
 
@@ -120,7 +122,7 @@ Through tier 10 (`ONE_HIT_TIERS` in `core/Run.ts`) ball hits deal double damage,
 ## Descent
 
 - The run opens with 8 rows.
-- `generateChunk(seed, index, tier, idBase)` builds 3-5 rows from strip patterns. Chunks have no steel (it can never be cleared, so it would always breach) and no regen (bricks that grow back inside a wall that is pushing at you feel unfair). That leaves explosives, armor and movers, and only those get a "NEW" banner in Descent.
+- `generateChunk(seed, index, tier, idBase)` builds 3-5 rows from strip patterns. Chunks have no steel (it can never be cleared, so it would always breach) and no regen (bricks that grow back inside a wall that is pushing at you feel unfair). Portals and switches stay out too, since a wall that moves would carry a portal's exit into other bricks. That leaves explosives, fuses, armor, movers, phantoms and the virus, and only those get a "NEW" banner in Descent.
 - Chunk rows enter bottom row first, so a chunk scrolls in the way it was drawn. Empty rows are kept, as gaps in the wall.
 - Step interval: 9 s at tier 1, 0.4 s faster per tier, never under 3.5 s.
 - The danger line is the lowest edge an authored level may use (`LEVEL_MAX_Y`). A red band behind it glows harder over the last four rows.

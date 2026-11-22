@@ -1,5 +1,6 @@
 {
  "type": "map",
+ "class": "LevelLighting",
  "version": "1.10",
  "tiledversion": "1.11.2",
  "orientation": "orthogonal",

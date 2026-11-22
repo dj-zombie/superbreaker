@@ -234,7 +234,9 @@ export class LaserSystem {
       },
       (a, b) => {
         const bolt = (a instanceof Bolt ? a : b) as Bolt;
-        return bolt.active && ((bolt === a ? b : a) as Brick).isAlive;
+        const brick = (bolt === a ? b : a) as Brick;
+        // Bolts fly through ghosts, open gates and portals.
+        return bolt.active && brick.isAlive && brick.solid && brick.kind !== 'portal';
       },
     );
 
@@ -698,7 +700,7 @@ export class LaserSystem {
   private findTarget(x: number, y: number): Brick | null {
     if (!this.targetBoxes) {
       this.targetBoxes = this.host.bricks.targets.map(box);
-      this.wallBoxes = this.host.bricks.bricks.filter((b) => b.isAlive && !b.breakable).map(box);
+      this.wallBoxes = this.host.bricks.bricks.filter((b) => b.wall).map(box);
     }
     const hit = pickHomingTarget(x, y, this.targetBoxes, this.wallBoxes, 3) as Target | null;
     return hit?.brick ?? null;
@@ -709,6 +711,7 @@ export class LaserSystem {
   private onBrick(bolt: Bolt, brick: Brick): void {
     if (!bolt.active || !brick.isAlive) return;
     if (!brick.breakable) {
+      if (brick.kind === 'switch') this.host.bricks.hit(brick, 0, 'laser');
       if (bolt.mode === 'ricochet' && bolt.bounces < RICOCHET_BOUNCES) {
         this.bounceOff(bolt, brick);
         return;

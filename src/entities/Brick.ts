@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
-import { fgTexture } from '../art/foreground';
+import { fgBrickTexture } from '../art/foreground';
 import type { WorldId } from '../art/backdrops';
 import { BRICK_TINT, LEVEL_OFFSET_Y } from '../config';
 import { chipArmor } from '../core/Laser';
-import type { BrickSpec } from '../core/types';
+import { isBreakableKind, type BrickKind, type BrickSpec } from '../core/types';
 
 export type BrickState = 'alive' | 'dormant' | 'dead';
-export type HitResult = 'immune' | 'armor' | 'damaged' | 'destroyed';
+/** `trigger`: an unbreakable brick that does something when hit, such as a switch. */
+export type HitResult = 'immune' | 'armor' | 'damaged' | 'destroyed' | 'trigger';
 
 export interface HitOptions {
   lethal?: boolean;
@@ -30,6 +31,13 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   life: BrickState = 'alive';
   /** Set on a boss part: hits go to the owner, and nothing but the owner removes the brick. */
   owner?: BrickOwner;
+  /** Starts as the spec's kind. A virus can turn a plain brick into one of its own. */
+  kind: BrickKind;
+  /**
+   * Balls and bolts collide with it. A ghostly phantom and an open gate are alive but not solid.
+   * Explosions and abilities don't ask.
+   */
+  solid = true;
   health: number;
   armor: number;
   /** Laser damage banked toward breaking the next armor point. */
@@ -41,10 +49,19 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   regrowAt = 0;
   /** Times this regen brick has grown back. */
   regrows = 0;
+  /** A virus colony: the core's id, shared by every brick it infected. */
+  colony = -1;
+  /** A fuse brick the flame is already on its way to. */
+  lit = false;
+  /** A plain brick a virus is about to take over: it shows the veins. */
+  infecting = false;
   falling = false;
   readonly homeX: number;
   /** Where the brick rests. Descent moves it down a row at a time. */
   homeY: number;
+  /** How visible the brick's kind keeps it (a phantom's cycle, an open gate), times its health. */
+  private fade = 1;
+  private skin?: string;
   private crack?: Phaser.GameObjects.Image;
   private baseScaleX: number;
   private baseScaleY: number;
@@ -53,14 +70,15 @@ export class Brick extends Phaser.Physics.Arcade.Image {
   constructor(
     scene: Phaser.Scene,
     readonly spec: BrickSpec,
-    world: WorldId,
+    private readonly world: WorldId,
   ) {
     super(
       scene,
       spec.x + spec.width / 2,
       spec.y + LEVEL_OFFSET_Y + spec.height / 2,
-      ...fgTexture(world, spec.texture),
+      ...fgBrickTexture(scene, world, spec.texture),
     );
+    this.kind = spec.kind;
     this.homeX = this.x;
     this.homeY = this.y;
     this.health = this.maxHealth = spec.health;
@@ -71,16 +89,26 @@ export class Brick extends Phaser.Physics.Arcade.Image {
     this.baseScaleY = this.scaleY;
   }
 
+  /** The texture the brick is drawn with now, which a virus can change from the spec's. */
+  get textureName(): string {
+    return this.skin ?? this.spec.texture;
+  }
+
   get tintColor(): number {
-    return BRICK_TINT[this.spec.texture] ?? 0xffffff;
+    return BRICK_TINT[this.textureName] ?? 0xffffff;
   }
 
   get breakable(): boolean {
-    return this.spec.kind !== 'steel';
+    return isBreakableKind(this.kind);
   }
 
   get isAlive(): boolean {
     return this.life === 'alive';
+  }
+
+  /** Stops the ball, a bolt or homing: alive, solid and unbreakable. Portals are let through. */
+  get wall(): boolean {
+    return this.isAlive && this.solid && !this.breakable && this.kind !== 'portal';
   }
 
   /** The hit flash owns the tint until it finishes. */
@@ -123,8 +151,44 @@ export class Brick extends Phaser.Physics.Arcade.Image {
     }
     this.health -= damage;
     if (this.health <= 0) return 'destroyed';
-    this.setAlpha(0.35 + 0.65 * (this.health / this.maxHealth));
+    this.refreshAlpha();
     return 'damaged';
+  }
+
+  /** How visible the brick's kind wants it, 0-1. Its damage dims it further. */
+  setFade(fade: number): void {
+    if (fade === this.fade) return;
+    this.fade = fade;
+    this.refreshAlpha();
+  }
+
+  private refreshAlpha(): void {
+    this.setAlpha(this.fade * (0.35 + 0.65 * (Math.max(0, this.health) / this.maxHealth)));
+    this.crack?.setAlpha(this.fade);
+  }
+
+  /** Redraws the brick with another texture, keeping its size. */
+  reskin(texture: string): void {
+    this.skin = texture;
+    const [key, frame] = fgBrickTexture(this.scene, this.world, texture);
+    this.setTexture(key, frame);
+    const sx = this.scaleX / this.baseScaleX;
+    const sy = this.scaleY / this.baseScaleY;
+    this.setDisplaySize(this.spec.width, this.spec.height);
+    this.baseScaleX = this.scaleX;
+    this.baseScaleY = this.scaleY;
+    this.setScale(this.baseScaleX * sx, this.baseScaleY * sy);
+  }
+
+  /** A virus takes the brick over: its art, and an extra hit to clear. */
+  infect(colony: number, armor: number): void {
+    this.kind = 'virus';
+    this.colony = colony;
+    this.armor = armor;
+    this.armorBank = 0;
+    this.health = this.maxHealth;
+    this.refreshAlpha();
+    this.reskin('brick_virus');
   }
 
   /** White flash and a small punch so every hit reads clearly. One tween drives both. */
@@ -171,7 +235,8 @@ export class Brick extends Phaser.Physics.Arcade.Image {
     this.armor = this.maxArmor;
     this.armorBank = 0;
     this.body.enable = true;
-    this.setVisible(true).setAlpha(1);
+    this.setVisible(true);
+    this.refreshAlpha();
     this.updateCracks();
     this.setScale(0.01);
     this.scene.tweens.add({
@@ -205,7 +270,7 @@ export class Brick extends Phaser.Physics.Arcade.Image {
 
   /** Armor cracks, or for a regen brick one crack per regrowth, so its last life shows. */
   private updateCracks(): void {
-    const worn = this.spec.kind === 'regen' ? this.regrows : 0;
+    const worn = this.kind === 'regen' ? this.regrows : 0;
     const stage = Math.min(2, Math.max(this.maxArmor - this.armor, worn));
     if (stage <= 0) {
       this.crack?.setVisible(false);
@@ -215,7 +280,10 @@ export class Brick extends Phaser.Physics.Arcade.Image {
       this.crack = this.scene.add.image(this.x, this.y, 'crack1').setDepth(this.depth + 1);
       this.crack.setDisplaySize(this.spec.width, this.spec.height);
     }
-    this.crack.setTexture(stage === 1 ? 'crack1' : 'crack2').setVisible(true);
+    this.crack
+      .setTexture(stage === 1 ? 'crack1' : 'crack2')
+      .setVisible(true)
+      .setAlpha(this.fade);
     this.crack.setDisplaySize(this.spec.width, this.spec.height);
   }
 }

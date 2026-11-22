@@ -17,12 +17,18 @@ import {
   type LightSpec,
   type Mood,
 } from './Lighting';
+import { asChannel, CHANNELS } from './bricks/gates';
+import { PHANTOM_MAX_PERIOD, PHANTOM_MIN_PERIOD } from './bricks/phantom';
+import { asLink, portalIssues } from './bricks/portal';
+import { VIRUS_ARMOR, VIRUS_CORE_HEALTH } from './bricks/virus';
 import {
   BRICK_KINDS,
   FIELD_WIDTH,
   LEVEL_MAX_Y,
   POWERUP_IDS,
+  isBreakableKind,
   type BrickKind,
+  type BrickProps,
   type BrickSpec,
   type LevelSpec,
   type PowerupId,
@@ -291,31 +297,85 @@ export function parseLevel(
   return { level, warnings };
 }
 
-/** The bonus stage a map names. An empty string, as Tiled writes an unset member, is none. */
+/** A boss or bonus map property left unset: missing, empty, or the `none` the Tiled enums open with. */
+const isNone = (v: TiledPropValue | undefined) => v === undefined || v === '' || v === 'none';
+
+/** The bonus stage a map names. */
 function parseBonus(v: TiledPropValue | undefined, warnings: string[]): BonusId | undefined {
-  if (v === undefined || v === '') return undefined;
+  if (isNone(v)) return undefined;
   const bonus = BONUS_IDS.find((id) => id === v);
   if (!bonus) warnings.push(`Map: unknown bonus stage "${String(v)}"`);
   return bonus;
 }
 
-/** The boss a map names. Tiled writes an unset class member as an empty string: no boss. */
+/** The boss a map names. */
 function parseBoss(v: TiledPropValue | undefined, warnings: string[]): BossId | undefined {
-  if (v === undefined || v === '') return undefined;
+  if (isNone(v)) return undefined;
   const boss = BOSS_IDS.find((id) => id === v);
   if (!boss) warnings.push(`Map: unknown boss "${String(v)}"`);
   return boss;
+}
+
+const isTrue = (v: TiledPropValue | undefined) => v === true || v === 'true';
+
+/** The settings a kind reads, from the tile's and the object's properties. */
+function parseProps(kind: BrickKind, p: Record<string, TiledPropValue>): BrickProps | undefined {
+  switch (kind) {
+    case 'switch':
+      return { channel: asChannel(num(p.channel, 1)) };
+    case 'gate':
+      return { channel: asChannel(num(p.channel, 1)), open: isTrue(p.open) };
+    case 'portal':
+      return { link: asLink(num(p.link, 1)) };
+    case 'phantom': {
+      const out: BrickProps = { phase: num(p.phase, 0) };
+      if (p.period !== undefined && p.period !== '') out.period = num(p.period, 0);
+      return out;
+    }
+    case 'virus': {
+      const out: BrickProps = { source: isTrue(p.source) };
+      if (p.spreadMs !== undefined && p.spreadMs !== '') out.spreadMs = num(p.spreadMs, 0);
+      return out;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The art a kind is drawn with. Channel and link colors each have their own texture. */
+function kindTexture(kind: BrickKind, props: BrickProps | undefined, tileTexture: string): string {
+  switch (kind) {
+    // Legacy unbreakable bricks reuse colored art; show them as steel so players can tell.
+    case 'steel':
+    case 'explosive':
+    case 'armored':
+    case 'regen':
+    case 'fuse':
+    case 'phantom':
+      return `brick_${kind}`;
+    case 'switch':
+    case 'gate':
+      return `brick_${kind}${props?.channel ?? 1}`;
+    case 'portal':
+      return `brick_portal${props?.link ?? 1}`;
+    case 'virus':
+      return props?.source ? 'brick_virus_core' : 'brick_virus';
+    default:
+      return tileTexture;
+  }
 }
 
 function parseBrick(obj: TiledObject, tile: ResolvedTile, warnings: string[]): BrickSpec {
   const objProps = propsToRecord(obj.properties);
   const p = { ...tile.props, ...objProps };
   const kind = resolveKind(tile.props, objProps, obj.type ?? obj.class ?? '');
-  // Legacy unbreakable bricks reuse colored art; show them as steel so players can tell.
-  const texture =
-    kind === 'steel' || kind === 'explosive' || kind === 'armored' || kind === 'regen'
-      ? `brick_${kind}`
-      : tile.texture;
+  const props = parseProps(kind, p);
+  const texture = kindTexture(kind, props, tile.texture);
+  const core = kind === 'virus' && props?.source;
+  const health = p.healthPts ?? p.health;
+  let armor = 0;
+  if (kind === 'armored') armor = Math.max(1, Math.floor(num(p.armor, DEFAULT_ARMOR)));
+  else if (kind === 'virus' && !core) armor = VIRUS_ARMOR;
   let powerup: PowerupId | undefined;
   if (typeof p.powerup === 'string' && p.powerup !== '') {
     if ((POWERUP_IDS as readonly string[]).includes(p.powerup)) {
@@ -333,12 +393,13 @@ function parseBrick(obj: TiledObject, tile: ResolvedTile, warnings: string[]): B
     height: obj.height,
     texture,
     kind,
-    health: Math.max(1, num(p.healthPts ?? p.health, DEFAULT_HEALTH)),
-    armor: kind === 'armored' ? Math.max(1, Math.floor(num(p.armor, DEFAULT_ARMOR))) : 0,
+    health: Math.max(1, num(health, core ? VIRUS_CORE_HEALTH : DEFAULT_HEALTH)),
+    armor,
     moveX: num(p.moveX, 0),
     moveSpeed: Math.max(1, num(p.moveSpeed, DEFAULT_MOVE_SPEED)),
     regenDelay: Math.max(0.5, num(p.regenDelay, DEFAULT_REGEN_DELAY)),
   };
+  if (props) brick.props = props;
   if (powerup) brick.powerup = powerup;
   const glow = parseColor(p.light);
   if (glow !== undefined) {
@@ -470,7 +531,45 @@ function parseLevelLighting(
 }
 
 export function isBreakable(b: Pick<BrickSpec, 'kind'>): boolean {
-  return b.kind !== 'steel';
+  return isBreakableKind(b.kind);
+}
+
+const overlaps = (a: BrickSpec, b: BrickSpec) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** Portals in pairs and clear of other bricks, gates with a switch, phantoms in range. */
+function elementIssues(level: LevelSpec): string[] {
+  const issues: string[] = [];
+  const portals = level.bricks.filter((b) => b.kind === 'portal');
+  issues.push(...portalIssues(portals.map((b) => ({ id: b.id, link: asLink(b.props?.link) }))));
+  for (const p of portals) {
+    if (p.moveX !== 0) issues.push(`Portal ${p.id} moves; portals stay put`);
+    for (const b of level.bricks) {
+      if (b !== p && b.moveX === 0 && overlaps(p, b))
+        issues.push(`Brick ${b.id} overlaps portal ${p.id}`);
+    }
+  }
+  for (const channel of CHANNELS) {
+    const of = (kind: BrickKind) =>
+      level.bricks.filter((b) => b.kind === kind && asChannel(b.props?.channel) === channel);
+    const gates = of('gate');
+    const switches = of('switch');
+    if (gates.length && !switches.length) issues.push(`Gates on channel ${channel} have no switch`);
+    if (switches.length && !gates.length)
+      issues.push(`Switches on channel ${channel} have no gate`);
+  }
+  for (const b of level.bricks) {
+    if (b.kind !== 'phantom') continue;
+    const period = b.props?.period;
+    if (period !== undefined && (period < PHANTOM_MIN_PERIOD || period > PHANTOM_MAX_PERIOD)) {
+      issues.push(
+        `Phantom ${b.id}: period ${period} is outside ${PHANTOM_MIN_PERIOD}-${PHANTOM_MAX_PERIOD} s`,
+      );
+    }
+    const phase = b.props?.phase ?? 0;
+    if (phase < 0 || phase > 1) issues.push(`Phantom ${b.id}: phase ${phase} is outside 0-1`);
+  }
+  return issues;
 }
 
 /** Authoring checks, used by tests and logged in dev builds. */
@@ -495,5 +594,6 @@ export function validateLevel(level: LevelSpec): string[] {
     if (other !== undefined) issues.push(`Bricks ${other} and ${b.id} overlap at ${key}`);
     else seen.set(key, b.id);
   }
+  issues.push(...elementIssues(level));
   return issues;
 }

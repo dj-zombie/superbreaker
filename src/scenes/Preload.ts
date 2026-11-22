@@ -38,6 +38,8 @@ import { lightingTier } from '../systems/Quality';
 import { transitioning } from '../ui/fx/transitions';
 import { installBack } from '../ui/nav';
 import { cutsceneDef } from '../cutscenes';
+import { editorMode, installEditorHost } from '../editor/liveHost';
+import type { CachedResolvers } from '../editor/payload';
 import { BaseScene } from './BaseScene';
 import { CUTSCENES_REG, storyBetween, type CutsceneData } from './Cutscene';
 
@@ -124,6 +126,7 @@ function devFxLab(): boolean {
 
 export class Preload extends BaseScene {
   private failed = new Set<string>();
+  private status?: Phaser.GameObjects.Text;
 
   constructor() {
     super(SCENES.preload);
@@ -206,7 +209,11 @@ export class Preload extends BaseScene {
     const stop = devStop(stops);
     const run = devRun();
     const cut = devScene();
-    if (run) this.scene.start(SCENES.play, { run });
+    // Tiled's Live Preview dock pushes the map it has open; until then this screen waits.
+    if (editorMode()) {
+      this.status?.setText('Waiting for Tiled');
+      installEditorHost(this.game, this.cachedResolvers());
+    } else if (run) this.scene.start(SCENES.play, { run });
     else if (cut) this.scene.start(SCENES.cutscene, cut);
     else if (stop) this.scene.start(SCENES.play, stop);
     else if (jump) this.scene.start(SCENES.play, { index: jump });
@@ -273,17 +280,23 @@ export class Preload extends BaseScene {
     return scenes;
   }
 
-  private parseMap(file: string): LevelSpec | undefined {
+  /** The brick tileset and object templates loaded above, as parseLevel looks them up. */
+  private cachedResolvers(): CachedResolvers {
     const tileset = this.cache.json.get(TILESET) as TiledTileset | undefined;
-    const resolveTileset = (src: string) => (src.endsWith('bricks.tsj') ? tileset : undefined);
-    const resolveTemplate = (path: string) =>
-      this.cache.json.get(`template:${basename(path)}`) as TiledTemplate | undefined;
+    return {
+      tileset: (src) => (src.endsWith('bricks.tsj') ? tileset : undefined),
+      template: (path) => this.cache.json.get(`template:${basename(path)}`) as TiledTemplate | undefined,
+    };
+  }
+
+  private parseMap(file: string): LevelSpec | undefined {
+    const resolve = this.cachedResolvers();
     const map = this.cache.json.get(`level:${file}`) as TiledMap | undefined;
     if (!map) {
       console.warn(`[levels] failed to load ${file}`);
       return undefined;
     }
-    const { level, warnings } = parseLevel(map, file.replace(/\.tmj$/, ''), resolveTileset, resolveTemplate);
+    const { level, warnings } = parseLevel(map, file.replace(/\.tmj$/, ''), resolve.tileset, resolve.template);
     if (import.meta.env.DEV) {
       for (const w of [...warnings, ...validateLevel(level)]) console.warn(`[${level.id}] ${w}`);
     }
@@ -313,6 +326,7 @@ export class Preload extends BaseScene {
     const meterY = HEIGHT * 0.62;
     const meter = new Meter(this, WIDTH / 2, meterY, 360, 12, 0, t.palette.accent);
     const pct = label(this, WIDTH / 2, meterY + 30, 'Loading  0%', 12, { t, color: t.palette.textDim });
+    this.status = pct;
     this.load.on(Phaser.Loader.Events.PROGRESS, (v: number) => {
       meter.set(v, false);
       pct.setText(`Loading  ${Math.round(v * 100)}%`);

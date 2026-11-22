@@ -62,6 +62,10 @@ const MECHANIC_NAMES: Record<Mechanic, string> = {
   armored: 'ARMOR',
   mover: 'MOVERS',
   regen: 'REGROWING BRICKS',
+  fuse: 'FUSES',
+  phantom: 'PHANTOMS',
+  portal: 'PORTALS',
+  virus: 'VIRUS',
 };
 /** Waves: pause between the clear and the next board dropping in. */
 const WAVE_GAP_MS = 900;

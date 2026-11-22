@@ -109,6 +109,8 @@ import {
 import { BrickSystem, type DestroyCause } from '../systems/BrickSystem';
 import { Backdrop } from '../systems/Backdrop';
 import { BallFx } from '../systems/BallFx';
+import { ElementFx } from '../systems/ElementFx';
+import { ElementIntro } from '../systems/ElementIntro';
 import { FrameMonitor, particleDensity } from '../systems/Quality';
 import { FeverSystem } from '../systems/FeverSystem';
 import { InputSystem } from '../systems/InputSystem';
@@ -139,7 +141,18 @@ export interface PlayData {
   run?: RunConfig;
   /** The backdrop a cutscene leaves on screen, to scroll on from without a cut. */
   handoff?: BackdropSnapshot;
+  /** Dev only: a map pushed from Tiled's Live Preview dock, played in place of `index`'s. */
+  editor?: EditorPlay;
 }
+
+/** A previewed map and the world it plays in. Its level replays on a clear or a loss, unsaved. */
+export interface EditorPlay {
+  level: LevelSpec;
+  world: WorldId;
+}
+
+/** How long a previewed level's end shows before the level starts over. */
+const EDITOR_REPLAY_MS = 1200;
 
 export interface RunResults {
   config: RunConfig;
@@ -301,6 +314,7 @@ export class Play extends BaseScene {
   /** Set when this is an Arcade run rather than a campaign level. */
   runConfig?: RunConfig;
   private handoff?: BackdropSnapshot;
+  private editor?: EditorPlay;
   hud!: HudState;
 
   private level!: LevelSpec;
@@ -335,6 +349,7 @@ export class Play extends BaseScene {
   private beacons = new Map<Brick, Light>();
   private shieldLight?: Light;
   private ballFx!: BallFx;
+  private elements!: ElementFx;
   /** Every particle effect in the level, on one atlas and one frame budget. */
   private fx!: FxEngine;
   private magnetFx?: FxHandle;
@@ -356,6 +371,8 @@ export class Play extends BaseScene {
   private inputSys!: InputSystem;
   /** The first-play tutorial, until it is finished or skipped. */
   private coach?: OnboardingCoach;
+  /** Names each new element the first time a level shows it, while the serve waits. */
+  private intro?: ElementIntro;
   private wasCoaching = false;
   /** The tutorial has the world stopped while it waits on the player. */
   private frozen = false;
@@ -390,10 +407,14 @@ export class Play extends BaseScene {
     this.levelIndex = data.run
       ? 0
       : Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
-    this.atStop = data.run ? undefined : stopOf(this.stopAfter(this.levelIndex), data.stop);
-    this.world = data.run ? worldForRun(data.run.seed) : worldForLevel(this.levelIndex);
+    this.editor = data.run ? undefined : data.editor;
+    this.atStop =
+      data.run || this.editor ? undefined : stopOf(this.stopAfter(this.levelIndex), data.stop);
+    this.world = data.run
+      ? worldForRun(data.run.seed)
+      : (this.editor?.world ?? worldForLevel(this.levelIndex));
     useWorld(this.world);
-    if (!data.run) pickWorld(this.world);
+    if (!data.run && !this.editor) pickWorld(this.world);
     this.finished = false;
     this.cleared = false;
     this.bannerUp = false;
@@ -419,6 +440,7 @@ export class Play extends BaseScene {
 
   /** Campaign: the map this scene plays. */
   private campaignLevel(): LevelSpec | undefined {
+    if (this.editor) return this.editor.level;
     if (this.atStop) return stopLevel(this.stopAfter(this.levelIndex), this.atStop);
     return this.levels[this.levelIndex - 1];
   }
@@ -462,7 +484,8 @@ export class Play extends BaseScene {
   create(): void {
     this.setupCamera();
     // Taking over from a cutscene, the backdrop is already on screen: the board fades in over it.
-    if (!this.handoff) {
+    // A preview cuts straight in, so an edit shows the moment it lands.
+    if (!this.handoff && !this.editor) {
       const shade = Phaser.Display.Color.IntegerToColor(theme().palette.base);
       this.cameras.main.fadeIn(
         this.atStop === 'bonus' ? BONUS_WIPE_IN_MS : 300,
@@ -538,6 +561,14 @@ export class Play extends BaseScene {
     this.juice = new JuiceSystem(this, this.fx);
     this.juice.particleScale = particleDensity();
     this.ballFx = new BallFx(this.fx);
+    this.elements = new ElementFx({
+      scene: this,
+      fx: this.fx,
+      lighting: this.lighting,
+      juice: this.juice,
+      ballFx: this.ballFx,
+      addScore: (n) => this.addScore(n),
+    });
     this.startWeather(scenery.id);
     this.frameMonitor = new FrameMonitor(this.game);
     this.paddle = new Paddle(this, world);
@@ -565,13 +596,15 @@ export class Play extends BaseScene {
           audio.sfx('brick_collapse', 0.5);
           haptic('medium');
         },
-        regrowBlocked: (b) => {
+        occupied: (b) => {
           const reachX = b.displayWidth / 2 + 12 + BALL_SIZE / 2;
           const reachY = b.displayHeight / 2 + 12 + BALL_SIZE / 2;
           return this.ballList.some(
             (ball) => Math.abs(ball.x - b.x) < reachX && Math.abs(ball.y - b.y) < reachY,
           );
         },
+        live: () => this.freeBallCount > 0,
+        onElement: (e) => this.elements.on(e),
         // A boss's parts are bricks, and only the boss removes them.
         collapseReady: () =>
           !this.boss?.active &&
@@ -747,7 +780,8 @@ export class Play extends BaseScene {
       if (p.rightButtonDown()) this.pullSidearm();
     });
     // A boss level or a bonus stage never runs the tutorial.
-    const noTutorial = save.state.seenInstructions || !!this.level.boss || !!this.bonus;
+    const noTutorial =
+      save.state.seenInstructions || !!this.level.boss || !!this.bonus || !!this.editor;
     this.coach = noTutorial
       ? undefined
       : new OnboardingCoach({
@@ -762,6 +796,10 @@ export class Play extends BaseScene {
           skillReady: (id) => this.skillReady(id),
           chargeSkill: (id) => (this.skills[id].charge = 1),
         });
+    this.intro?.destroy();
+    // The tutorial teaches the basics first; a new element waits for a level without it.
+    this.intro =
+      this.coach || this.editor ? undefined : new ElementIntro(this, () => this.bricks.bricks);
     this.wasCoaching = this.coaching;
     this.frozen = false;
     this.juice.holdWorld = () => !!this.coach?.frozen || !!this.boss?.frozen || !!this.bonus?.frozen;
@@ -775,7 +813,7 @@ export class Play extends BaseScene {
       this.clearHint();
     } else {
       this.showHint();
-      this.introCard();
+      if (!this.editor) this.introCard();
     }
 
     this.scene.launch(SCENES.hud);
@@ -821,8 +859,10 @@ export class Play extends BaseScene {
     this.scenery.setFocus(this.paddle.x);
     this.updateAttachedBalls(dt);
     this.updateCoach(dt);
+    this.intro?.update(dt);
     this.syncFreeze();
     this.ballFx.update(this.ballList);
+    this.elements.update(dt);
     this.syncLights();
     this.updateSkills(dt);
     this.updateTimeScale();
@@ -874,6 +914,7 @@ export class Play extends BaseScene {
     // The held ball, if any, keeps to the paddle, but its serve clock waits.
     this.updateAttachedBalls(0);
     this.updateCoach(dt);
+    this.intro?.update(dt);
     this.syncFreeze();
     this.boss?.update(dt);
     this.bonus?.update(dt);
@@ -1228,6 +1269,10 @@ export class Play extends BaseScene {
     }
     if (this.boss?.skip()) return;
     if (this.bonus?.skip()) return;
+    if (this.intro?.holding) {
+      this.intro.skip();
+      return;
+    }
     // Without a ball, a tap on the field pulls the trigger once. A mouse, a key or a pad button
     // is held, and the trigger already reads those.
     if (this.ballless) {
@@ -1241,7 +1286,7 @@ export class Play extends BaseScene {
   private launch(): void {
     const held = this.ballList.find((b) => b.attached);
     if (!held || this.finished || this.coach?.frozen || this.boss?.cinematic) return;
-    if (this.bonus?.cinematic) return;
+    if (this.bonus?.cinematic || this.intro?.holding) return;
     const at = { x: held.x, y: held.y };
     held.launch(this.aim, Math.max(held.speed, this.diff.minSpeed));
     this.clearHint();
@@ -1261,7 +1306,17 @@ export class Play extends BaseScene {
     if (this.aim < AIM_MIN) this.aimDir = 1;
     this.aim = Phaser.Math.Clamp(this.aim, AIM_MIN, AIM_MAX);
     this.arrow.setPosition(held.x, held.y).setRotation(this.aim);
-    if (!this.coach?.holdServe && !this.boss?.holdServe && !this.bonus?.holdServe) this.serveMs -= dt;
+    const hold =
+      this.coach?.holdServe || this.boss?.holdServe || this.bonus?.holdServe || this.intro?.holding;
+    if (!hold) this.serveMs -= dt;
+    if (this.intro?.showing) {
+      // The callout speaks for the serve; the count and the hint come back with it.
+      this.hint?.setVisible(false);
+      this.countdown?.setVisible(false);
+      this.countdownShown = 0;
+      return;
+    }
+    this.hint?.setVisible(true);
     if (this.serveMs <= 0) this.launch();
     else this.tickCountdown();
   }
@@ -1446,7 +1501,8 @@ export class Play extends BaseScene {
   }
 
   private processBallBrick(ball: Ball, brick: Brick): boolean {
-    if (!brick.isAlive) return false;
+    // A ghost or an open gate lets the ball through, and a portal moves it.
+    if (!this.bricks.contact(brick, ball)) return false;
     // Nothing passes through a boss part: the ball always bounces off it. A bonus stage's
     // target can let a fireball through.
     if (brick.owner && !brick.owner.plowable?.(brick)) return true;
@@ -1515,6 +1571,8 @@ export class Play extends BaseScene {
         w: brick.displayWidth,
         h: brick.displayHeight,
       });
+    } else if (res === 'trigger') {
+      this.fx.play('impact.wall', ball.x, ball.y, { ...at, tint: brick.tintColor });
     } else if (res !== 'destroyed') {
       audio.hit(brick.x);
       this.fx.play('impact.wall', ball.x, ball.y, { ...at, tint: brick.tintColor });
@@ -1720,6 +1778,7 @@ export class Play extends BaseScene {
       if (moving) this.fx.attach('brick.dust', follow(() => b.isAlive), box);
       if (regen || b.armor > 0) this.fx.attach('brick.shimmer', follow(() => b.isAlive && (regen || b.armor > 0)), box);
     }
+    this.elements.dress(bricks);
   }
 
   /** Ball lanterns follow mode and Fever; shadows lean away from the lead ball. */
@@ -1924,7 +1983,7 @@ export class Play extends BaseScene {
       const targets = this.bricks.targets.map(homingBox);
       const walls: HomingBox[] = [];
       for (const brick of this.bricks.bricks) {
-        if (brick.isAlive && !brick.breakable) walls.push(homingBox(brick));
+        if (brick.wall) walls.push(homingBox(brick));
       }
       // Steel is not a target, and a brick behind it is not either: homing into a wall
       // pins the ball under the steel instead of letting it through the gaps.
@@ -1960,7 +2019,7 @@ export class Play extends BaseScene {
     if (this.wallsCheckMs > 0) return;
     this.wallsCheckMs = WALLS_DOWN_CHECK_MS;
     const walls: HomingBox[] = [];
-    for (const b of this.bricks.bricks) if (b.isAlive && !b.breakable) walls.push(homingBox(b));
+    for (const b of this.bricks.bricks) if (b.wall) walls.push(homingBox(b));
     if (!walls.length) return;
     if (guardedShare(this.bricks.targets.map(homingBox), walls) < WALLS_DOWN_SHARE) return;
     this.wallsDown = true;
@@ -2289,6 +2348,10 @@ export class Play extends BaseScene {
     this.fever.reset();
     this.abilities.clearEffects();
     if (this.skills.slowmo.active) this.endSlowmo();
+    if (this.editor) {
+      this.replayPreview('CLEARED');
+      return;
+    }
     const here = this.campaignStep;
     // Worked out before the win is saved: a level's stop is next only while its boss stands, or
     // until a bonus stage with no boss has been played.
@@ -2443,10 +2506,27 @@ export class Play extends BaseScene {
     });
   }
 
+  /** A previewed level ends with a word over the field, then plays again. Nothing is saved. */
+  private replayPreview(word: string): void {
+    this.finished = true;
+    this.inputSys.enabled = false;
+    for (const b of this.ballList) b.body.setVelocity(0, 0);
+    this.juice.popText(WIDTH / 2, ARENA_MID - 40, word, '#ffc93c', 30);
+    const data: PlayData = { index: this.levelIndex, editor: this.editor };
+    this.time.delayedCall(EDITOR_REPLAY_MS, () => this.scene.restart(data));
+  }
+
   private gameOver(): void {
     if (this.runDirector) {
       this.runDirector.onOutOfLives();
       this.endRun();
+      return;
+    }
+    if (this.editor) {
+      this.coach?.finish();
+      this.fever.reset();
+      this.abilities.clearEffects();
+      this.replayPreview('OUT OF LIVES');
       return;
     }
     this.finished = true;
@@ -2811,6 +2891,8 @@ export class Play extends BaseScene {
     this.bonus?.destroy();
     this.bonus = undefined;
     exposeBonus(undefined);
+    this.intro?.destroy();
+    this.intro = undefined;
     this.events.off(Phaser.Scenes.Events.RESUME);
     this.input.keyboard?.removeAllKeys(true);
     this.shieldBar = undefined;

@@ -4,21 +4,36 @@
 Level 24 (Demolition) is hand-authored and is never rewritten. The first run
 copies the previous maps to archive/levels/.
 
-Only the `Bricks` layer and the `title` property are generated. Everything else authored in
-Tiled survives a rebuild: the `Lights` layer and any other layers, extra map properties (such
-as `LevelLighting`'s `lightsOut`), the map class and extra tilesets.
+Only the `Bricks` layer and the `title`, `lightsOut` and `lightning` properties are generated.
+Everything else authored in Tiled survives a rebuild: the `Lights` layer and any other layers,
+other map properties, the map class and extra tilesets.
 
   python3 scripts/build-campaign.py
 
-Curriculum, so a new mechanic is the lesson of one level before it gets mixed:
-  1-5   normal bricks only, open shapes
-  6-8   steel as bumpers and one real doorway
-  9-12  explosives, spaced so a blast is a moment and not the whole level
-  13-16 armored bricks, always with a way through that isn't pure grinding
-  17-20 moving bricks, slow first
-  21-23 regen clusters small enough to finish, with a bomb as the other answer
+Curriculum (docs/bricks/design.md), so a new mechanic is the lesson of a level before it gets
+mixed. Hell is heat and weight, the Crypt is "what you see isn't what's there", the Mainframe is
+routing and contagion:
+  1-3   plain bricks, open shapes
+  4-5   steel as bumpers and one real doorway
+  6-7   explosives, spaced so a blast is a moment and not the whole level
+  8     fuse cords, burning into TNT
+  9     armored bricks
+  10    Hell finale: fuses, armor and TNT
+  11    movers and armor
+  12-13 phantoms, safe first, then guarding the prize
+  14-15 switches and gates, then two channels
+  16    phantoms and switches
+  17-18 regen, then with phantoms
+  19-20 switches and regen, then the Crypt finale
+  21-22 portals, a shortcut first, then the only way in
+  23    virus
   24    Demolition, unchanged
-  25-30 the same toys combined into set pieces
+  25-30 virus, portals, phantoms and regen combined into set pieces
+Wave-2 slots (10, 16, 19, 20, 26-30) hold stand-ins built from what's been taught so far.
+
+Map glyphs besides the colors: S steel, X explosive, A armored, R regen, M/W/B moving normal,
+steel and armored, F fuse, G phantom, 1-3 switches, 4-6 closed gates and 7-9 open gates of
+channels 1-3, P/Q/Z portals of links 1-3 with "|" in the cell under each, V a virus core.
 
 Playfield rules baked into the checks:
   bricks are 30x16, the ball is 22px across, blasts reach about 2 columns and 3 rows,
@@ -53,8 +68,10 @@ MAX_ROW = 28
 MIN_SPAN = 16
 MIN_BREAKABLE, MAX_BREAKABLE = 55, 110
 
-# Tile gids in bricks.tsj (firstgid 1). 1-16 are colors, then the mechanic tiles.
+# Tile gids in bricks.tsj (firstgid 1). 1-16 are colors, then the mechanic tiles, then the
+# level elements: one switch, gate and portal tile per channel or link.
 STEEL, EXP, ARM, REG = 17, 18, 19, 20
+FUSE, PHANTOM, SWITCH0, GATE0, PORTAL0, VIRUS_CORE = 21, 22, 22, 25, 28, 32
 RAINBOW = [9, 5, 15, 3, 1, 8, 7, 11]
 OCEAN = [1, 2, 11, 12, 3, 4]
 SUNSET = [9, 10, 5, 6, 15, 16]
@@ -75,7 +92,29 @@ KIND = {
     "M": "normal",
     "W": "steel",
     "B": "armored",
+    "F": "fuse",
+    "G": "phantom",
+    "1": "switch",
+    "2": "switch",
+    "3": "switch",
+    "4": "gate",
+    "5": "gate",
+    "6": "gate",
+    "7": "gate",
+    "8": "gate",
+    "9": "gate",
+    "P": "portal",
+    "Q": "portal",
+    "Z": "portal",
+    "V": "virus",
 }
+# Switches 1-3 and gates 4-6 (closed) or 7-9 (open) share a channel by digit; portals P, Q and
+# Z are links 1-3 and are two rows tall, with "|" in the cell under each.
+PORTAL_LINK = {"P": 1, "Q": 2, "Z": 3}
+PORTAL_TAIL = "|"
+UNBREAKABLE = {"steel", "switch", "gate", "portal"}
+PHANTOM_PERIOD = 3.2
+SPREAD_MS = 4500
 POWER = {
     "o": "coin",
     "g": "bigger",
@@ -91,6 +130,19 @@ POWER = {
     "q": "mystery",
 }
 MOVER = {"M", "W", "B"}
+
+
+def channel_of(ch: str) -> int:
+    """Channel 1-3 of a switch or gate glyph."""
+    return (int(ch) - 1) % 3 + 1
+
+
+def gate_open(ch: str) -> bool:
+    return ch in "789"
+
+
+def breakable(ch: str) -> bool:
+    return kind_of(ch) not in UNBREAKABLE
 
 
 def grid(rows: int) -> list[list[str]]:
@@ -136,6 +188,9 @@ class Level:
         glow: dict[tuple[int, int], tuple[str, float, float]] | None = None,
         lights_out: bool = False,
         lightning: bool | None = None,
+        phases: dict[tuple[int, int], float] | None = None,
+        period: float = PHANTOM_PERIOD,
+        spread_ms: float = SPREAD_MS,
     ) -> None:
         self.num = num
         self.title = title
@@ -152,6 +207,10 @@ class Level:
         # Strikes show the layout for a moment; the interval is LevelLighting's default.
         # Lights-out levels storm unless told otherwise.
         self.lightning = lights_out if lightning is None else lightning
+        # Phantoms: where each one starts in the shared `period`, 0-1.
+        self.phases = phases or {}
+        self.period = period
+        self.spread_ms = spread_ms
 
 
 def kind_of(ch: str) -> str:
@@ -214,52 +273,6 @@ def level_pillars() -> Level:
     return Level(3, "Pillars", g, NEON, "pillar")
 
 
-def level_halo() -> Level:
-    """A tall arch, open at the bottom, with a prize block inside. No door yet."""
-    g = grid(24)
-    fill(g, 2, 3, 2, 14, "#")
-    fill(g, 4, 3, 9, 2, "#")
-    fill(g, 4, 15, 9, 2, "#")
-    fill(g, 7, 7, 3, 6, "#")
-    fill(g, 20, 2, 2, 4, "#")
-    fill(g, 20, 14, 2, 4, "#")
-    drop(g, 8, 9, "m")
-    drop(g, 21, 3, "o")
-    drop(g, 21, 15, "u")
-    return Level(4, "Halo", g, OCEAN, "row", lights_out=True)
-
-
-def level_smile() -> Level:
-    g = art(
-        """
-....................
-....................
-....####....####....
-....#l##....####....
-....####....####....
-....................
-....................
-.........##.........
-.........##.........
-....................
-....................
-.##..............##.
-..##............##..
-...######g#######...
-....############....
-.....####o#####.....
-....................
-....................
-....................
-....................
-....................
-##....##....##....##
-##....##....##....##
-"""
-    )
-    return Level(5, "Smile", g, CANDY, "row")
-
-
 def level_frame() -> Level:
     """First steel. A thick frame with a door the ball can actually fly through, and a welcome mat outside."""
     g = grid(24)
@@ -275,7 +288,7 @@ def level_frame() -> Level:
     drop(g, 19, 4, "f")
     drop(g, 19, 8, "o")
     drop(g, 19, 13, "h")
-    return Level(6, "Picture Frame", g, SUNSET, "row")
+    return Level(4, "Picture Frame", g, SUNSET, "row")
 
 
 def level_two_cities() -> Level:
@@ -291,23 +304,7 @@ def level_two_cities() -> Level:
     drop(g, 12, 4, "o")
     drop(g, 12, 15, "h")
     drop(g, 12, 18, "u")
-    return Level(7, "Two Cities", g, [1, 2, 11, 9, 5, 15], "col")
-
-
-def level_lattice() -> Level:
-    g = grid(24)
-    for i, r in enumerate((1, 6, 11, 16, 21)):
-        c = 0 if i % 2 == 0 else 2
-        while c <= 18:
-            fill(g, r, c, 2, 2, "#")
-            c += 4
-    # Steel hubs in the offset tiers give the ball something to ricochet off mid-climb.
-    fill(g, 6, 10, 2, 2, "S")
-    fill(g, 16, 10, 2, 2, "S")
-    drop(g, 22, 0, "l")
-    drop(g, 22, 8, "o")
-    drop(g, 22, 16, "m")
-    return Level(8, "Lattice", g, NEON, "checker", lights_out=True)
+    return Level(5, "Two Cities", g, [1, 2, 11, 9, 5, 15], "col")
 
 
 def level_fireworks() -> Level:
@@ -320,23 +317,7 @@ def level_fireworks() -> Level:
     drop(g, 22, 5, "f")
     drop(g, 22, 9, "o")
     drop(g, 22, 14, "u")
-    return Level(9, "Fireworks", g, SUNSET, "row")
-
-
-def level_fuses() -> Level:
-    """Each stripe is a chain. Empty air between them keeps one fuse from eating the next."""
-    g = grid(26)
-    for r in (1, 7, 13, 19):
-        for i in range(8):
-            c = 2 + i * 2
-            g[r][c] = "X"
-            g[r][c + 1] = "#"
-    fill(g, 24, 3, 1, 14, "#")
-    drop(g, 24, 4, "l")
-    drop(g, 24, 8, "o")
-    drop(g, 24, 12, "u")
-    drop(g, 24, 15, "f")
-    return Level(10, "Fuses", g, [5, 6, 9, 15], "row", lights_out=True)
+    return Level(6, "Fireworks", g, SUNSET, "row")
 
 
 def level_vault() -> Level:
@@ -354,38 +335,32 @@ def level_vault() -> Level:
     drop(g, 21, 17, "h")
     drop(g, 20, 5, "o")
     drop(g, 20, 14, "l")
-    return Level(11, "The Vault", g, ICE, "row", lights_out=True)
+    return Level(7, "The Vault", g, ICE, "row", lights_out=True)
 
 
-def level_heart() -> Level:
-    """Two bombs take the lobes. The point of the heart is what you actually clear."""
-    g = art(
-        """
-....................
-....................
-....................
-.....###....###.....
-....#####..#####....
-...######..######...
-...##X###..###X##...
-...######g#######...
-....############....
-.....##########.....
-......########......
-.......######.......
-........####........
-.........e#.........
-....................
-....................
-....................
-....................
-....................
-....................
-....................
-#o....##....##....##
-"""
-    )
-    return Level(12, "Heart", g, ROSE, "diag")
+def level_slow_burn() -> Level:
+    """Fuse lesson. Two cords hang toward the paddle; light the tip and the flame climbs into the
+    TNT under each nest. The cord is the shot to look for, not the bricks."""
+    g = grid(26)
+    fill(g, 1, 3, 1, 14, "#")
+    fill(g, 2, 5, 1, 10, "#")
+    for c0 in (2, 12):
+        fill(g, 5, c0, 3, 6, "#")
+    g[7][4] = "X"
+    g[7][15] = "X"
+    cord = ((8, 4), (9, 4), (10, 3), (11, 3), (12, 2), (13, 2), (14, 2), (15, 3), (16, 3))
+    for r, c in cord:
+        g[r][c] = "F"
+        g[r][COLS - 1 - c] = "F"
+    fill(g, 10, 8, 3, 4, "#")
+    fill(g, 21, 0, 1, 3, "#")
+    fill(g, 21, 8, 1, 4, "#")
+    fill(g, 21, 17, 1, 3, "#")
+    drop(g, 1, 9, "o")
+    drop(g, 21, 1, "u")
+    drop(g, 21, 9, "f")
+    drop(g, 21, 18, "g")
+    return Level(8, "Slow Burn", g, SUNSET, "row")
 
 
 def level_plated() -> Level:
@@ -400,72 +375,52 @@ def level_plated() -> Level:
     drop(g, 20, 5, "f")
     drop(g, 20, 9, "o")
     drop(g, 21, 14, "u")
-    return Level(13, "Plated", g, ICE, "row")
+    return Level(9, "Plated", g, ICE, "row")
 
 
-def level_switchback() -> Level:
+def level_powder_keg() -> Level:
+    """Hell's finale. Two armored kegs with TNT in their floors and a cord from each down to the
+    middle. Grinding the plate works; finding the cord is quicker."""
     g = grid(26)
-    for i in range(6):
-        fill(g, 1 + i, 1 + i * 2, 1, 4, "#")
-        fill(g, 8 + i, 15 - i * 2, 1, 4, "#")
-        fill(g, 15 + i, 1 + i * 2, 1, 4, "#")
-    for c in (0, 8, 16):
-        fill(g, 24, c, 1, 4, "#")
-    g[1][1] = "A"
-    g[13][5] = "A"
-    g[20][14] = "A"
-    drop(g, 15, 2, "l")
-    drop(g, 24, 9, "o")
-    drop(g, 24, 17, "g")
-    return Level(14, "Switchback", g, RAINBOW, "diag")
-
-
-def level_bullseye() -> Level:
-    """Steel shell, armored jacket, explosive core. Break in, then the center deletes the jacket."""
-    g = grid(26)
-    fill(g, 1, 3, 14, 14, "S")
-    fill(g, 3, 5, 10, 10, ".")
-    fill(g, 13, 8, 2, 4, ".")
-    # Jacket and core sit in the upper interior, clear of the door.
-    fill(g, 4, 6, 6, 8, "A")
-    fill(g, 5, 7, 4, 6, "#")
-    fill(g, 6, 9, 2, 2, "X")
-    fill(g, 19, 2, 2, 16, "#")
-    fill(g, 23, 5, 1, 10, "#")
-    drop(g, 19, 4, "f")
-    drop(g, 19, 10, "o")
-    drop(g, 20, 15, "h")
-    warm = ("#ffffb060", 90.0, 0.6)
+    for c in range(4, 16):
+        g[1][c] = "A" if c % 3 == 1 else "#"
+    fill(g, 2, 6, 1, 8, "#")
+    for c0 in (1, 13):
+        fill(g, 6, c0, 4, 6, "A")
+        fill(g, 7, c0 + 1, 2, 4, "#")
+    g[9][3] = "X"
+    g[9][16] = "X"
+    cord = ((10, 3), (11, 4), (12, 4), (13, 5), (14, 5), (15, 6), (16, 6), (17, 7))
+    for r, c in cord:
+        g[r][c] = "F"
+        g[r][COLS - 1 - c] = "F"
+    fill(g, 4, 9, 6, 2, "S")
+    fill(g, 21, 0, 1, 4, "#")
+    fill(g, 21, 16, 1, 4, "#")
+    fill(g, 22, 7, 1, 6, "#")
+    drop(g, 2, 9, "o")
+    drop(g, 21, 1, "f")
+    drop(g, 21, 18, "l")
+    drop(g, 22, 9, "h")
+    ember = ("#ffff8a3a", 110.0, 0.7)
     return Level(
-        15,
-        "Bullseye",
+        10,
+        "Powder Keg",
         g,
-        [9, 15, 5, 8],
+        [9, 10, 5, 15],
         "row",
-        # The vault in the dark: glowing bricks on the core's corners and the ends of the lower wall.
-        glow={(5, 7): warm, (5, 12): warm, (8, 7): warm, (8, 12): warm, (19, 2): warm, (20, 17): warm},
+        # Embers in the dark: the cord tips and the charges they lead to.
+        glow={(17, 7): ember, (17, 12): ember, (9, 3): ember, (9, 16): ember},
         lights_out=True,
     )
 
 
-def level_skyline() -> Level:
-    g = grid(26)
-    heights = (6, 10, 4, 12, 8)
-    for i, h in enumerate(heights):
-        fill(g, 24 - h, i * 4, h, 2, "#")
-    fill(g, 24 - 10, 4, 1, 2, "A")  # caps of the two tallest towers
-    fill(g, 24 - 12, 12, 1, 2, "A")
-    fill(g, 2, 2, 1, 4, "#")
-    fill(g, 3, 13, 1, 4, "#")
-    drop(g, 23, 0, "o")
-    drop(g, 23, 8, "g")
-    drop(g, 23, 16, "u")
-    return Level(16, "Skyline", g, SUNSET, "pillar")
-
-
 def level_patrol() -> Level:
+    """Night watch: three patrols cross the dark under a band with an armored crest."""
     g = grid(24)
     fill(g, 1, 4, 4, 12, "#")
+    for c in range(5, 16, 2):
+        g[1][c] = "A"
     g[9][2] = "M"
     g[13][11] = "M"
     g[17][4] = "M"
@@ -475,7 +430,7 @@ def level_patrol() -> Level:
     drop(g, 4, 9, "o")
     drop(g, 4, 14, "u")
     return Level(
-        17,
+        11,
         "Patrol",
         g,
         ICE,
@@ -487,70 +442,121 @@ def level_patrol() -> Level:
     )
 
 
-def level_conveyor() -> Level:
-    g = grid(26)
-    fill(g, 1, 5, 4, 10, "#")
-    for r in (22, 23):
-        fill(g, r, 0, 1, 3, "#")
-        fill(g, r, 7, 1, 6, "#")
-        fill(g, r, 17, 1, 3, "#")
-    lanes = (8, 11, 14, 17)
-    speeds = (52, 70, 58, 64)
-    moves: dict[tuple[int, int], tuple[float, float]] = {}
-    for r, speed in zip(lanes, speeds):
-        g[r][0] = "M"
-        g[r][13] = "M"
-        # Sweeps meet at x=210 and do not overlap.
-        moves[(r, 0)] = (180, speed)
-        moves[(r, 13)] = (-180, speed + 8)
-    drop(g, 4, 6, "l")
-    drop(g, 4, 9, "o")
-    drop(g, 4, 12, "u")
-    drop(g, 3, 14, "s")
-    return Level(18, "Conveyor", g, NEON, "row", moves=moves)
-
-
-def level_turnstile() -> Level:
-    """A wide doorway with a steel bar sliding inside it. The bar never seals the opening."""
+def level_wisps() -> Level:
+    """Phantom lesson. Two rows of wisps fade in a wave across the field; nothing hides behind
+    them, so the only thing to learn is that a ghost lets the ball through."""
     g = grid(24)
-    fill(g, 1, 4, 3, 12, "#")
-    fill(g, 6, 2, 2, 4, "#")
-    fill(g, 6, 14, 2, 4, "#")
-    fill(g, 10, 1, 3, 18, "S")
-    fill(g, 10, 7, 3, 6, ".")
-    g[11][8] = "W"
-    fill(g, 20, 4, 2, 12, "#")
-    drop(g, 21, 6, "h")
-    drop(g, 21, 10, "o")
+    fill(g, 1, 3, 2, 14, "#")
+    phases: dict[tuple[int, int], float] = {}
+    for i, c in enumerate(range(2, 18)):
+        g[6][c] = "G"
+        g[10][c] = "G"
+        phases[(6, c)] = (i * 0.06) % 1
+        phases[(10, c)] = ((15 - i) * 0.06) % 1
+    for c in (1, 8, 15):
+        fill(g, 14, c, 1, 4, "#")
+    fill(g, 21, 4, 1, 12, "#")
+    fill(g, 22, 0, 1, 2, "#")
+    fill(g, 22, 18, 1, 2, "#")
+    drop(g, 1, 9, "o")
+    drop(g, 21, 6, "u")
     drop(g, 21, 13, "g")
-    return Level(19, "Turnstile", g, PURPLE, "row", moves={(11, 8): (90, 46)}, lights_out=True)
+    return Level(12, "Wisps", g, PURPLE, "row", phases=phases)
 
 
-def level_crossfire() -> Level:
-    g = grid(26)
-    fill(g, 1, 3, 3, 14, "#")
-    g[2][5] = "X"
-    g[2][12] = "X"
-    fill(g, 6, 7, 2, 6, "#")
-    g[10][1] = "M"
-    g[13][12] = "B"
-    g[16][2] = "M"
-    g[19][10] = "M"
-    fill(g, 23, 0, 1, 2, "#")
-    fill(g, 23, 6, 1, 8, "#")
-    fill(g, 23, 18, 1, 2, "#")
-    drop(g, 3, 4, "h")
-    drop(g, 3, 8, "o")
-    drop(g, 3, 15, "y")
-    drop(g, 1, 10, "u")
-    return Level(
-        20,
-        "Crossfire",
-        g,
-        SUNSET,
-        "row",
-        moves={(10, 1): (210, 74), (13, 12): (150, 56), (16, 2): (180, 82), (19, 10): (-150, 60)},
-    )
+def level_seance() -> Level:
+    """A steel alcove whose mouth is a curtain of phantoms fading in turn. Wait for a gap, or
+    shoot the ghosts down one by one."""
+    g = grid(24)
+    fill(g, 2, 5, 9, 10, "S")
+    fill(g, 3, 6, 8, 8, ".")
+    fill(g, 4, 7, 5, 6, "#")
+    phases: dict[tuple[int, int], float] = {}
+    for i, c in enumerate(range(6, 14)):
+        g[10][c] = "G"
+        phases[(10, c)] = i * 0.125
+    for r in (4, 6, 8, 10):
+        ch = "#" if r in (4, 8) else "G"
+        fill(g, r, 0, 1, 4, ch)
+        fill(g, r, 16, 1, 4, ch)
+        if ch == "G":
+            for c in (*range(0, 4), *range(16, 20)):
+                phases[(r, c)] = ((r + c) * 0.09) % 1
+    fill(g, 20, 3, 1, 14, "#")
+    fill(g, 21, 0, 1, 3, "#")
+    fill(g, 21, 17, 1, 3, "#")
+    drop(g, 6, 9, "o")
+    drop(g, 4, 1, "f")
+    drop(g, 20, 5, "m")
+    drop(g, 20, 14, "l")
+    return Level(13, "Seance", g, ROSE, "row", phases=phases)
+
+
+def level_rune_lock() -> Level:
+    """Switch lesson. A box of amber gates and one amber switch out in the open. Hit it and the
+    whole box opens; hit it again and it shuts."""
+    g = grid(24)
+    fill(g, 0, 2, 1, 16, "#")
+    fill(g, 2, 4, 8, 12, "4")
+    fill(g, 3, 5, 6, 10, ".")
+    fill(g, 4, 6, 4, 8, "#")
+    g[14][9] = "1"
+    fill(g, 12, 0, 1, 4, "#")
+    fill(g, 12, 16, 1, 4, "#")
+    fill(g, 17, 3, 1, 4, "#")
+    fill(g, 17, 13, 1, 4, "#")
+    fill(g, 21, 6, 1, 8, "#")
+    drop(g, 5, 9, "o")
+    drop(g, 0, 3, "f")
+    drop(g, 12, 1, "g")
+    drop(g, 21, 7, "u")
+    return Level(14, "Rune Lock", g, PURPLE, "row")
+
+
+def level_airlock() -> Level:
+    """Two locks in a row. The amber switch outside opens the outer door; a cyan switch inside
+    the lower chamber opens the inner one."""
+    g = grid(24)
+    fill(g, 1, 4, 12, 12, "S")
+    fill(g, 2, 5, 10, 10, ".")
+    fill(g, 7, 5, 1, 10, "5")
+    fill(g, 12, 8, 1, 4, "4")
+    fill(g, 3, 6, 3, 8, "#")
+    fill(g, 8, 6, 1, 2, "#")
+    fill(g, 8, 12, 1, 2, "#")
+    g[10][9] = "2"
+    g[16][9] = "1"
+    fill(g, 3, 0, 8, 2, "#")
+    fill(g, 3, 18, 8, 2, "#")
+    fill(g, 21, 3, 1, 14, "#")
+    drop(g, 4, 9, "o")
+    drop(g, 10, 0, "g")
+    drop(g, 21, 5, "u")
+    drop(g, 21, 14, "h")
+    return Level(15, "Airlock", g, ICE, "row")
+
+
+def level_haunted_locks() -> Level:
+    """A gate ceiling over the prize, its switch inside a ring of phantoms, and a shelf of open
+    gates that shuts whenever the ceiling opens."""
+    g = grid(24)
+    fill(g, 1, 2, 3, 16, "#")
+    fill(g, 5, 0, 1, 20, "4")
+    fill(g, 8, 3, 1, 14, "7")
+    phases: dict[tuple[int, int], float] = {}
+    for i, (r, c) in enumerate(((11, 8), (11, 9), (11, 10), (12, 10), (13, 10), (13, 9), (13, 8), (12, 8))):
+        g[r][c] = "G"
+        phases[(r, c)] = i * 0.125
+    g[12][9] = "1"
+    for i, c in enumerate((*range(2, 8), *range(12, 18))):
+        g[16][c] = "G"
+        phases[(16, c)] = (i * 0.08) % 1
+    fill(g, 21, 4, 1, 12, "#")
+    drop(g, 2, 9, "o")
+    drop(g, 1, 3, "m")
+    drop(g, 21, 6, "f")
+    drop(g, 21, 13, "u")
+    return Level(16, "Haunted Locks", g, ROSE, "row", phases=phases)
 
 
 def level_garden() -> Level:
@@ -566,11 +572,12 @@ def level_garden() -> Level:
     drop(g, 21, 6, "u")
     drop(g, 21, 10, "o")
     drop(g, 21, 13, "g")
-    return Level(21, "Garden", g, FOREST, "row", regen_delay=6)
+    return Level(17, "Garden", g, FOREST, "row", regen_delay=6)
 
 
 def level_weeds() -> Level:
-    """Three patches. Two have a bomb on the fence; the third you clear by hand."""
+    """Three patches. Two have a bomb on the fence; the third you clear by hand. The bands below
+    fade in and out, so the patches are never quite where the ball last bounced."""
     g = grid(24)
     for c in (2, 8, 14):
         fill(g, 3, c, 2, 2, "R")
@@ -578,46 +585,159 @@ def level_weeds() -> Level:
     g[4][10] = "X"  # beside the second (cols 8-9)
     fill(g, 2, 0, 7, 1, "S")
     fill(g, 2, 19, 7, 1, "S")
-    fill(g, 10, 2, 2, 6, "#")
-    fill(g, 10, 12, 2, 6, "#")
+    fill(g, 10, 2, 2, 6, "G")
+    fill(g, 10, 12, 2, 6, "G")
+    phases = {(r, c): ((c + r * 3) * 0.07) % 1 for r in (10, 11) for c in range(COLS) if g[r][c] == "G"}
     for r in (18, 19):
         fill(g, r, 0, 1, 3, "#")
         fill(g, r, 7, 1, 6, "#")
         fill(g, r, 17, 1, 3, "#")
-    drop(g, 11, 4, "f")
+    drop(g, 18, 1, "f")
     drop(g, 18, 9, "o")
-    drop(g, 11, 14, "u")
-    return Level(22, "Weeds", g, FOREST, "col", regen_delay=4.5, lights_out=True)
+    drop(g, 19, 18, "u")
+    return Level(18, "Weeds", g, FOREST, "col", regen_delay=4.5, lights_out=True, phases=phases)
 
 
-def level_pendulum() -> Level:
+def level_ossuary() -> Level:
+    """The bones regrow behind an amber ceiling. Opening it shuts the shelf below, so you work
+    through one side at a time."""
     g = grid(24)
-    fill(g, 1, 3, 2, 14, "#")
-    fill(g, 6, 9, 3, 2, "R")
-    g[7][7] = "X"
-    fill(g, 6, 2, 2, 2, "A")
-    fill(g, 6, 16, 2, 2, "A")
-    g[12][2] = "M"
-    g[12][13] = "M"
-    g[16][4] = "M"
-    fill(g, 21, 4, 2, 12, "#")
-    drop(g, 2, 4, "l")
+    fill(g, 2, 2, 2, 3, "R")
+    fill(g, 2, 15, 2, 3, "R")
+    fill(g, 1, 7, 4, 6, "#")
+    fill(g, 5, 1, 1, 5, "#")
+    fill(g, 5, 14, 1, 5, "#")
+    fill(g, 7, 0, 1, 20, "4")
+    fill(g, 10, 5, 1, 10, "7")
+    fill(g, 11, 6, 1, 8, "#")
+    g[15][9] = "1"
+    fill(g, 12, 0, 5, 2, "#")
+    fill(g, 12, 18, 5, 2, "#")
+    fill(g, 21, 4, 1, 12, "#")
     drop(g, 2, 9, "o")
-    drop(g, 2, 15, "h")
-    drop(g, 22, 8, "e")
+    drop(g, 11, 9, "g")
+    drop(g, 21, 6, "f")
+    drop(g, 21, 13, "h")
+    return Level(19, "Ossuary", g, PURPLE, "row", regen_delay=5)
+
+
+def level_gravekeeper() -> Level:
+    """The Crypt's finale. A steel tomb behind an amber door, its switch in a ring of phantoms;
+    inside, an armored jacket around bones that regrow and one charge beside them."""
+    g = grid(26)
+    fill(g, 1, 3, 14, 14, "S")
+    fill(g, 3, 5, 10, 10, ".")
+    fill(g, 13, 8, 2, 4, "4")
+    fill(g, 4, 6, 6, 8, "A")
+    fill(g, 5, 7, 4, 6, "#")
+    fill(g, 6, 9, 2, 2, "R")
+    g[8][8] = "X"
+    phases: dict[tuple[int, int], float] = {}
+    for i, (r, c) in enumerate(((16, 8), (16, 9), (16, 10), (17, 10), (18, 10), (18, 9), (18, 8), (17, 8))):
+        g[r][c] = "G"
+        phases[(r, c)] = i * 0.125
+    g[17][9] = "1"
+    fill(g, 19, 1, 2, 6, "#")
+    fill(g, 19, 13, 2, 6, "#")
+    g[22][0] = "M"
+    fill(g, 24, 5, 1, 10, "#")
+    drop(g, 5, 9, "o")
+    drop(g, 19, 2, "f")
+    drop(g, 20, 15, "h")
+    drop(g, 24, 9, "e")
+    warm = ("#ffffb060", 90.0, 0.6)
     return Level(
-        23,
-        "Pendulum",
+        20,
+        "Gravekeeper",
         g,
-        PURPLE,
+        [9, 15, 5, 8],
         "row",
-        moves={(12, 2): (150, 62), (12, 13): (-150, 62), (16, 4): (240, 50)},
-        regen_delay=4.5,
+        moves={(22, 0): (180, 50)},
+        regen_delay=5,
+        phases=phases,
+        glow={(5, 7): warm, (5, 12): warm, (8, 12): warm, (19, 1): warm, (20, 18): warm},
+        lights_out=True,
     )
 
 
+def level_wormhole() -> Level:
+    """Portal lesson. A steel shelf hides the prize band; the long way is round the ends, the
+    short way is a portal by each corner of the paddle."""
+    g = grid(24)
+    fill(g, 1, 4, 3, 12, "#")
+    fill(g, 7, 2, 1, 16, "S")
+    g[4][1], g[5][1] = "P", PORTAL_TAIL
+    g[4][18], g[5][18] = "Q", PORTAL_TAIL
+    g[19][2], g[20][2] = "P", PORTAL_TAIL
+    g[19][17], g[20][17] = "Q", PORTAL_TAIL
+    fill(g, 10, 4, 3, 4, "#")
+    fill(g, 10, 12, 3, 4, "#")
+    fill(g, 15, 7, 1, 6, "#")
+    fill(g, 22, 6, 1, 8, "#")
+    drop(g, 2, 9, "o")
+    drop(g, 22, 7, "u")
+    drop(g, 22, 12, "g")
+    return Level(21, "Wormhole", g, NEON, "row")
+
+
+def level_relay() -> Level:
+    """A sealed steel vault. The only way in is the portal at the bottom of the field, and the
+    only way out is to find its twin again from inside."""
+    g = grid(24)
+    fill(g, 0, 2, 2, 16, "#")
+    fill(g, 3, 5, 9, 10, "S")
+    fill(g, 4, 6, 7, 8, ".")
+    fill(g, 4, 7, 3, 6, "#")
+    g[8][9], g[9][9] = "Q", PORTAL_TAIL
+    g[18][9], g[19][9] = "Q", PORTAL_TAIL
+    fill(g, 6, 0, 7, 3, "#")
+    fill(g, 6, 17, 7, 3, "#")
+    fill(g, 22, 4, 1, 4, "#")
+    fill(g, 22, 12, 1, 4, "#")
+    drop(g, 5, 9, "o")
+    drop(g, 12, 0, "u")
+    drop(g, 22, 5, "l")
+    drop(g, 22, 14, "m")
+    return Level(22, "Relay", g, OCEAN, "row", lights_out=True)
+
+
+def level_outbreak() -> Level:
+    """Virus lesson. A wide block with the core on its front edge. Break it straight away and
+    it's a clean purge; leave it and the block turns tough a brick at a time."""
+    g = grid(24)
+    fill(g, 3, 4, 5, 12, "#")
+    g[7][9] = "V"
+    fill(g, 12, 0, 3, 4, "#")
+    fill(g, 12, 16, 3, 4, "#")
+    fill(g, 21, 7, 1, 6, "#")
+    drop(g, 3, 9, "o")
+    drop(g, 12, 1, "f")
+    drop(g, 14, 18, "g")
+    drop(g, 21, 8, "u")
+    return Level(23, "Outbreak", g, [11, 12, 1, 2], "row")
+
+
+def level_firewall() -> Level:
+    """The core sits behind a steel shelf. Go round the open end and the colony grows while you
+    travel, or take the portal and be there now."""
+    g = grid(24)
+    fill(g, 1, 2, 4, 16, "#")
+    g[4][9] = "V"
+    fill(g, 8, 0, 1, 16, "S")
+    g[5][1], g[6][1] = "P", PORTAL_TAIL
+    g[18][3], g[19][3] = "P", PORTAL_TAIL
+    fill(g, 11, 4, 3, 10, "#")
+    fill(g, 22, 6, 1, 8, "#")
+    drop(g, 1, 9, "o")
+    drop(g, 12, 4, "h")
+    drop(g, 22, 7, "l")
+    drop(g, 22, 12, "u")
+    return Level(25, "Firewall", g, NEON, "row", spread_ms=4000)
+
+
 def level_gauntlet() -> Level:
-    """Four open bands. No airlocks: you can always fly between them."""
+    """Four open bands. No airlocks: you can always fly between them. The third band carries a
+    virus core, so it gets tougher the longer it waits."""
     g = grid(24)
     for r in (1, 7, 13, 20):
         fill(g, r, 4, 2, 12, "#")
@@ -628,41 +748,27 @@ def level_gauntlet() -> Level:
     g[8][10] = "X"
     fill(g, 13, 4, 2, 2, "R")
     g[13][15] = "A"
+    g[14][11] = "V"
     drop(g, 21, 5, "h")
     drop(g, 21, 8, "u")
     drop(g, 21, 12, "o")
     drop(g, 20, 14, "q")
     drop(g, 20, 6, "p")
-    return Level(25, "Gauntlet", g, [8, 5, 15, 3, 1], "row", regen_delay=4.5, lights_out=True)
-
-
-def level_cascade() -> Level:
-    """Four diagonal fuses. Each one clears its own bolt and nothing else."""
-    g = grid(26)
-    # Three-step bolts with three clear rows between them, so one bolt's blast stops short
-    # of the next. The last bolt nicks the corner of the reward bar.
-    for r0, c0 in ((0, 1), (6, 11), (12, 1), (18, 11)):
-        for i in range(3):
-            c = c0 + i * 2
-            g[r0 + i][c] = "X"
-            g[r0 + i][c + 1] = "#"
-            if c + 2 < COLS:
-                g[r0 + i][c + 2] = "#"
-    fill(g, 23, 3, 2, 14, "#")
-    drop(g, 24, 4, "f")
-    drop(g, 24, 8, "o")
-    drop(g, 24, 11, "g")
-    drop(g, 24, 15, "s")
-    return Level(26, "Cascade", g, RAINBOW, "diag")
+    return Level(26, "Gauntlet", g, [8, 5, 15, 3, 1], "row", regen_delay=4.5, lights_out=True)
 
 
 def level_fortress() -> Level:
+    """A steel keep. The windows are shuttered by phantoms, and a portal by the moat comes out
+    inside the wall."""
     g = grid(26)
     fill(g, 1, 2, 15, 16, "S")
     fill(g, 3, 4, 11, 12, ".")
     fill(g, 13, 7, 3, 6, ".")  # front gate
-    fill(g, 6, 2, 3, 2, ".")  # left window
-    fill(g, 6, 16, 3, 2, ".")  # right window
+    fill(g, 6, 2, 3, 2, "G")  # left window
+    fill(g, 6, 16, 3, 2, "G")  # right window
+    phases = {(r, c): ((r - 6) * 0.2 + (c % 2) * 0.1) % 1 for r in range(6, 9) for c in (2, 3, 16, 17)}
+    g[11][5], g[12][5] = "P", PORTAL_TAIL
+    g[17][0], g[18][0] = "P", PORTAL_TAIL
     for c in (5, 10, 14):
         fill(g, 4, c, 2, 1, "A")
     g[4][7] = "X"
@@ -678,33 +784,12 @@ def level_fortress() -> Level:
     drop(g, 21, 8, "f")
     drop(g, 21, 11, "o")
     drop(g, 21, 14, "h")
-    return Level(27, "Fortress", g, [5, 6, 13, 9, 15], "row", regen_delay=4)
-
-
-def level_highway() -> Level:
-    g = grid(26)
-    fill(g, 1, 4, 4, 12, "#")
-    moves: dict[tuple[int, int], tuple[float, float]] = {}
-    lanes = ((8, 50, "M"), (11, 66, "B"), (14, 54, "M"), (17, 76, "M"), (20, 60, "B"))
-    for r, speed, ch in lanes:
-        g[r][1] = ch
-        g[r][12] = "M"
-        moves[(r, 1)] = (210, speed)
-        moves[(r, 12)] = (180, speed + 6)
-    fill(g, 24, 0, 1, 3, "#")
-    fill(g, 24, 17, 1, 3, "#")
-    drop(g, 3, 6, "g")
-    drop(g, 3, 9, "o")
-    drop(g, 3, 12, "u")
-    drop(g, 4, 8, "y")
-    # Night traffic: cyan cars start on the left, magenta ones mid-road.
-    glow = {(r, c): ("#ff22d3ff" if c == 1 else "#ffff3ad0", 110.0, 0.6) for r, c in moves}
-    return Level(
-        28, "Highway", g, [1, 2, 15, 5, 11], "row", moves=moves, glow=glow, lights_out=True
-    )
+    return Level(27, "Fortress", g, [5, 6, 13, 9, 15], "row", regen_delay=4, phases=phases)
 
 
 def level_crown() -> Level:
+    """The crown's band fades in a wave, and a portal in the empty middle comes out under the
+    studs."""
     g = art(
         """
 ....................
@@ -731,11 +816,40 @@ S..S..S..S..S..S..S.
 ...############.....
 """
     )
-    return Level(29, "Crown", g, GOLD, "row", regen_delay=5)
+    g[4] = ["G"] * COLS
+    phases = {(4, c): (c * 0.05) % 1 for c in range(COLS)}
+    g[6][1], g[7][1] = "Q", PORTAL_TAIL
+    g[16][9], g[17][9] = "Q", PORTAL_TAIL
+    return Level(28, "Crown", g, GOLD, "row", regen_delay=5, phases=phases)
+
+
+def level_botnet() -> Level:
+    """Two infected racks either side of a steel spine, a portal into each from the floor, and
+    bones that regrow in the middle."""
+    g = grid(24)
+    fill(g, 2, 1, 4, 6, "#")
+    fill(g, 2, 13, 4, 6, "#")
+    g[5][3] = "V"
+    g[5][16] = "V"
+    fill(g, 1, 9, 9, 2, "S")
+    g[7][7], g[8][7] = "P", PORTAL_TAIL
+    g[7][12], g[8][12] = "Q", PORTAL_TAIL
+    g[18][2], g[19][2] = "P", PORTAL_TAIL
+    g[18][17], g[19][17] = "Q", PORTAL_TAIL
+    fill(g, 11, 4, 2, 2, "R")
+    fill(g, 11, 14, 2, 2, "R")
+    fill(g, 14, 7, 1, 6, "#")
+    fill(g, 22, 5, 1, 10, "#")
+    drop(g, 2, 3, "o")
+    drop(g, 14, 9, "h")
+    drop(g, 22, 7, "p")
+    drop(g, 22, 12, "u")
+    return Level(29, "Botnet", g, [11, 7, 1, 13], "row", regen_delay=5)
 
 
 def level_supernova() -> Level:
-    """Four engines around an open core. Each bomb guts its own engine. The core has its own detonator."""
+    """Four engines around an open core. Each bomb guts its own engine. The core has its own detonator.
+    One engine is infected, the floor band fades, and a portal leads over the top."""
     g = grid(24)
     top = 3  # rows of air above the formation
     quads = ((2, 0, 2, 0), (2, 15, 2, 19), (10, 0, 10, 0), (10, 15, 10, 19))
@@ -754,6 +868,13 @@ def level_supernova() -> Level:
     fill(g, 1 + top, 8, 1, 4, "S")
     fill(g, 13 + top, 8, 1, 4, "S")
     fill(g, 21, 4, 2, 12, "#")
+    g[2 + top + 2][2] = "V"
+    phases = {}
+    for c in range(4, 16):
+        g[21][c] = "G"
+        phases[(21, c)] = ((c - 4) * 0.083) % 1
+    g[1][9], g[2][9] = "Z", PORTAL_TAIL
+    g[18][1], g[19][1] = "Z", PORTAL_TAIL
     for c, ch in ((5, "p"), (7, "f"), (9, "h"), (11, "e"), (13, "q"), (15, "o")):
         drop(g, 22, c, ch)
     return Level(
@@ -764,6 +885,7 @@ def level_supernova() -> Level:
         "diag",
         regen_delay=5,
         armor={(2 + top, 4): 3, (2 + top, 15): 3},
+        phases=phases,
         lights_out=True,
     )
 
@@ -772,31 +894,31 @@ BUILDERS = [
     level_first_light,
     level_diamond,
     level_pillars,
-    level_halo,
-    level_smile,
     level_frame,
     level_two_cities,
-    level_lattice,
     level_fireworks,
-    level_fuses,
     level_vault,
-    level_heart,
+    level_slow_burn,
     level_plated,
-    level_switchback,
-    level_bullseye,
-    level_skyline,
+    level_powder_keg,
     level_patrol,
-    level_conveyor,
-    level_turnstile,
-    level_crossfire,
+    level_wisps,
+    level_seance,
+    level_rune_lock,
+    level_airlock,
+    level_haunted_locks,
     level_garden,
     level_weeds,
-    level_pendulum,
+    level_ossuary,
+    level_gravekeeper,
+    level_wormhole,
+    level_relay,
+    level_outbreak,
+    level_firewall,
     level_gauntlet,
-    level_cascade,
     level_fortress,
-    level_highway,
     level_crown,
+    level_botnet,
     level_supernova,
 ]
 
@@ -808,10 +930,14 @@ def cells(level: Level) -> list[tuple[int, int, str]]:
     out = []
     for r, row in enumerate(level.g):
         for c, ch in enumerate(row):
-            if ch != ".":
+            if ch not in (".", PORTAL_TAIL):
                 kind_of(ch)  # validate
                 out.append((r, c, ch))
     return out
+
+
+def rect_of(r: int, c: int, ch: str) -> tuple[int, int, int, int]:
+    return (c * BW, r * BH, BW, BH * 2 if kind_of(ch) == "portal" else BH)
 
 
 def center(row: int, col: int) -> tuple[float, float]:
@@ -826,23 +952,35 @@ def in_blast(a: tuple[int, int], b: tuple[int, int]) -> bool:
     return dx * dx + dy * dy <= BLAST_R2
 
 
+def chain(level: Level, start: tuple[int, int]) -> set[tuple[int, int]]:
+    """Everything one bomb or one lit fuse takes with it: fuses burn into every fuse and bomb they
+    touch, diagonals included, and a blast lights or sets off what's in range."""
+    found = cells(level)
+    bombs = {(r, c) for r, c, ch in found if kind_of(ch) == "explosive"}
+    fuses = {(r, c) for r, c, ch in found if kind_of(ch) == "fuse"}
+    breakables = {(r, c) for r, c, ch in found if breakable(ch)}
+    gone = {start}
+    queue = deque([start])
+    while queue:
+        src = queue.popleft()
+        if src in fuses:
+            r, c = src
+            near = {(r + dr, c + dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)}
+            for pos in near & (fuses | bombs):
+                if pos not in gone:
+                    gone.add(pos)
+                    queue.append(pos)
+        elif src in bombs:
+            for pos in breakables:
+                if pos not in gone and in_blast(src, pos):
+                    gone.add(pos)
+                    if pos in bombs or pos in fuses:
+                        queue.append(pos)
+    return gone
+
+
 def chain_size(level: Level, start: tuple[int, int]) -> int:
-    bombs = {(r, c) for r, c, ch in cells(level) if kind_of(ch) == "explosive"}
-    breakable = {(r, c) for r, c, ch in cells(level) if kind_of(ch) != "steel"}
-    exploded = set()
-    wave = {start}
-    while wave:
-        exploded |= wave
-        nxt = set()
-        for src in wave:
-            for pos in breakable:
-                if pos not in exploded and pos not in nxt and in_blast(src, pos):
-                    if pos in bombs:
-                        nxt.add(pos)
-                    else:
-                        exploded.add(pos)
-        wave = nxt
-    return len(exploded)
+    return len(chain(level, start))
 
 
 def regen_clusters(level: Level) -> list[int]:
@@ -868,19 +1006,47 @@ def regen_clusters(level: Level) -> list[int]:
     return sorted(counts.values(), reverse=True)
 
 
-def flood_reachable(level: Level) -> set[tuple[int, int]]:
-    """Ball-sized flood from below the playfield. Breakable bricks are removed once the ball can touch them."""
+def flood_reachable(
+    level: Level, closed: set[tuple[int, int]] | None = None
+) -> set[tuple[int, int]]:
+    """Ball-sized flood from below the playfield. Breakable bricks are removed once the ball can
+    touch them, and lighting one fuse takes its whole chain.
+
+    Switches count as reached when touched and stay. Gates block when in `closed` (by default,
+    the ones that start closed). Phantoms never block, since the ball passes them as ghosts.
+    Touching a portal lets the ball out anywhere around its twin.
+    """
+    found = cells(level)
+    if closed is None:
+        closed = {(r, c) for r, c, ch in found if kind_of(ch) == "gate" and not gate_open(ch)}
     blockers: dict[tuple[int, int], tuple[int, int, int, int]] = {}
     targets: list[tuple[int, int]] = []
-    for r, c, ch in cells(level):
-        rect = (c * BW, r * BH, BW, BH)
+    fixed: set[tuple[int, int]] = set()
+    ends: dict[int, list[tuple[int, int, int, int]]] = {}
+    fuses = set()
+    for r, c, ch in found:
+        rect = rect_of(r, c, ch)
+        kind = kind_of(ch)
         if ch in MOVER:
             if ch != "W":
                 targets.append((r, c))
             continue
-        if kind_of(ch) != "steel":
+        if kind == "portal":
+            ends.setdefault(PORTAL_LINK[ch], []).append(rect)
+        elif kind == "gate":
+            if (r, c) in closed:
+                blockers[(r, c)] = rect
+        elif kind == "switch":
+            targets.append((r, c))
+            fixed.add((r, c))
+            blockers[(r, c)] = rect
+        elif kind == "phantom":
+            targets.append((r, c))
+        elif kind != "steel":
             targets.append((r, c))
             blockers[(r, c)] = rect
+            if kind == "fuse":
+                fuses.add((r, c))
         else:
             blockers[(r, c)] = rect
 
@@ -909,64 +1075,111 @@ def flood_reachable(level: Level) -> set[tuple[int, int]]:
                         grid_b[iy * gw + ix] = 1
         return grid_b
 
+    reach = BALL_R + STEP
+    reach2 = reach * reach
+
+    def touched(seen: bytearray, rect: tuple[int, int, int, int]) -> bool:
+        x, y, w, h = rect
+        x0 = max(0, int((x - reach) / STEP) - 1)
+        x1 = min(gw - 1, int((x + w + reach) / STEP) + 1)
+        y0 = max(0, int((y - reach) / STEP) - 1)
+        y1 = min(gh - 1, int((y + h + reach) / STEP) + 1)
+        for iy in range(y0, y1 + 1):
+            py = iy * STEP + STEP / 2
+            for ix in range(x0, x1 + 1):
+                if not seen[iy * gw + ix]:
+                    continue
+                px = ix * STEP + STEP / 2
+                dx = max(x - px, 0, px - (x + w))
+                dy = max(y - py, 0, py - (y + h))
+                if dx * dx + dy * dy <= reach2:
+                    return True
+        return False
+
     def reachable_mask(grid_b: bytearray) -> bytearray:
         seen = bytearray(gw * gh)
         q: deque[tuple[int, int]] = deque()
-        for ix in range(gw):
-            iy = gh - 1
+
+        def seed(ix: int, iy: int) -> None:
             i = iy * gw + ix
-            if not grid_b[i]:
+            if 0 <= ix < gw and 0 <= iy < gh and not grid_b[i] and not seen[i]:
                 seen[i] = 1
                 q.append((ix, iy))
-        while q:
-            ix, iy = q.popleft()
-            for nx, ny in ((ix - 1, iy), (ix + 1, iy), (ix, iy - 1), (ix, iy + 1)):
-                if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
-                    continue
-                i = ny * gw + nx
-                if seen[i] or grid_b[i]:
-                    continue
-                seen[i] = 1
-                q.append((nx, ny))
-        return seen
 
-    reach = BALL_R + STEP
-    reach2 = reach * reach
+        for ix in range(gw):
+            seed(ix, gh - 1)
+        exits: set[tuple[int, int, int, int]] = set()
+        while True:
+            while q:
+                ix, iy = q.popleft()
+                for nx, ny in ((ix - 1, iy), (ix + 1, iy), (ix, iy - 1), (ix, iy + 1)):
+                    if nx < 0 or ny < 0 or nx >= gw or ny >= gh:
+                        continue
+                    seed(nx, ny)
+            # A ball into one end comes out around the other, heading any way it likes.
+            for pair in ends.values():
+                for a, b in ((pair[0], pair[-1]), (pair[-1], pair[0])):
+                    if b in exits or not touched(seen, a):
+                        continue
+                    exits.add(b)
+                    x, y, w, h = b
+                    pad = BALL_R + STEP * 2
+                    for iy in range(int((y - pad) / STEP), int((y + h + pad) / STEP) + 1):
+                        for ix in range(int((x - pad) / STEP), int((x + w + pad) / STEP) + 1):
+                            seed(ix, iy)
+            if not q:
+                return seen
     hit: set[tuple[int, int]] = set()
     remaining = set(targets)
     active = dict(blockers)
     while True:
         seen = reachable_mask(blocked_grid(active))
-        newly: list[tuple[int, int]] = []
-        for r, c in remaining:
-            x, y, w, h = c * BW, r * BH, BW, BH
-            x0 = max(0, int((x - reach) / STEP) - 1)
-            x1 = min(gw - 1, int((x + w + reach) / STEP) + 1)
-            y0 = max(0, int((y - reach) / STEP) - 1)
-            y1 = min(gh - 1, int((y + h + reach) / STEP) + 1)
-            found = False
-            for iy in range(y0, y1 + 1):
-                py = iy * STEP + STEP / 2
-                for ix in range(x0, x1 + 1):
-                    if not seen[iy * gw + ix]:
-                        continue
-                    px = ix * STEP + STEP / 2
-                    dx = max(x - px, 0, px - (x + w))
-                    dy = max(y - py, 0, py - (y + h))
-                    if dx * dx + dy * dy <= reach2:
-                        found = True
-                        break
-                if found:
-                    break
-            if found:
-                newly.append((r, c))
+        newly = {(r, c) for r, c in remaining if touched(seen, (c * BW, r * BH, BW, BH))}
+        for pos in list(newly):
+            if pos in fuses:
+                newly |= chain(level, pos) & remaining
         if not newly:
             break
         for pos in newly:
             hit.add(pos)
             remaining.discard(pos)
-            active.pop(pos, None)
+            if pos not in fixed:
+                active.pop(pos, None)
     return hit
+
+
+def gated_reach(level: Level) -> tuple[set[tuple[int, int]], list[int]]:
+    """What the ball can reach, flipping switches as it likes, and the channels it can't flip.
+
+    A channel counts as the player's once one of its switches can be reached with every gate of
+    that channel shut, so it can always be flipped back. Bricks then count as reached if either
+    state of each such channel gets the ball to them.
+    """
+    found = cells(level)
+    gates = {(r, c): (channel_of(ch), gate_open(ch)) for r, c, ch in found if kind_of(ch) == "gate"}
+    switches = {(r, c): channel_of(ch) for r, c, ch in found if kind_of(ch) == "switch"}
+    channels = sorted(set(switches.values()))
+    if not gates:
+        return flood_reachable(level), []
+    owned: set[int] = set()
+    changed = True
+    while changed:
+        changed = False
+        for ch in channels:
+            if ch in owned:
+                continue
+            shut = {p for p, (c, o) in gates.items() if c == ch or (c not in owned and not o)}
+            hit = flood_reachable(level, shut)
+            if any(pos in hit for pos, c in switches.items() if c == ch):
+                owned.add(ch)
+                changed = True
+    hit: set[tuple[int, int]] = set()
+    mine = sorted(owned)
+    for mask in range(1 << len(mine)):
+        flipped = {ch for i, ch in enumerate(mine) if mask >> i & 1}
+        shut = {p for p, (c, o) in gates.items() if o == (c in flipped)}
+        hit |= flood_reachable(level, shut)
+    return hit, [ch for ch in channels if ch not in owned]
 
 
 def check_moves(level: Level, problems: list[str]) -> None:
@@ -983,7 +1196,8 @@ def check_moves(level: Level, problems: list[str]) -> None:
         if lo < 0 or hi > FIELD_W:
             problems.append(f"{level.num}: mover at {r},{c} leaves the field ({lo:.0f}-{hi:.0f})")
         sweeps.setdefault(r, []).append((lo, hi))
-        for rr, cc, ch in cells(level):
+        tails = [(rr, cc, ch) for rr, row in enumerate(level.g) for cc, ch in enumerate(row) if ch == PORTAL_TAIL]
+        for rr, cc, ch in cells(level) + tails:
             if rr != r or (rr, cc) == (r, c):
                 continue
             ox, ow = cc * BW, BW
@@ -999,33 +1213,101 @@ def check_moves(level: Level, problems: list[str]) -> None:
                 problems.append(f"{level.num}: two movers share row {r}")
 
 
+# The first level each mechanic may appear in, and what each lesson level must show. The
+# wave-2 slots (10, 16, 19, 20, 26-30) hold stand-ins built from what's been taught so far.
+FIRST = {
+    "steel": 4,
+    "explosive": 6,
+    "fuse": 8,
+    "armored": 9,
+    "mover": 11,
+    "phantom": 12,
+    "switch": 14,
+    "gate": 14,
+    "regen": 17,
+    "portal": 21,
+    "virus": 23,
+}
+LESSONS = {
+    4: {"steel"},
+    5: {"steel"},
+    6: {"explosive"},
+    7: {"explosive"},
+    8: {"fuse", "explosive"},
+    9: {"armored"},
+    10: {"fuse", "armored", "explosive"},
+    11: {"mover", "armored"},
+    12: {"phantom"},
+    13: {"phantom"},
+    14: {"switch", "gate"},
+    15: {"switch", "gate"},
+    16: {"phantom", "switch"},
+    17: {"regen"},
+    18: {"regen", "phantom"},
+    19: {"switch", "regen"},
+    20: {"phantom", "switch", "regen"},
+    21: {"portal"},
+    22: {"portal"},
+    23: {"virus"},
+    25: {"virus", "portal"},
+    26: {"virus", "regen"},
+    27: {"portal", "phantom", "regen"},
+    28: {"portal", "phantom", "regen"},
+    29: {"portal", "virus", "regen"},
+    30: {"portal", "virus", "phantom", "regen"},
+}
+
+
+def check_elements(level: Level, problems: list[str]) -> None:
+    n = level.num
+    found = cells(level)
+    at = {(r, c): ch for r, c, ch in found}
+    for r, row in enumerate(level.g):
+        for c, ch in enumerate(row):
+            if ch == PORTAL_TAIL and (r == 0 or kind_of(level.g[r - 1][c]) != "portal"):
+                problems.append(f"{n}: a portal tail at {r},{c} has no portal over it")
+    links: dict[int, int] = {}
+    for r, c, ch in found:
+        kind = kind_of(ch)
+        if kind == "portal":
+            links[PORTAL_LINK[ch]] = links.get(PORTAL_LINK[ch], 0) + 1
+            if r + 1 >= len(level.g) or level.g[r + 1][c] != PORTAL_TAIL:
+                problems.append(f"{n}: portal at {r},{c} needs {PORTAL_TAIL!r} under it")
+            # The ball comes out along its heading just clear of the edge: leave it air to the
+            # sides and below.
+            for rr, cc in ((r, c - 1), (r + 1, c - 1), (r, c + 1), (r + 1, c + 1), (r + 2, c)):
+                if (rr, cc) in at:
+                    problems.append(f"{n}: portal at {r},{c} is boxed in at {rr},{cc}")
+        if kind == "virus":
+            near = [at.get(p) for p in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1))]
+            if not any(x is not None and kind_of(x) == "normal" and x not in MOVER for x in near):
+                problems.append(f"{n}: virus core at {r},{c} has no plain brick to infect")
+        if (r, c) in level.phases and kind != "phantom":
+            problems.append(f"{n}: phase on a non-phantom at {r},{c}")
+    for link, count in links.items():
+        if count != 2:
+            problems.append(f"{n}: portal link {link} has {count} ends")
+    for ch in (1, 2, 3):
+        sw = any(kind_of(x) == "switch" and channel_of(x) == ch for _, _, x in found)
+        gt = any(kind_of(x) == "gate" and channel_of(x) == ch for _, _, x in found)
+        if sw != gt:
+            problems.append(f"{n}: channel {ch} has {'a switch but no gate' if sw else 'gates but no switch'}")
+
+
 def check_level(level: Level) -> list[str]:
     problems: list[str] = []
     found = cells(level)
-    breakables = [(r, c, ch) for r, c, ch in found if kind_of(ch) != "steel"]
+    breakables = [(r, c, ch) for r, c, ch in found if breakable(ch)]
     kinds = {kind_of(ch) for _, _, ch in found}
+    if any(ch in MOVER for _, _, ch in found):
+        kinds.add("mover")
     n = level.num
-    if n <= 5 and kinds - {"normal"}:
-        problems.append(f"{n}: early level uses {kinds}")
-    if n <= 8 and (kinds - {"normal", "steel"}):
-        problems.append(f"{n}: steel chapter uses {kinds}")
-    if n in (6, 7) and "steel" not in kinds:
-        problems.append(f"{n}: steel chapter has no steel")
-    if n <= 12 and (kinds - {"normal", "steel", "explosive"}):
-        problems.append(f"{n}: pre-armor level uses {kinds}")
-    if 9 <= n <= 12 and "explosive" not in kinds:
-        problems.append(f"{n}: bomb chapter has no bomb")
-    if n <= 16 and "regen" in kinds:
-        problems.append(f"{n}: regen shows up before its lesson")
-    if n <= 16 and any(ch in MOVER for _, _, ch in found):
-        problems.append(f"{n}: a mover shows up before its lesson")
-    if 13 <= n <= 16 and "armored" not in kinds:
-        problems.append(f"{n}: armor chapter has no armor")
-    if 17 <= n <= 20 and not any(ch in MOVER for _, _, ch in found):
-        problems.append(f"{n}: mover chapter has no mover")
-    # Cascade and Highway are breathers built on one idea. The other late levels use regen.
-    if n in (21, 22, 23, 25, 27, 29, 30) and "regen" not in kinds:
-        problems.append(f"{n}: late level is missing a regen cluster")
+    for kind, first in FIRST.items():
+        if n < first and kind in kinds:
+            problems.append(f"{n}: {kind} shows up before its lesson at {first}")
+    for kind in sorted(LESSONS.get(n, set()) - kinds):
+        problems.append(f"{n}: the lesson here needs {kind}")
+    check_elements(level, problems)
 
     if not MIN_BREAKABLE <= len(breakables) <= MAX_BREAKABLE:
         problems.append(
@@ -1056,9 +1338,9 @@ def check_level(level: Level) -> list[str]:
     if n < 12 and "extraLife" in powers:
         problems.append(f"{n}: extra life is too early")
 
-    bombs = [(r, c) for r, c, ch in found if kind_of(ch) == "explosive"]
-    if bombs:
-        worst = max(chain_size(level, b) for b in bombs)
+    starts = [(r, c) for r, c, ch in found if kind_of(ch) in ("explosive", "fuse")]
+    if starts:
+        worst = max(chain_size(level, b) for b in starts)
         frac = worst / len(breakables)
         if frac > 0.42:
             problems.append(f"{n}: one blast chain clears {worst}/{len(breakables)} ({frac:.0%})")
@@ -1067,10 +1349,12 @@ def check_level(level: Level) -> list[str]:
     if clusters and clusters[0] > 6:
         problems.append(f"{n}: regen cluster of {clusters[0]} (max 6)")
 
-    hit = flood_reachable(level)
+    hit, stuck = gated_reach(level)
     missed = [(r, c) for r, c, ch in breakables if (r, c) not in hit]
     if missed:
         problems.append(f"{n}: {len(missed)} unreachable bricks, first {missed[:8]}")
+    for ch in stuck:
+        problems.append(f"{n}: no switch on channel {ch} can be reached with its gates shut")
 
     check_moves(level, problems)
 
@@ -1082,6 +1366,18 @@ def check_level(level: Level) -> list[str]:
 
 def gid_for(level: Level, ch: str, row: int, col: int) -> int:
     kind = kind_of(ch)
+    if kind == "fuse":
+        return FUSE
+    if kind == "phantom":
+        return PHANTOM
+    if kind == "switch":
+        return SWITCH0 + channel_of(ch)
+    if kind == "gate":
+        return GATE0 + channel_of(ch)
+    if kind == "portal":
+        return PORTAL0 + PORTAL_LINK[ch]
+    if kind == "virus":
+        return VIRUS_CORE
     if kind == "steel":
         return STEEL
     if kind == "explosive":
@@ -1131,6 +1427,16 @@ def emit(level: Level, previous: dict | None = None) -> dict:
             props.append({"name": "regenDelay", "type": "float", "value": level.regen_delay})
         if (r, c) in level.armor:
             props.append({"name": "armor", "type": "int", "value": level.armor[(r, c)]})
+        kind = kind_of(ch)
+        if kind == "phantom":
+            if level.period != PHANTOM_PERIOD:
+                props.append({"name": "period", "type": "float", "value": level.period})
+            if level.phases.get((r, c)):
+                props.append({"name": "phase", "type": "float", "value": round(level.phases[(r, c)], 3)})
+        if kind == "gate" and gate_open(ch):
+            props.append({"name": "open", "type": "bool", "value": True})
+        if kind == "virus" and level.spread_ms != SPREAD_MS:
+            props.append({"name": "spreadMs", "type": "float", "value": level.spread_ms})
         if (r, c) in level.glow:
             color, radius, intensity = level.glow[(r, c)]
             props.append({"name": "light", "type": "color", "value": color})
@@ -1138,13 +1444,14 @@ def emit(level: Level, previous: dict | None = None) -> dict:
             props.append({"name": "lightIntensity", "type": "float", "value": intensity})
         while n in taken:
             n += 1
+        _, _, w, h = rect_of(r, c, ch)
         obj = {
             "id": n,
             "gid": gid_for(level, ch, r, c),
             "x": c * BW,
-            "y": (r + 1) * BH,
-            "width": BW,
-            "height": BH,
+            "y": r * BH + h,
+            "width": w,
+            "height": h,
             "rotation": 0,
             "visible": True,
             "name": "",
@@ -1179,13 +1486,10 @@ def emit(level: Level, previous: dict | None = None) -> dict:
         properties.append({"name": "lightsOut", "type": "bool", "value": True})
     if level.lightning:
         properties.append({"name": "lightning", "type": "bool", "value": True})
-    generated = {p["name"] for p in properties}
+    # The lighting flags belong to the level, not the slot, so a map's old ones never carry over.
     # `lighting` is not a map property; a bool of that name used to get saved by mistake.
-    properties += [
-        p
-        for p in (previous or {}).get("properties", [])
-        if p.get("name") not in generated and p.get("name") != "lighting"
-    ]
+    generated = {p["name"] for p in properties} | {"lightsOut", "lightning", "lighting"}
+    properties += [p for p in (previous or {}).get("properties", []) if p.get("name") not in generated]
 
     out = {
         "type": "map",
@@ -1205,10 +1509,8 @@ def emit(level: Level, previous: dict | None = None) -> dict:
         "tilesets": tilesets,
         "layers": layers,
     }
-    if level.lights_out or level.lightning:
-        out["class"] = "LevelLighting"
-    elif (previous or {}).get("class"):
-        out["class"] = previous["class"]
+    # The class puts the map settings (boss, mood, lighting) in Tiled's Properties panel.
+    out["class"] = (previous or {}).get("class") or "LevelLighting"
     return out
 
 
@@ -1217,20 +1519,20 @@ def summarize(level: Level) -> str:
     def count(k: str) -> int:
         return sum(1 for _, _, ch in found if kind_of(ch) == k)
 
-    breakables = [c for c in found if kind_of(c[2]) != "steel"]
-    hits = 0
-    for _, _, ch in breakables:
-        hits += 2 + (level.armor.get((_, _)[0] if False else (0, 0), 2) if False else 0)
+    breakables = [c for c in found if breakable(c[2])]
     hits = 0
     for r, c, ch in breakables:
         if kind_of(ch) == "armored":
             hits += 2 + level.armor.get((r, c), 2)
         else:
             hits += 2
-    bombs = [(r, c) for r, c, ch in found if kind_of(ch) == "explosive"]
+    starts = [(r, c) for r, c, ch in found if kind_of(ch) in ("explosive", "fuse")]
     frac = 0
-    if bombs and breakables:
-        frac = max(chain_size(level, b) for b in bombs) / len(breakables)
+    if starts and breakables:
+        frac = max(chain_size(level, b) for b in starts) / len(breakables)
+    elements = " ".join(
+        f"{k[:3]} {count(k)}" for k in ("fuse", "phantom", "switch", "gate", "portal", "virus") if count(k)
+    )
     clusters = regen_clusters(level)
     powers = []
     for r, c, ch in found:
@@ -1242,7 +1544,7 @@ def summarize(level: Level) -> str:
         f"stl {count('steel'):2} exp {count('explosive'):2} arm {count('armored'):2} "
         f"reg {count('regen'):2} mov {sum(1 for _, _, ch in found if ch in MOVER):2}  "
         f"hits {hits:3} chain {frac:4.0%} cluster {clusters[:1] or '-'}  "
-        f"{','.join(powers)}"
+        f"{','.join(powers)}  {elements}"
     )
 
 
@@ -1283,8 +1585,8 @@ def main() -> None:
         problems.extend(issues)
         bad: set[tuple[int, int]] = set()
         if any("unreachable" in p for p in issues):
-            hit = flood_reachable(lv)
-            bad = {(r, c) for r, c, ch in cells(lv) if kind_of(ch) != "steel" and (r, c) not in hit}
+            hit, _ = gated_reach(lv)
+            bad = {(r, c) for r, c, ch in cells(lv) if breakable(ch) and (r, c) not in hit}
         previews.append(render(lv, bad))
         print(summarize(lv))
 
@@ -1300,8 +1602,10 @@ def main() -> None:
         path = LEVELS / f"level{lv.num:02}.tmj"
         previous = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
         path.write_text(json.dumps(emit(lv, previous), indent=1) + "\n", encoding="utf-8")
-    index = {"levels": [f"level{n:02}.tmj" for n in range(1, 31)]}
-    (LEVELS / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    index_path = LEVELS / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else {}
+    index["levels"] = [f"level{n:02}.tmj" for n in range(1, 31)]
+    index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {len(levels)} maps; level 24 left untouched")
 
 

@@ -2,8 +2,45 @@ import type { BonusId } from './Bonus';
 import type { BossId } from './Boss';
 import type { LevelLightingSpec, LightSpec } from './Lighting';
 
-export const BRICK_KINDS = ['normal', 'steel', 'explosive', 'armored', 'regen'] as const;
+export const BRICK_KINDS = [
+  'normal',
+  'steel',
+  'explosive',
+  'armored',
+  'regen',
+  'fuse',
+  'phantom',
+  'switch',
+  'gate',
+  'portal',
+  'virus',
+] as const;
 export type BrickKind = (typeof BRICK_KINDS)[number];
+
+/** Kinds nothing breaks. Every other kind counts toward clearing the level. */
+export const UNBREAKABLE_KINDS: readonly BrickKind[] = ['steel', 'switch', 'gate', 'portal'];
+
+export function isBreakableKind(kind: BrickKind): boolean {
+  return !UNBREAKABLE_KINDS.includes(kind);
+}
+
+/** Settings for the level elements in docs/bricks/design.md. Each kind reads its own. */
+export interface BrickProps {
+  /** Switches and gates: the color they share, 1-3. */
+  channel?: number;
+  /** Gates: open (passable) at the start. */
+  open?: boolean;
+  /** Portals: the pair, 1-3. */
+  link?: number;
+  /** Phantoms: seconds per fade cycle. */
+  period?: number;
+  /** Phantoms: where in the cycle it starts, 0-1. */
+  phase?: number;
+  /** Virus: a core, which spreads the infection. */
+  source?: boolean;
+  /** Virus cores: ms between infections. */
+  spreadMs?: number;
+}
 
 export const POWERUP_IDS = [
   'magnet',
@@ -48,6 +85,7 @@ export interface BrickSpec {
   regenDelay: number;
   /** Emissive bricks light their surroundings until they break. */
   light?: { color: number; radius: number; intensity: number };
+  props?: BrickProps;
 }
 
 export interface LevelSpec {

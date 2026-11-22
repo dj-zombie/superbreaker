@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BRICK_COLORS, NEW_BRICK_KINDS } from '../src/config';
+import { BRICK_COLORS, ELEMENT_TEXTURES, NEW_BRICK_KINDS } from '../src/config';
 import { validateLevel } from '../src/core/LevelParser';
 import { Rng, hashSeed } from '../src/core/Rng';
 import {
@@ -8,6 +8,7 @@ import {
   enclosedStubborn,
   isEnclosed,
   moverProblems,
+  portalProblems,
   regenClusterSizes,
   unreachableBricks,
 } from '../src/core/procgen/checks';
@@ -23,7 +24,10 @@ import { BH, COLS, Grid, toBricks } from '../src/core/procgen/grid';
 import { FRAME_DOOR, PATTERNS } from '../src/core/procgen/patterns';
 import { FIELD_WIDTH } from '../src/core/types';
 
-const TEXTURES = new Set([...BRICK_COLORS, ...NEW_BRICK_KINDS].map((c) => `brick_${c}`));
+const TEXTURES = new Set([
+  ...[...BRICK_COLORS, ...NEW_BRICK_KINDS].map((c) => `brick_${c}`),
+  ...ELEMENT_TEXTURES,
+]);
 const TIERS = Array.from({ length: 30 }, (_, i) => i + 1);
 const SEEDS = Array.from({ length: 40 }, (_, i) => hashSeed('fuzz', i));
 
@@ -57,6 +61,39 @@ describe('Rng', () => {
 });
 
 describe('checks', () => {
+  it('burns a fuse cord into the bomb at its end', () => {
+    const g = new Grid(10);
+    g.fill(2, 0, 3, 6, 'normal');
+    g.set(4, 2, 'explosive');
+    for (const [r, c] of [
+      [5, 2],
+      [6, 3],
+      [7, 3],
+      [8, 4],
+    ] as const)
+      g.set(r, c, 'fuse');
+    g.set(8, 10, 'normal');
+    // The cord's tip takes the cord, the bomb and the bricks in its blast, not the far brick.
+    const size = chainSize(g, 8, 4);
+    expect(size).toBe(chainSize(g, 4, 2));
+    expect(size).toBeGreaterThan(5);
+    expect(size).toBeLessThan(g.count((c) => c.kind !== 'steel'));
+  });
+
+  it('wants portals paired, with air beside and below', () => {
+    const g = new Grid(12);
+    g.set(2, 3, { kind: 'portal', props: { link: 1 } });
+    expect(portalProblems(g)).toEqual(['portal link 1 has 1 ends']);
+    g.set(8, 15, { kind: 'portal', props: { link: 1 } });
+    expect(portalProblems(g)).toEqual([]);
+    g.set(10, 15, 'normal');
+    g.set(3, 4, 'normal');
+    expect(portalProblems(g)).toEqual([
+      'portal at 2,3 is boxed in at 3,4',
+      'portal at 8,15 is boxed in at 10,15',
+    ]);
+  });
+
   it('follows a blast chain through neighbouring bombs', () => {
     const g = new Grid(3);
     g.fill(1, 0, 1, 12, 'normal');

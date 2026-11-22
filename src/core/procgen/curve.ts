@@ -1,16 +1,31 @@
 import type { PowerupId } from '../types';
 import { MAX_ROW } from './grid';
 
-export const MECHANICS = ['steel', 'explosive', 'armored', 'mover', 'regen'] as const;
+/** Switches and gates stay in the campaign: generated switch puzzles are rarely good ones. */
+export const MECHANICS = [
+  'steel',
+  'explosive',
+  'fuse',
+  'armored',
+  'mover',
+  'phantom',
+  'regen',
+  'portal',
+  'virus',
+] as const;
 export type Mechanic = (typeof MECHANICS)[number];
 
 /** First tier each mechanic can appear, in the order the campaign teaches them. */
 export const MECHANIC_UNLOCK: Record<Mechanic, number> = {
   steel: 3,
   explosive: 5,
+  fuse: 6,
   armored: 7,
   mover: 9,
+  phantom: 10,
   regen: 11,
+  portal: 13,
+  virus: 15,
 };
 
 /** A mechanic is the board's lesson for this many tiers after it unlocks. */
@@ -54,6 +69,12 @@ export interface GenParams {
   movers: number;
   regenClusters: number;
   regenDelay: number;
+  /** Fuse cords (placed in mirrored pairs). */
+  fuseCords: number;
+  phantoms: number;
+  /** Portal links: each is a low end on one side and a high end on the other, mirrored. */
+  portalLinks: number;
+  virusCores: number;
   /** Powerups besides the coin. */
   powerups: number;
   powerupPool: readonly PowerupId[];
@@ -94,6 +115,10 @@ export function tierParams(tier: number): GenParams {
     movers: ramp(t, 'mover', 1, 1 / 3, 4),
     regenClusters: ramp(t, 'regen', 1, 1 / 5, 3),
     regenDelay: Math.max(4, 6 - 0.25 * Math.max(0, t - MECHANIC_UNLOCK.regen)),
+    fuseCords: ramp(t, 'fuse', 2, 1 / 6, 4),
+    phantoms: ramp(t, 'phantom', 6, 1, 16),
+    portalLinks: ramp(t, 'portal', 2, 0, 2),
+    virusCores: ramp(t, 'virus', 1, 1 / 8, 2),
     powerups: 2 + (t >= 6 ? 1 : 0) + (t >= 12 ? 1 : 0),
     powerupPool: powerupPool(t),
     speedScale: Math.min(1.2, 1 + 0.015 * (t - 1)),
