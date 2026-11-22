@@ -42,6 +42,12 @@ ART = {
     "cs_plate_anvil": {"kind": "plate", "source": "plate_anvil.jpg", "height": 1280},
     "cs_plate_lake": {"kind": "plate", "source": "plate_lake.jpg", "height": 1280},
     "cs_spark": {"kind": "sprite", "source": "spark_core.png", "size": 192},
+    "cs_plate_ark": {"kind": "plate", "source": "plate_ark.jpg", "height": 1280},
+    "cs_plate_ark_dark": {"kind": "plate", "source": "plate_ark.jpg", "height": 1280, "unlit": True, "dim": 0.6},
+    "cs_plate_threshold": {"kind": "plate", "source": "plate_threshold.jpg", "height": 1280},
+    "cs_mainframe_face": {"kind": "portrait", "source": "mainframe_eye.jpg", "size": 256},
+    # The same eye at stage size: a portrait cut is already keyed, trimmed and square.
+    "cs_mainframe_eye": {"kind": "portrait", "source": "mainframe_eye.jpg", "size": 512},
 }
 
 PORTRAIT_MARGIN = 0.04  # of the square kept clear around the character

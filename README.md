@@ -394,6 +394,8 @@ python3 scripts/build-cutscene-audio.py
 
 Chapter I (`chapter-1`) is the game's opening: a new player's first launch goes from Preload to a "Touch to ignite" tap, which unlocks the audio, then through the scene into Level 1. Its score, sounds and voice-over were generated (Ludo, MiniMax) into `art-src/cutscenes/audio/` and `art-src/cutscenes/vo/`, and `build-cutscene-audio.py` levels and trims them into place.
 
+Chapter III (`chapter-3`) plays between the Angler and Level 21. Rain and lightning over the black lake show the ark under the water, which wakes up as the Mainframe. Then the Breaker falls down a shaft that turns from crypt stone into circuitry, and the rain turns into digital rain on the way down. Its plates, eye, rain and music beds, and the Mainframe's voice were generated with Ludo. The voice runs through the `MACHINE` chain in `build-cutscene-audio.py`, and generated loops listed in `LOOPED` get one fixed gain so their seams hold.
+
 [docs/cutscenes/authoring.md](docs/cutscenes/authoring.md) is the guide to writing one, and [docs/cutscenes/design.md](docs/cutscenes/design.md) explains how the director works.
 
 ## Mobile builds

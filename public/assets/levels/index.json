@@ -62,6 +62,10 @@
     {
       "id": "vesper-lure",
       "before": "boss20"
+    },
+    {
+      "id": "chapter-3",
+      "before": "level21"
     }
   ]
 }

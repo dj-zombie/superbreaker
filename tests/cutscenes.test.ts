@@ -248,3 +248,36 @@ describe('vesper-lure', () => {
     expect([...at].sort((x, y) => x! - y!)).toEqual(at);
   });
 });
+
+describe('chapter-3', () => {
+  const tl = compile(CUTSCENES['chapter-3']!);
+
+  it('plays between the Angler and Level 21, after the Black Water', () => {
+    const index = JSON.parse(readFileSync(join(ASSETS, 'levels', 'index.json'), 'utf8')) as {
+      scenes?: unknown;
+    };
+    const scenes = validScenes(index.scenes);
+    expect(sceneBetween({ index: 20, stop: 'boss' }, { index: 21 }, scenes, () => false)).toBe(
+      'chapter-3',
+    );
+    expect(sceneBetween({ index: 20 }, { index: 20, stop: 'boss' }, scenes, () => false)).toBe(
+      'vesper-lure',
+    );
+  });
+
+  it('opens on the black water and falls into the Mainframe', () => {
+    expect(tl.scenery.map((m) => m.value.id)).toEqual(['abyss', 'mainframe']);
+  });
+
+  it('has a label for every beat, in order', () => {
+    const beats = ['open', 'souls', 'ark', 'wake', 'fall', 'threshold', 'arrival', 'card', 'handoff'];
+    const at = beats.map((b) => tl.labels.get(b));
+    expect(at.every((t) => t !== undefined)).toBe(true);
+    expect([...at].sort((x, y) => x! - y!)).toEqual(at);
+  });
+
+  it('gives the Mainframe its recorded voice', () => {
+    const voiced = tl.cues.filter((c) => c.kind === 'voice').map((c) => c.step.key);
+    expect(voiced).toEqual(['vo_mainframe_01', 'vo_mainframe_02', 'vo_mainframe_03', 'vo_mainframe_04']);
+  });
+});

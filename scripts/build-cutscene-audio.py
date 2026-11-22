@@ -9,7 +9,8 @@ smooth.
 
 Generated recordings (Ludo sound effects and music, MiniMax voice-over) are listed in SOURCED
 instead: their files in art-src/cutscenes/audio/ and art-src/cutscenes/vo/ are trimmed of
-leading silence, run through the entry's filters, loudness-normalised and faded out.
+leading silence, run through the entry's filters, loudness-normalised and faded out. Generated
+loops (LOOPED) only get one fixed gain, so their seams stay seamless.
 
 Everything goes to public/assets/audio/cutscenes/<name>.mp3 (voice-over to vo/<name>.mp3), the
 keys the scripts in src/cutscenes/ name.
@@ -19,6 +20,7 @@ Usage: python3 scripts/build-cutscene-audio.py [name ...]   (requires numpy and 
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -84,6 +86,24 @@ def wind(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return B.full(low) + B.full(mid) * 0.6 + B.full(whistle) * 0.12
 
 
+def glitch(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The machine clearing its throat: a stutter of crushed tones and static, then a falling bleep."""
+    gate = np.zeros_like(t)
+    tones = np.zeros_like(t)
+    at = 0.0
+    while at < 0.55:
+        span = rng.uniform(0.018, 0.06)
+        on = (t >= at) & (t < at + span)
+        if rng.random() < 0.7:
+            gate[on] = 1.0
+            tones[on] = rng.uniform(180, 2400)
+        at += span
+    buzz = B.saw(np.maximum(tones, 1.0), t) * 0.6 + B.hiss(rng, t, 1500, 9000) * 0.5
+    crushed = np.round(buzz * 6) / 6 * gate
+    fall = B.sine(B.settle(1600, 90, np.maximum(t - 0.55, 0), 0.12), t) * B.strike(t, 0.22, 0.55)
+    return B.drive(crushed + 0.8 * fall, 1.4)
+
+
 # File name, length (s), fade-out (s), synth, loops.
 SOUNDS = (
     ("cs_heartbeat", 1.9, 0.25, heartbeat, False),
@@ -91,6 +111,7 @@ SOUNDS = (
     ("cs_crack", 2.2, 0.5, crack, False),
     ("cs_chime", 2.4, 0.6, lantern, False),
     ("cs_wind", 14.0, 0.0, wind, True),
+    ("cs_glitch", 1.1, 0.2, glitch, False),
 )
 
 
@@ -116,6 +137,20 @@ def titan(pace: float = 1.0) -> str:
         "lowpass=f=6000,aecho=0.8:0.55:70|140|260:0.32|0.2|0.12"
     )
 
+# The Mainframe talks through old wiring: a little lower, an octave-down hum under it, crushed
+# to fewer bits, a slow comb sweeping through it, and a short metallic slapback off the hull.
+MACHINE = (
+    "aresample=44100,asplit=2[dry][sub];"
+    "[sub]asetrate=44100*0.5,aresample=44100,atempo=2,lowpass=f=700,volume=0.3[low];"
+    "[dry][low]amix=inputs=2:weights=1 1:normalize=0,"
+    "asetrate=44100*0.94,aresample=44100,atempo=1.0638,highpass=f=70,"
+    "acrusher=bits=9:mix=0.3:mode=log:aa=1,"
+    "flanger=delay=3:depth=2:regen=35:speed=0.3:width=50,"
+    "equalizer=f=2400:t=q:w=1.4:g=3,"
+    "acompressor=threshold=0.1:ratio=4:attack=4:release=100:makeup=2,"
+    "aecho=0.8:0.45:19|47:0.3|0.16"
+)
+
 # Name, source under art-src/cutscenes/, ffmpeg filters before the loudness pass, loudness
 # (LUFS), fade-out (s), channels, bitrate. The score keeps its own silence at the top: the scene
 # times its beats to it.
@@ -133,8 +168,19 @@ SOURCED = (
     ("vo_intro_05", "vo/vo_intro_05.mp3", titan(1.1), -14, 0.5, 1, "96k"),
     ("vo_intro_06", "vo/vo_intro_06.mp3", titan(1.1), -14, 0.5, 1, "96k"),
     ("vo_crucible_01", "vo/vo_crucible_01.mp3", FURNACE, -15, 0.4, 1, "96k"),
+    ("cs_rain", "audio/rain.wav", "", -22, 0.0, 2, "128k"),
+    ("cs_wake", "audio/wake.mp3", "", -13, 0.5, 2, "128k"),
+    ("cs_mainframe_bed", "audio/mainframe_bed.wav", "", -17, 0.0, 2, "128k"),
+    ("vo_mainframe_01", "vo/vo_mainframe_01.mp3", MACHINE, -14, 0.4, 1, "96k"),
+    ("vo_mainframe_02", "vo/vo_mainframe_02.mp3", MACHINE, -14, 0.4, 1, "96k"),
+    ("vo_mainframe_03", "vo/vo_mainframe_03.mp3", MACHINE, -14, 0.4, 1, "96k"),
+    ("vo_mainframe_04", "vo/vo_mainframe_04.mp3", MACHINE, -14, 0.4, 1, "96k"),
 )
 TRIM = "silenceremove=start_periods=1:start_threshold=-50dB"
+# Generated loops (Ludo's are seamless already): no trim, no fade, and one fixed gain instead of
+# loudnorm's moving one, so the seam stays where it was.
+LOOPED = {"cs_rain", "cs_mainframe_bed"}
+LOOP_TP = -1.5  # dBTP a loop's gain may not push its peaks past
 
 
 def duration(path: Path) -> float:
@@ -145,8 +191,32 @@ def duration(path: Path) -> float:
     return float(out.stdout.strip())
 
 
+def loudness(path: Path) -> tuple[float, float]:
+    """Integrated loudness (LUFS) and true peak (dBTP) of a file, from loudnorm's measuring pass."""
+    run = subprocess.run(
+        [B.FFMPEG, "-hide_banner", "-i", str(path), "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+        check=True, capture_output=True, text=True,
+    )
+    stats = json.loads(run.stderr[run.stderr.rindex("{") : run.stderr.rindex("}") + 1])
+    return float(stats["input_i"]), float(stats["input_tp"])
+
+
+def looped(entry: tuple) -> Path:
+    name, source, _, lufs, _, channels, bitrate = entry
+    out = OUT / f"{name}.mp3"
+    level, peak = loudness(SRC / source)
+    gain = min(lufs - level, LOOP_TP - peak)
+    subprocess.run(
+        [B.FFMPEG, "-v", "error", "-y", "-i", str(SRC / source), "-af", f"volume={gain:.2f}dB", "-ar", str(B.SR), "-ac", str(channels), "-b:a", bitrate, str(out)],
+        check=True,
+    )
+    return out
+
+
 def sourced(entry: tuple) -> Path:
     name, source, filters, lufs, fade_out, channels, bitrate = entry
+    if name in LOOPED:
+        return looped(entry)
     voice = source.startswith("vo/")
     out = OUT / ("vo" if voice else "") / f"{name}.mp3"
     out.parent.mkdir(parents=True, exist_ok=True)
