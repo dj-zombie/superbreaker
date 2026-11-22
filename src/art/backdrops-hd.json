@@ -278,5 +278,99 @@
         ]
       }
     }
+  },
+  "abyss": {
+    "sky": "images/backdrops-hd/abyss/sky.jpg",
+    "layers": {
+      "far": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/far.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      },
+      "fog1": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/fog1.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "mid": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/mid_l.webp",
+            "x": 0,
+            "width": 943
+          },
+          {
+            "path": "images/backdrops-hd/abyss/mid_r.webp",
+            "x": 1958,
+            "width": 922
+          }
+        ]
+      },
+      "fog2": {
+        "width": 720,
+        "height": 1280,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/fog2.webp",
+            "x": 0,
+            "width": 720
+          }
+        ]
+      },
+      "near": {
+        "width": 2880,
+        "height": 7988,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/near_l.webp",
+            "x": 0,
+            "width": 937
+          },
+          {
+            "path": "images/backdrops-hd/abyss/near_r.webp",
+            "x": 2094,
+            "width": 786
+          }
+        ]
+      },
+      "lake": {
+        "width": 2880,
+        "height": 2958,
+        "y": 405,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/lake.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      },
+      "ark": {
+        "width": 2880,
+        "height": 2958,
+        "y": 404,
+        "parts": [
+          {
+            "path": "images/backdrops-hd/abyss/ark.webp",
+            "x": 0,
+            "width": 2880
+          }
+        ]
+      }
+    }
   }
 }

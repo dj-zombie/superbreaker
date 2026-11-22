@@ -564,6 +564,25 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'crucible_scream', path: 'audio/boss/crucible/scream.mp3' },
   { key: 'crucible_meltdown', path: 'audio/boss/crucible/meltdown.mp3' },
   { key: 'crucible_cool', path: 'audio/boss/crucible/cool.mp3' },
+  // The Lantern Angler, written by the same script; Vesper's lines are spoken and treated by hand.
+  { key: 'angler_drip', path: 'audio/boss/angler/drip.mp3' },
+  { key: 'angler_hum', path: 'audio/boss/angler/hum.mp3' },
+  { key: 'angler_glint', path: 'audio/boss/angler/glint.mp3' },
+  { key: 'angler_wisp', path: 'audio/boss/angler/wisp.mp3' },
+  { key: 'angler_catch', path: 'audio/boss/angler/catch.mp3' },
+  { key: 'angler_decoy', path: 'audio/boss/angler/decoy.mp3' },
+  { key: 'angler_blink', path: 'audio/boss/angler/blink.mp3' },
+  { key: 'angler_lunge', path: 'audio/boss/angler/lunge.mp3' },
+  { key: 'angler_bite', path: 'audio/boss/angler/bite.mp3' },
+  { key: 'angler_snuff', path: 'audio/boss/angler/snuff.mp3' },
+  { key: 'angler_surge', path: 'audio/boss/angler/surge.mp3' },
+  { key: 'angler_shriek', path: 'audio/boss/angler/shriek.mp3' },
+  { key: 'angler_pod_crack', path: 'audio/boss/angler/pod-crack.mp3' },
+  { key: 'angler_pod_burst', path: 'audio/boss/angler/pod-burst.mp3' },
+  { key: 'angler_death', path: 'audio/boss/angler/death.mp3' },
+  { key: 'angler_vesper_come', path: 'audio/boss/angler/vesper-come.mp3' },
+  { key: 'angler_vesper_hungry', path: 'audio/boss/angler/vesper-hungry.mp3' },
+  { key: 'angler_vesper_free', path: 'audio/boss/angler/vesper-free.mp3' },
 ];
 
 export const SCENES = {

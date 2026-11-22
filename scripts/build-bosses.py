@@ -154,13 +154,16 @@ def open_source(source: str | list[str]) -> Image.Image:
 
 def build(
     boss: str, source: str | list[str], grid: tuple[int, int], frame: tuple[int, int], reach: int = REACH,
-    clean: bool = False,
+    clean: bool = False, share: float = 0.02, enclosed: tuple[int, int] | None = None,
 ) -> None:
     print(boss)
     cols, rows = grid
-    cut = cells(remove_white_background(open_source(source)), cols, rows)
+    img = remove_white_background(open_source(source))
+    if enclosed:
+        img = remove_enclosed_white(img, *enclosed)
+    cut = cells(img, cols, rows)
     if clean:
-        cut = [keep_main(c) for c in cut]
+        cut = [keep_main(c, share) for c in cut]
     masks = [silhouette(c) for c in cut]
     slides = [(0, 0)] + [register(masks[0], m, reach) for m in masks[1:]]
     if any(max(abs(dx), abs(dy)) >= reach for dx, dy in slides):
@@ -259,7 +262,10 @@ def rig_sheet(folder: Path, spec: dict) -> None:
     was = OUT
     OUT = folder
     try:
-        build(spec["out"], spec["source"], spec["grid"], spec["frame"], spec.get("reach", REACH), clean=True)
+        build(
+            spec["out"], spec["source"], spec["grid"], spec["frame"], spec.get("reach", REACH), clean=True,
+            share=spec.get("share", 0.02), enclosed=spec.get("enclosed"),
+        )
     finally:
         OUT = was
 
@@ -333,6 +339,22 @@ RIGS = {
          "frame": (180, 220), "reach": 128},
         {"kind": "loose", "source": "crucible/fx.jpg", "grid": (3, 2), "size": 96,
          "names": ["slag", "splash", "dart", "chunk", "shard", "rivet"]},
+    ],
+    # The head is a big texture, so it is cut at 1.5 times its size on the field, not 2.
+    "angler": [
+        # Shut, gaping on its green throat, flinching, dead.
+        # `enclosed` clears the white caught between tentacle loops (brighter than, and at least, px).
+        {"kind": "sheet", "source": "angler/head.jpg", "out": "head", "grid": (2, 2), "frame": (630, 480),
+         "reach": 128, "enclosed": (215, 6)},
+        # Vesper on the stalk: calm, flaring, split open, recoiling, dark, shattering. `share` drops
+        # the strip of the next figure a cell catches.
+        {"kind": "sheet", "source": "angler/lure.jpg", "out": "lure", "grid": (3, 2), "frame": (200, 230),
+         "reach": 192, "share": 0.12},
+        # A cryo-pod: sealed, cracked, bursting, empty.
+        {"kind": "sheet", "source": "angler/pod.jpg", "out": "pod", "grid": (4, 1), "frame": (120, 300),
+         "reach": 64, "enclosed": (215, 6)},
+        {"kind": "loose", "source": "angler/fx.jpg", "grid": (3, 2), "size": 96,
+         "names": ["wisp", "decoy", "ink", "skull", "splash", "shard"]},
     ],
 }
 

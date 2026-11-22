@@ -44,6 +44,10 @@
     {
       "after": 10,
       "map": "boss10.tmj"
+    },
+    {
+      "after": 20,
+      "map": "boss20.tmj"
     }
   ],
   "scenes": [
@@ -54,6 +58,10 @@
     {
       "id": "chapter-2",
       "before": "level11"
+    },
+    {
+      "id": "vesper-lure",
+      "before": "boss20"
     }
   ]
 }

@@ -647,6 +647,169 @@ def cool(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return full(steam) + 0.3 * tick + 0.6 * thunk
 
 
+# ---------------------------------------------------------------- the Lantern Angler
+#
+# Something huge under black water. Its lights are of two kinds and must sound it: warm ones, a
+# major chord in soft sines, help; cold ones, glass partials that clash, lie. Everything else is
+# water, wet flesh and drowned voices.
+
+# Warm light: D major, sung by soft sines. Cold light: glass partials a semitone apart.
+WARM = (587.3, 740.0, 880.0)
+COLD = (1870.0, 1981.0, 2960.0, 4410.0)
+
+
+def bubbles(rng: np.random.Generator, t: np.ndarray, count: int, low: float, high: float,
+            start: float = 0.0, end: float | None = None) -> np.ndarray:
+    """Bubbles rising through water: short sine chirps sliding up, scattered across the stereo."""
+    out = np.zeros((2, len(t)))
+    end = t[-1] if end is None else end
+    for at in np.sort(rng.uniform(start, end, count)):
+        size = rng.uniform(0.02, 0.07)
+        pop = clock(size * 2.5)
+        f = rng.uniform(low, high) * (1 + 1.8 * pop / pop[-1])
+        put(out, at, spread(sine(f, pop) * decay(pop, size) * swell(pop, 0.002), rng.uniform(-0.6, 0.6)),
+            rng.uniform(0.3, 1.0))
+    return out
+
+
+def drop(t: np.ndarray, at: float, pitch: float) -> np.ndarray:
+    """One drop into still water: a plink that rises, then a hollow blip under it."""
+    since = np.maximum(t - at, 0)
+    plink = sine(pitch * (1 + 1.2 * (1 - np.exp(-since / 0.02))), t) * strike(t, 0.05, at)
+    blip = sine(settle(pitch * 0.5, pitch * 0.32, since, 0.03), t) * strike(t, 0.09, at + 0.012)
+    return plink + 0.5 * blip
+
+
+def drip(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Water dripping in a vast dark: a drop, its echo off far stone, a fainter drop after."""
+    out = drop(t, ONSET, 1450) + 0.5 * drop(t, 0.62, 1180)
+    echo = lowpass(np.roll(out, samples(0.21)) * 0.35 + np.roll(out, samples(0.43)) * 0.18, 2400)
+    air = hiss(rng, t, 80, 500) * 0.04
+    return out + echo + air
+
+
+def hum(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The lantern burning: a warm chord hummed low and slow, the flame fluttering through it."""
+    tremolo = 0.75 + 0.25 * sine(3.2, t)
+    chord = sum(sine(f / 4 * (1 + 0.002 * wander(rng, t, 2)), t) * level for f, level in zip(WARM, (1.0, 0.6, 0.5)))
+    flame = lowpass(hiss(rng, t, 200, 2500), 1200) * (0.5 + 0.5 * wander(rng, t, 9))
+    return (chord * tremolo + 0.08 * flame) * hold(t, 0.6, 0.7)
+
+
+def glint(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """An eye opening in the dark: a wet click of a lid, and a thin cold shimmer."""
+    lid = lowpass(hiss(rng, t, 800, 5000), 3000) * strike(t, 0.012)
+    tick = sine(settle(900, 520, t, 0.01), t) * strike(t, 0.02)
+    shimmer = chime(rng, t, [(f * 1.25, 0.35, 0.5) for f in COLD]) * swell(t, 0.05)
+    return 0.6 * lid + 0.4 * tick + 0.35 * shimmer
+
+
+def wisp(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A warm wisp let go of the lantern: a soft breath rising, and the warm chord blooming."""
+    breath = sweep_lowpass(hiss(rng, t, 200, 6000), glide(600, 3600, t)) * swell(t, 0.25) * decay(t, 0.5)
+    bloom = sum(sine(f, t, rng.random()) * strike(t, 0.55, ONSET + 0.03 * i) * swell(t, 0.08)
+                for i, f in enumerate(WARM))
+    sparks = crackle(rng, t, 30 * decay(t, 0.4)) * 0.3
+    return 0.35 * full(breath) + 0.5 * bloom + sparks
+
+
+def catch(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A wisp caught and flung home: the warm chord sweeping up an octave, bright and quick."""
+    rise = 1 + np.clip(t / 0.25, 0, 1)
+    chord = sum(sine(f * rise, t) * level for f, level in zip(WARM, (1.0, 0.7, 0.6))) * strike(t, 0.3)
+    whoosh = sweep_lowpass(noise(rng, t), glide(800, 7000, t)) * swell(t, 0.04) * decay(t, 0.2)
+    return 0.6 * chord + 0.4 * full(whoosh)
+
+
+def decoy(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A false light let go: cold glass struck, its partials clashing a semitone apart and beating."""
+    glass = chime(rng, t, [(f, 0.6 / (1 + i * 0.4), 1 / (1 + i * 0.3)) for i, f in enumerate(COLD)])
+    ping = sine(COLD[0] * 2, t) * strike(t, 0.08)
+    return glass + 0.3 * ping
+
+
+def blink(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The lantern snuffed: a soft gulp of flame, the warm chord sinking away, a low thrum."""
+    gulp = lowpass(hiss(rng, t, 100, 3000), 1500) * strike(t, 0.06)
+    sink = glide(1, 0.25, t)
+    chord = sum(sine(f * sink, t) for f in WARM[:2]) * strike(t, 0.35) * 0.5
+    thrum = sine(55, t) * swell(t, 0.1) * decay(t, 0.4)
+    return 0.6 * gulp + chord + 0.5 * thrum
+
+
+def lunge(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """It draws back to lunge: black water heaving up, and a long wet intake of breath."""
+    heave = sweep_lowpass(noise(rng, t), 220 + 500 * swell(t, 1.0)) * swell(t, 1.1)
+    intake = formants(hiss(rng, t, 200, 4000), ((450, 0.4, 2.0), (1300, 0.3, 1.5))) * swell(t, 1.2)
+    sub = sine(glide(36, 60, t), t) * swell(t, 1.0)
+    return (0.8 * full(heave) + 0.35 * full(intake) + 0.6 * sub) * swell(t[-1] - t, 0.1)
+
+
+def bite(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The jaws slam shut: a deep wet thud, the crunch of teeth on teeth, water thrown up."""
+    thud = sine(settle(110, 36, t, 0.06), t) * strike(t, 0.3)
+    crunch = bandpass(noise(rng, t), 400, 5000) * strike(t, 0.05) * (0.6 + 0.4 * wander(rng, t, 200))
+    splash = lowpass(hiss(rng, t, 300, 9000), 5000) * swell(t - 0.03, 0.04) * decay(np.maximum(t - 0.05, 0), 0.25)
+    return drive(thud + 0.6 * crunch, 2.5) + 0.4 * splash + 0.4 * bubbles(rng, t, 10, 300, 700, 0.1, 0.6)
+
+
+def snuff(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Every light goes out: a great breath drawn in, the air darkening to a sub drop, and ink pouring."""
+    cutoff = 6000 * decay(t, 0.4) + 150
+    breath = sweep_lowpass(noise(rng, t), cutoff) * swell(t, 0.1) * decay(t, 0.6)
+    drop_ = sine(glide(90, 28, t), t) * swell(t, 0.2) * decay(np.maximum(t - 0.5, 0), 0.5)
+    ink = lowpass(hiss(rng, t, 60, 900), 500) * swell(t - 0.4, 0.4) * decay(np.maximum(t - 0.8, 0), 0.4)
+    return full(breath) * 0.6 + drop_ + 0.4 * ink
+
+
+def surge(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The lake heaves: a deep slosh of black water rolling one way and back, with a groan in it."""
+    roll = 0.5 + 0.5 * np.sin(TAU * cycles(0.9, t) - np.pi / 2)
+    water = sweep_lowpass(noise(rng, t), 150 + 900 * roll) * (0.3 + 0.7 * roll)
+    sub = sine(32 + 8 * roll, t) * hold(t, 0.3, 0.6)
+    groan_ = formants(bandpass(stack(48 * glide(1, 0.8, t), t, 3, 0.01), 40, 1200), ((300, 0.4, 2.0),))
+    return full(water) + 0.6 * sub + 0.25 * full(groan_) * hold(t, 0.6, 0.6) + 0.3 * bubbles(rng, t, 18, 150, 450)
+
+
+def shriek(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """It shrieks through water: a torn voice gurgling, its pitch wrenching up then sagging."""
+    pitch = (glide(240, 520, t) * np.minimum(1, 0.4 + t / 0.3)) * 2 ** (1.5 * wander(rng, t, 10) / 12)
+    gurgle = 0.6 + 0.4 * sine(31 + 6 * wander(rng, t, 3), t)
+    body = swell(t, 0.04) * np.minimum(1, decay(t - 0.6, 0.5))
+    voice = drive(bellow(rng, t, pitch) * gurgle * body, 3.5)
+    drowned = lowpass(voice, 2600)
+    return drowned + 0.3 * bubbles(rng, t, 24, 200, 900, 0.0, 1.2)
+
+
+def pod_crack(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A pod's glass cracks: a sharp tick, a creak through the glass, and the liquid stirring inside."""
+    tick = hiss(rng, t, 3000, 14000) * strike(t, 0.004)
+    creak = chime(rng, t, [(f * 0.8, 0.25, 0.6) for f in COLD]) * strike(t, 0.3)
+    slosh = lowpass(hiss(rng, t, 80, 800), 600) * swell(t - 0.05, 0.1) * decay(t, 0.25)
+    return 0.7 * tick + 0.6 * creak + 0.4 * slosh
+
+
+def pod_burst(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A pod bursts: glass shattering, the liquid gushing out, and the soul inside singing free, warm."""
+    smash = hiss(rng, t, 1500, 14000) * strike(t, 0.03) + crackle(rng, t, 260 * decay(t, 0.25))
+    gush = lowpass(noise(rng, t), 1200) * swell(t, 0.02) * decay(t, 0.35)
+    free_at = 0.25
+    song = sum(sine(f * 2, t, rng.random()) * strike(t, 0.7, free_at + 0.06 * i) * swell(t - free_at, 0.15)
+               for i, f in enumerate(WARM))
+    return 0.6 * smash + 0.5 * full(gush) + 0.45 * song
+
+
+def angler_death(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """It dies: the lantern's glass shatters, the voice sags and drowns, the water closes over it."""
+    smash = hiss(rng, t, 1200, 14000) * strike(t, 0.06) + crackle(rng, t, 300 * decay(t, 0.4))
+    glass = chime(rng, t, [(f, 1.0, 0.5) for f in COLD]) * strike(t, 0.8)
+    pitch = glide(200, 45, t) * 2 ** (wander(rng, t, 5) / 12)
+    voice = lowpass(drive(bellow(rng, t, pitch) * swell(t - 0.2, 0.2), 2.5), 1400)
+    voice = voice * np.minimum(1, decay(np.maximum(t - 1.2, 0), 0.8))
+    sink = bubbles(rng, t, 40, 120, 500, 0.8, t[-1] - 0.3) * glide(1, 0.3, t)
+    return 0.5 * smash + 0.4 * glass + 0.7 * voice + 0.5 * sink
+
+
 # File name, length (s), fade-out (s), synth. The fade-out is also the release of a held sound.
 EFFECTS = (
     ("stomp", 0.9, 0.1, stomp),
@@ -680,6 +843,21 @@ EFFECTS = (
     ("crucible/scream", 1.5, 0.3, scream),
     ("crucible/meltdown", 2.4, 0.3, meltdown),
     ("crucible/cool", 2.8, 0.6, cool),
+    ("angler/drip", 1.3, 0.3, drip),
+    ("angler/hum", 2.4, 0.6, hum),
+    ("angler/glint", 0.8, 0.2, glint),
+    ("angler/wisp", 1.2, 0.3, wisp),
+    ("angler/catch", 0.7, 0.15, catch),
+    ("angler/decoy", 1.0, 0.3, decoy),
+    ("angler/blink", 0.9, 0.2, blink),
+    ("angler/lunge", 1.6, 0.1, lunge),
+    ("angler/bite", 0.9, 0.2, bite),
+    ("angler/snuff", 1.6, 0.3, snuff),
+    ("angler/surge", 2.4, 0.5, surge),
+    ("angler/shriek", 1.8, 0.35, shriek),
+    ("angler/pod-crack", 0.6, 0.15, pod_crack),
+    ("angler/pod-burst", 1.4, 0.35, pod_burst),
+    ("angler/death", 3.4, 0.6, angler_death),
 )
 
 

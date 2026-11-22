@@ -14,7 +14,7 @@ import { useWorld } from '../ui/theme';
 import { label } from '../ui/type';
 import { BaseScene } from './BaseScene';
 
-const SCENERIES: readonly SceneryId[] = ['hell', 'crypt', 'mainframe', 'carnival', 'crucible'];
+const SCENERIES: readonly SceneryId[] = ['hell', 'crypt', 'mainframe', 'carnival', 'crucible', 'abyss'];
 const TIERS: ReadonlyArray<LightingTier | undefined> = [undefined, 'low', 'medium', 'high'];
 const GROUPS = Object.keys(FX_LIBRARY) as Array<keyof typeof FX_LIBRARY>;
 const UI_DEPTH = 30;

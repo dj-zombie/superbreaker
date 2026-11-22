@@ -223,3 +223,28 @@ describe('chapter-2', () => {
     expect([...at].sort((x, y) => x! - y!)).toEqual(at);
   });
 });
+
+describe('vesper-lure', () => {
+  const tl = compile(CUTSCENES['vesper-lure']!);
+
+  it('plays on the way into the Angler, after level 20', () => {
+    const index = JSON.parse(readFileSync(join(ASSETS, 'levels', 'index.json'), 'utf8')) as {
+      scenes?: unknown;
+    };
+    const scenes = validScenes(index.scenes);
+    expect(sceneBetween({ index: 20 }, { index: 20, stop: 'boss' }, scenes, () => false)).toBe(
+      'vesper-lure',
+    );
+  });
+
+  it('goes down from the Crypt to the black water', () => {
+    expect(tl.scenery.map((m) => m.value.id)).toEqual(['abyss']);
+  });
+
+  it('has a label for every beat, in order', () => {
+    const beats = ['open', 'descent', 'lake', 'lure', 'handoff'];
+    const at = beats.map((b) => tl.labels.get(b));
+    expect(at.every((t) => t !== undefined)).toBe(true);
+    expect([...at].sort((x, y) => x! - y!)).toEqual(at);
+  });
+});

@@ -40,6 +40,7 @@ ART = {
     "cs_plate_storm": {"kind": "plate", "source": "plate_storm.jpg", "height": 1280},
     "cs_plate_storm_dark": {"kind": "plate", "source": "plate_storm.jpg", "height": 1280, "unlit": True, "dim": 0.6},
     "cs_plate_anvil": {"kind": "plate", "source": "plate_anvil.jpg", "height": 1280},
+    "cs_plate_lake": {"kind": "plate", "source": "plate_lake.jpg", "height": 1280},
     "cs_spark": {"kind": "sprite", "source": "spark_core.png", "size": 192},
 }
 

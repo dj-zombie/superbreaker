@@ -204,7 +204,7 @@ export const WEAPON_FX: Record<string, FxDef> = {
         channel: 'glow',
         frames: F.boomg,
         anim: { frames: F.boomg },
-        only: ['crypt', 'mainframe'],
+        only: ['crypt', 'abyss', 'mainframe'],
         count: 1,
         life: 520,
         size: 0.55,

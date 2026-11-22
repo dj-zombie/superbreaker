@@ -3,7 +3,7 @@ import type { Rng } from './Rng';
 import { BRICK_HEALTH } from './procgen/grid';
 import { FIELD_WIDTH, type DifficultyId } from './types';
 
-export const BOSS_IDS = ['crucible', 'warden'] as const;
+export const BOSS_IDS = ['crucible', 'warden', 'angler'] as const;
 export type BossId = (typeof BOSS_IDS)[number];
 
 /** The fight flow, in order. A fight without an intro starts in `fight`. */
@@ -242,7 +242,21 @@ export type PaddleEffect =
  * its part to reaching the line, so the time to react is the same in a short and a tall arena.
  */
 export type HazardSpec =
-  | { kind: 'shot'; from: string; x: number; at: number; flightMs: number; onPaddle: PaddleEffect }
+  /**
+   * `look: 'decoy'` draws it as the boss's false light, a lookalike of its slag. Its warning is a
+   * shot's all the same, so the mark on the line always tells the truth. `offset` sets it off that
+   * far from its part's centre, in px, as from an eye the picture draws there.
+   */
+  | {
+      kind: 'shot';
+      from: string;
+      x: number;
+      at: number;
+      flightMs: number;
+      onPaddle: PaddleEffect;
+      look?: 'decoy';
+      offset?: { dx: number; dy: number };
+    }
   | { kind: 'beam'; x: number; width: number; at: number; liveMs: number; onPaddle: PaddleEffect }
   /** Takes a life. */
   | { kind: 'skull'; from: string; x: number; at: number; flightMs: number }
@@ -298,7 +312,9 @@ export type BossEvent =
   /** The attack cycle moved on. `attack` is the attack's id, or null in the gap. */
   | { type: 'window'; window: AttackWindow; attack: string | null }
   /** A part with health of its own ran out of it. The fight takes it off the field. */
-  | { type: 'broken'; part: string };
+  | { type: 'broken'; part: string }
+  /** A caught glob of slag struck `part` for `hits`. Only the fight reports it, never the state. */
+  | { type: 'returned'; part: string; hits: number };
 
 /** The rules of a boss fight, without the engine: the step, the phase, its pool and its attacks. */
 export class BossState {

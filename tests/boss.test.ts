@@ -933,6 +933,28 @@ describe('planProblems', () => {
     expect(problems(plan(left, beam(499, 200, 500, 400)))).toEqual([]);
   });
 
+  it('holds a decoy to every rule a shot keeps: it only looks like slag', () => {
+    const decoy = (x: number, at: number, flightMs = MIN_FLIGHT_MS): HazardSpec => {
+      return { kind: 'shot', from: 'body', x, at, flightMs, onPaddle: SHRINK, look: 'decoy' };
+    };
+    expect(problems(plan(decoy(300, 0)))).toEqual([]);
+    expect(problems(plan(decoy(300, 0, MIN_FLIGHT_MS - 1)))).toHaveLength(1);
+    // It harms, so it narrows the line as a shot does...
+    expect(safeGap(plan(decoy(300, 0)))).toBe(safeGap(plan(shot(300, 0))));
+    // ...and may not land beside a glob of slag as it lands.
+    const glob: HazardSpec = {
+      kind: 'slag',
+      from: 'body',
+      x: 300,
+      at: 0,
+      flightMs: MIN_FLIGHT_MS,
+      returnTo: ['core'],
+      hits: 3,
+    };
+    expect(problems(plan(glob, decoy(320, 0)))).toHaveLength(1);
+    expect(problems(plan(glob, decoy(420, 0)))).toEqual([]);
+  });
+
   it('reports every rule a plan breaks, not just the first', () => {
     const bad = plan(
       skull(300, 0, MIN_SKULL_FLIGHT_MS - 1),

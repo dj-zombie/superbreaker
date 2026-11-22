@@ -45,7 +45,23 @@ export interface HazardLooks {
   /** A glob of slag, and its splash on a miss. */
   slag?: string;
   splash?: string;
+  /** A skull, in flight and as its mark on the paddle line. */
+  skull?: string;
+  /**
+   * A shot with `look: 'decoy'`: a lookalike of the slag in `color`. It falls dead straight with no
+   * trail, where slag tumbles and sparks, lights the way cold, and sets off with its own `sfx`.
+   */
+  decoy?: { key: string; color: number; sfx?: string };
+  /** Beams in the boss's colour. `negative` makes a firing beam darken the room under it, not light it. */
+  beam?: { color: number; negative?: boolean };
+  /** A shot of the boss's own keeps its own paint and carries a light of this colour, for one too dark to read by. */
+  shotGlow?: number;
+  /** FX presets in place of the plain ones: a glob's trail and its splash, and a shot's trail. */
+  fx?: { slagTrail?: string; splash?: string; shotTrail?: string };
 }
+
+/** A decoy on screen, in px: the size of a glob. */
+const DECOY_SIZE = 32;
 
 /** Beam columns draw over the aim arrow (4) and under everything else here. */
 const COLUMN_DEPTH = 4.2;
@@ -284,12 +300,25 @@ export class HazardSystem {
         .setPosition(spec.x, HUD_HEIGHT)
         .setDisplaySize(spec.width, strip - HUD_HEIGHT)
         .setAlpha(COLUMN_FAINT);
+      const own = this.host.looks?.beam?.color;
+      if (own !== undefined) e.column.setTint(own);
       this.strip(e, spec.x, strip, spec.width);
       return e;
     }
     const skull = spec.kind === 'skull';
     const slag = spec.kind === 'slag';
     const size = skull ? SKULL_MARK_SIZE : SHOT_MARK_SIZE;
+    const skullKey = this.host.looks?.skull;
+    if (skull && skullKey) {
+      e.mark = this.image(skullKey, MARK_DEPTH)
+        .setPosition(spec.x, line)
+        .setDisplaySize(size, size)
+        .setAlpha(MARK_ALPHA);
+      const end = this.ringEnd(spec);
+      e.ring = this.image('ring', MARK_DEPTH).setPosition(spec.x, line).setDisplaySize(end, end);
+      if (this.still) this.strip(e, spec.x, strip, end);
+      return e;
+    }
     if (slag) {
       // Where a glob lands is marked with the glob itself, faint, so gold always means "catch".
       e.mark = this.image(this.host.looks?.slag ?? 'hazard_shot', MARK_DEPTH)
@@ -351,14 +380,16 @@ export class HazardSystem {
     if (spec.kind === 'beam') {
       e.column?.setAlpha(COLUMN_BRIGHT);
       audio.sfx(BEAM_SFX, 0.4, 0, { x: spec.x });
+      const look = host.looks?.beam;
       if (e.column && this.lit < MAX_LIGHTS) {
         e.light = host.lighting.addLight({
           x: spec.x - spec.width / 2,
           y: HUD_HEIGHT,
           area: { width: spec.width, height: e.column.displayHeight },
-          color: this.color,
+          color: look?.color ?? this.color,
           intensity: BEAM_LIGHT,
           priority: LIGHT_PRIORITY,
+          negative: look?.negative,
         });
         this.lit++;
       }
@@ -367,8 +398,9 @@ export class HazardSystem {
     // A part that has left the field still fires: from the top wall, straight above the landing.
     const from = host.partPos(spec.from);
     if (from) {
-      e.fromX = from.x;
-      e.fromY = from.y;
+      const offset = spec.kind === 'shot' ? spec.offset : undefined;
+      e.fromX = from.x + (offset?.dx ?? 0);
+      e.fromY = from.y + (offset?.dy ?? 0);
     }
     const skull = spec.kind === 'skull';
     if (spec.kind === 'slag') {
@@ -380,7 +412,7 @@ export class HazardSystem {
       else glob.setTint(SLAG_COLOR);
       e.body = glob;
       e.trailAt = spec.at;
-      this.follow(e, 'boss.hazard_trail');
+      this.follow(e, host.looks?.fx?.slagTrail ?? 'boss.hazard_trail');
       audio.sfx(SLAG_TOSS_SFX, 0.4, 0, { x: e.fromX });
       if (this.lit < MAX_LIGHTS) {
         e.light = host.lighting.addLight({
@@ -394,18 +426,52 @@ export class HazardSystem {
       }
       return;
     }
+    const decoy = spec.kind === 'shot' && spec.look === 'decoy' ? host.looks?.decoy : undefined;
+    if (decoy) {
+      const lure = this.image(decoy.key, HAZARD_DEPTH)
+        .clearTint()
+        .setPosition(e.fromX, e.fromY)
+        .setDisplaySize(DECOY_SIZE, DECOY_SIZE);
+      e.body = lure;
+      audio.sfx(decoy.sfx ?? SHOT_SFX, 0.45, 0, { x: e.fromX });
+      if (this.lit < MAX_LIGHTS) {
+        e.light = host.lighting.addLight({
+          follow: lure,
+          radius: SLAG_LIGHT_RADIUS,
+          color: decoy.color,
+          intensity: SLAG_LIGHT,
+          priority: LIGHT_PRIORITY,
+        });
+        this.lit++;
+      }
+      return;
+    }
     const shotKey = skull ? undefined : host.looks?.shot;
-    const body = this.image(skull ? 'hazard_skull' : (shotKey ?? 'hazard_shot'), HAZARD_DEPTH);
+    const skullKey = host.looks?.skull ?? 'hazard_skull';
+    const body = this.image(skull ? skullKey : (shotKey ?? 'hazard_shot'), HAZARD_DEPTH);
     body.setPosition(e.fromX, e.fromY);
+    if (skull && host.looks?.skull) body.clearTint();
     e.body = body;
     if (shotKey) {
       // A boss's own dart is drawn pointing down, and is red already: it keeps a little of its paint.
+      const glow = host.looks?.shotGlow;
+      if (glow === undefined) body.setTint(0xff9a8a);
+      else body.clearTint();
       body
-        .setTint(0xff9a8a)
         .setDisplaySize(2 * SHOT_RADIUS * 1.1, SHOT_LENGTH * 1.25)
         .setRotation(Math.atan2(host.paddle.y - e.fromY, spec.x - e.fromX) - Math.PI / 2);
-      this.follow(e, 'weapon.exhaust', 0.7);
+      this.follow(e, host.looks?.fx?.shotTrail ?? 'weapon.exhaust', 0.7);
       audio.sfx(SHOT_SFX, 0.35, 0, { x: e.fromX });
+      if (glow !== undefined && this.lit < MAX_LIGHTS) {
+        e.light = host.lighting.addLight({
+          follow: body,
+          radius: SLAG_LIGHT_RADIUS * 0.7,
+          color: glow,
+          intensity: SLAG_LIGHT,
+          priority: LIGHT_PRIORITY,
+        });
+        this.lit++;
+      }
       return;
     }
     if (!skull) {
@@ -564,7 +630,7 @@ export class HazardSystem {
   /** A missed glob splashes on the paddle line and is gone. Harmless. */
   private splash(x: number, y: number): void {
     const { scene, fx, looks } = this.host;
-    fx.play('boss.slag_splash', x, y);
+    fx.play(looks?.fx?.splash ?? 'boss.slag_splash', x, y);
     audio.sfx(SLAG_SPLASH_SFX, 0.4, 0, { x });
     if (!looks?.splash || !scene.textures.exists(looks.splash)) return;
     const img = scene.add

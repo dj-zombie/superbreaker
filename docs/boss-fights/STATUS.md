@@ -2141,3 +2141,56 @@ Verified
 Open
 - Taps do nothing while the theme plays, about 11 s on an empty field with the bars down.
 
+## User request: Vesper, the Lure (World 2 finale): DONE, 2026-11-22, Claude (Cursor agent)
+
+The user asked for a finished World 2 boss after level 20, and chose the Lantern Angler with the
+twist that Vesper, the guide since Chapter I, is its lure. The plan was
+`vesper_lantern_angler_boss_702f3e26.plan.md`. Two checks with the user: the look (a mix of two
+concept takes) and phase 1's feel in the browser (approved).
+
+The fight: three phases on a 96 BPM beat (pools 20, 28, 30). The Lure: wisps to catch and return,
+ink from eyes that open over your lane, a decoy at the paddle. Feeding: the angler surfaces; a
+lunge on your half, four false lights of which one is real, ink lanes walking the field in the
+dark. Breach: four cryo-pods slide out; breaking one leaves a permanent light, so you choose
+between sight and damage. Frenzy bites, a skull among homing wisps, and a narrowing undertow.
+
+Built
+- `src/bosses/angler.ts`, `anglerRig.ts`, `anglerMusic.ts`: the boss, its rig (lit head, lure
+  and pods, a stalk curve, eyes, beat pulse, lights for the lantern, throat and pods) and its cue
+  sheet. Entrance, Surfacing, Breach and death scenes. The death relights the room
+  (`lighting.celebrate()`), which otherwise sat black through the victory theme.
+- Framework: `look: 'decoy'` and `offset` on shots, the `returned` event, `HazardLooks` `skull`,
+  `decoy`, `beam`, `shotGlow` and `fx` (`src/core/Boss.ts`, `src/systems/HazardSystem.ts`); a boss
+  `music` track; the reveal's bar fill capped at 1 (`BossDirector.ts`).
+- Scenery `abyss`: the Crypt's layers sunk and greened, the lake and ark stills, ripple, reflect,
+  snuff, surge and `crossStill` in `ParallaxBackdrop.ts`; phone and 4x sets.
+- FX `src/fx/library/angler.ts`; `abyss` added to the `only:` lists that had `crypt`.
+- Audio: 15 `angler/*` effects in `scripts/build-boss-audio.py`, three Vesper lines, the track
+  from `scripts/build-angler-music.py`. `AUDIO_ASSETS` +18.
+- Cutscene `vesper-lure` (The Black Water, `src/cutscenes/lure.ts`) with `cs_plate_lake`.
+- Campaign: `BOSS_IDS`, the Tiled Boss enum, `boss20.tmj`, and in `index.json` the stop after 20
+  and the scene before it.
+- Docs: `authoring.md` (the Angler as an example, slag, decoys, looks, `?stop=`).
+- Tests: `bosses.test.ts` (sound count), `campaign.test.ts` (stop 20 is the Angler),
+  `cutscenes.test.ts` (`vesper-lure` plays into the stop, goes to `abyss`, beats in order).
+
+Verified
+- typecheck: clean. lint: one error, `src/art/procedural.ts:465` (`h` unused), in committed code
+  this work did not touch. pnpm test: 984 passed, 1 failed, the known `tests/skills.test.ts` one.
+- Headless Chrome at `localhost:5199`, the paddle steered by script, god mode on, no console
+  errors in any run: `?stop=20` from the entrance to the kill on Easy, and into phase 2 on Normal
+  and Hard; every phase with `&phase=N` on Normal, phase 3 on to the award and Level 21 with
+  reduced motion; each phase 1 attack with `&attack=`; phase 3 on the 16:9 stage;
+  `?scene=vesper-lure` start to finish.
+- The flash test covers the Angler's scenes.
+
+Not verified
+- Sound by ear: every effect, the voices and the track are synthesized and have not been heard.
+- A human Normal run against the plan's 3 to 4 minutes. The scripted paddle took about 55 s on
+  Easy and was in phase 2 after 90 s on Hard, which says little about a person.
+- A real phone.
+
+Open
+- With a fresh save, `?stop=20` shows the "New: Phantoms" hint over the title card. In the
+  campaign the phantoms were met earlier.
+

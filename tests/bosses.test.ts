@@ -306,7 +306,7 @@ describe('boss sounds', () => {
 
   it('has a file on disk behind every boss sound', () => {
     const boss = [...keys].filter(([, path]) => path.startsWith('audio/boss/'));
-    expect(boss.length).toBe(31);
+    expect(boss.length).toBe(49);
     for (const [key, path] of boss) {
       const file = join(ASSETS, path);
       expect(existsSync(file), `${key}: ${path}`).toBe(true);

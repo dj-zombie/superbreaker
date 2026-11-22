@@ -5,7 +5,7 @@ import manifest from './backdrops.json';
 export const WORLD_IDS = ['hell', 'crypt', 'mainframe'] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
 /** Every painted backdrop: the worlds, and scenery a stage brings with it. */
-export const SCENERY_IDS = [...WORLD_IDS, 'carnival', 'crucible'] as const;
+export const SCENERY_IDS = [...WORLD_IDS, 'carnival', 'crucible', 'abyss'] as const;
 export type SceneryId = (typeof SCENERY_IDS)[number];
 
 interface ManifestPart {
@@ -95,6 +95,13 @@ export interface StillLook {
    * units, and where each one's middle crosses the plate, in the plate's own pixels from its top.
    */
   rails?: { name: string; height: number; at: number[] };
+  /** Starts unseen: ParallaxBackdrop.crossStill brings it in over the plates behind it. */
+  reveal?: boolean;
+  /**
+   * Its still water, in the plate's own pixels: glints of `color` drift along the band, and
+   * ParallaxBackdrop.reflect draws a light's streak down it.
+   */
+  water?: { y: number; height: number; color: number; alpha: number };
 }
 
 export type LayerLook = TileLook | GlowLook | MoteLook | StillLook;
@@ -268,6 +275,67 @@ export const WORLD_LOOKS: Record<SceneryId, WorldLook> = {
         scale: [0.25, 0.5],
         alpha: 0.85,
         count: 22,
+      },
+    ],
+  },
+  // The Lantern Angler's: the Crypt's shaft sunk past its last candles, its light gone green,
+  // ending at a black lake in a hall of pillars. Under the water is the ark.
+  abyss: {
+    skyTint: 0xa8a8b4,
+    base: 0x04060a,
+    layers: [
+      { kind: 'tiles', name: 'far', speed: 6, sway: 3 },
+      { kind: 'glow', color: 0x2aff9a, alpha: 0.12, y: 1.08, size: 1 },
+      {
+        // Spores, sinking.
+        kind: 'motes',
+        colors: [0x8affc8, 0xc8ffe8],
+        rise: [-10, -3],
+        scale: [0.08, 0.16],
+        alpha: 0.45,
+        count: 36,
+      },
+      { kind: 'tiles', name: 'fog1', speed: 9, alpha: 0.8, sway: 5, optional: true },
+      { kind: 'tiles', name: 'mid', speed: 17, sway: 8 },
+      {
+        kind: 'still',
+        name: 'lake',
+        width: 880,
+        top: -300,
+        depth: 0.6,
+        glows: [
+          // The candle shrines down each shore, the mist on the horizon, and the candles' streaks.
+          { color: 0xffb050, alpha: 0.4, x: 160, y: 525, width: 220, height: 70 },
+          { color: 0xffb050, alpha: 0.4, x: 560, y: 525, width: 220, height: 70 },
+          { color: 0x9a7ad8, alpha: 0.22, x: 360, y: 565, width: 300, height: 50 },
+          { color: 0xff9a40, alpha: 0.22, x: 150, y: 690, width: 110, height: 200 },
+          { color: 0xff9a40, alpha: 0.22, x: 570, y: 690, width: 110, height: 200 },
+        ],
+        water: { y: 580, height: 262, color: 0xc8d8ff, alpha: 0.32 },
+      },
+      {
+        kind: 'still',
+        name: 'ark',
+        width: 880,
+        top: -300,
+        depth: 0.6,
+        reveal: true,
+        glows: [
+          // The pods down the hull, and its strip lights.
+          { color: 0x3aff8a, alpha: 0.5, x: 330, y: 445, width: 320, height: 190 },
+          { color: 0x3aff8a, alpha: 0.35, x: 300, y: 535, width: 380, height: 60 },
+        ],
+      },
+      { kind: 'tiles', name: 'fog2', speed: 24, alpha: 0.7, sway: 10, optional: true },
+      { kind: 'tiles', name: 'near', speed: 36, sway: 16 },
+      {
+        // Stray souls: the only warm thing down here.
+        kind: 'motes',
+        colors: [0xffc060, 0xffe0a0],
+        rise: [6, 16],
+        scale: [0.3, 0.6],
+        alpha: 0.45,
+        count: 8,
       },
     ],
   },

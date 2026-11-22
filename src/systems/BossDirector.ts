@@ -25,6 +25,7 @@ import {
   planProblems,
   windupFor,
   type AttackDef,
+  type AttackPlan,
   type AttackWindow,
   type BossAnim,
   type BossEvent,
@@ -191,6 +192,11 @@ export interface BossStage {
   readonly bpm: number;
   /** Hits dealt over the total of every pool, 0..1. */
   readonly progress: number;
+  /**
+   * What the attack under way will throw, from its wind-up until the next gap, so a tell can point
+   * at it (the eyes over where shots will fall). Null between attacks. Read it; never change it.
+   */
+  readonly plan: AttackPlan | null;
   /** A part's health left, 0..1, or undefined for a part without its own. */
   health(partId: string): number | undefined;
   /** Adds ordinary bricks to the arena: they break, score and drop. */
@@ -417,6 +423,10 @@ export class BossDirector implements BrickOwner {
   private clock = 0;
   /** Hits struck since the last update, by the part they struck. */
   private readonly pending = new Map<string, number>();
+  /** The plan of the attack under way, from its wind-up until the next gap. */
+  private armed: AttackPlan | null = null;
+  /** Slag that struck home since the last update, reported before the damage it dealt. */
+  private readonly returns: Array<Extract<BossEvent, { type: 'returned' }>> = [];
   /** Beats counted on the fight's own clock, for when no music plays. */
   private freeBeats = 0;
   /** The part of a hit struck but not yet credited to the combo and the score. */
@@ -519,6 +529,7 @@ export class BossDirector implements BrickOwner {
       returned: (id, hits) => {
         if (this.state.step !== 'fight' || !this.cast?.body.part(id)) return false;
         this.pending.set(id, (this.pending.get(id) ?? 0) + hits);
+        this.returns.push({ type: 'returned', part: id, hits });
         return true;
       },
     });
@@ -649,7 +660,9 @@ export class BossDirector implements BrickOwner {
     const inPlay = host.ballInPlay();
     this.freeBeats += (tick * this.bpm) / 60_000;
     if (this.def.beatLock) this.lockToBeat();
-    const events = state.tick(tick, inPlay);
+    const events: BossEvent[] = state.tick(tick, inPlay);
+    events.push(...this.returns);
+    this.returns.length = 0;
     if (this.pending.size > 0) {
       if (this.clock - this.hurtAt >= HURT_GAP_MS) {
         this.hurtAt = this.clock;
@@ -735,6 +748,8 @@ export class BossDirector implements BrickOwner {
   }
 
   private handle(e: BossEvent): void {
+    // The hits are already pending: what a return looks like is the boss's own.
+    if (e.type === 'returned') return;
     if (e.type === 'broken') {
       const brick = this.cast?.body.part(e.part);
       if (brick) this.host.impact(brick.x, brick.y, 0.6, theme().palette.danger);
@@ -836,6 +851,7 @@ export class BossDirector implements BrickOwner {
 
   /** No attack is under way: nothing is on the field, nothing is marked, nothing is given away. */
   private settle(): void {
+    this.armed = null;
     this.hazards.clear();
     this.open = false;
     this.lockPart = undefined;
@@ -870,10 +886,8 @@ export class BossDirector implements BrickOwner {
       }
     }
     // Hazard counts are part of the fight, the same on every device: only the ceiling cuts them.
-    this.hazards.arm(
-      { hazards: plan.hazards.slice(0, MAX_HAZARDS) },
-      windupFor(attack, this.tuning),
-    );
+    this.armed = { hazards: plan.hazards.slice(0, MAX_HAZARDS) };
+    this.hazards.arm(this.armed, windupFor(attack, this.tuning));
     const sfx = attack.tell?.sfx;
     if (sfx) audio.sfx(sfx, TELL_VOLUME, 0, { x: body.center.x });
   }
@@ -1161,12 +1175,13 @@ export class BossDirector implements BrickOwner {
       step === 'reveal' || step === 'fight' || step === 'transition' || step === 'finale';
     view.control = step === 'fight';
     // The bar fills from empty while the boss is named.
-    view.health = step === 'reveal' ? state.stepMs / REVEAL_MS : state.pool / state.poolMax;
+    view.health = step === 'reveal' ? Math.min(1, state.stepMs / REVEAL_MS) : state.pool / state.poolMax;
     this.host.setHud(view);
   }
 
   private makeStage(body: BossBody): BossStage {
     const { host, state } = this;
+    const armed = () => this.armed;
     return {
       scene: host.scene,
       bricks: host.bricks,
@@ -1196,6 +1211,9 @@ export class BossDirector implements BrickOwner {
       bpm: this.bpm,
       get progress() {
         return state.progress;
+      },
+      get plan() {
+        return armed();
       },
       health: (id) => state.partHealth(id),
       spawn: (bricks) => body.spawn(bricks),

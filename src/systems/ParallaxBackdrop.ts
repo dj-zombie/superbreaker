@@ -63,6 +63,15 @@ const RAIL_OVERHANG = 200;
 const FALL_FOCUS_Y = 0.55;
 /** A pulse dies away at this rate, per second. */
 const PULSE_DECAY = 5;
+const RIPPLE_KEY = 'bd_ripple';
+/** The glints on still water drift this fast, in source pixels a second, and squash this flat. */
+const RIPPLE_DRIFT = 9;
+const RIPPLE_SQUASH = 0.45;
+/** Snuffed lights come back at this rate, in glow level a second. */
+const GLOW_RECOVER = 0.7;
+/** How far a surging plate heaves, in playfield units, and how fast, in radians a second. */
+const SURGE_HEAVE = 7;
+const SURGE_RATE = 5.5;
 
 interface TileLayer {
   look: TileLook;
@@ -87,6 +96,10 @@ interface StillLayer {
   srcY: number;
   /** Playfield units per source pixel. */
   scale: number;
+  /** How far `crossStill` has brought it in, 0..1. A plate that is not a reveal starts at 1. */
+  mix: number;
+  /** Glints drifting on its water, and a light's streak down it. */
+  water?: { sprite: Phaser.GameObjects.TileSprite; streak: Phaser.GameObjects.Image };
 }
 
 /**
@@ -144,6 +157,39 @@ function ensureGlowTexture(scene: Phaser.Scene): void {
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 256, 256);
+  tex.refresh();
+}
+
+/**
+ * Glints on dark water: short soft dashes of light, scattered so the tile repeats without a seam.
+ * Drawn once per game from a fixed seed, so it looks the same every time.
+ */
+function ensureRippleTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists(RIPPLE_KEY)) return;
+  const w = 256;
+  const h = 128;
+  const tex = scene.textures.createCanvas(RIPPLE_KEY, w, h);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  for (let i = 0; i < 90; i++) {
+    const x = rnd() * w;
+    const y = rnd() * h;
+    const len = 6 + rnd() * 26;
+    const a = 0.15 + rnd() * 0.55;
+    // Each dash is drawn three times across the edges it crosses, so the tile wraps.
+    for (const dx of [-w, 0, w]) {
+      for (const dy of [-h, 0, h]) {
+        const g = ctx.createLinearGradient(x + dx - len / 2, 0, x + dx + len / 2, 0);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(0.5, `rgba(255,255,255,${a})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x + dx - len / 2, y + dy - 1, len, 2);
+      }
+    }
+  }
   tex.refresh();
 }
 
@@ -230,6 +276,13 @@ export class ParallaxBackdrop implements Tintable {
   private glowBase = 0;
   /** Extra multiply tints on single layers, by layer name. */
   private layerTints = new Map<string, number>();
+  /** How lit the still plates' lights are, 0..1, and the level they come back to after a snuff. */
+  private glowLevel = 1;
+  private glowTarget = 1;
+  /** How hard the still water heaves, 0..1. */
+  private surging = 0;
+  /** A light reflected down the still water: where across the field, how bright and what colour. */
+  private reflection = { x: 0, amount: 0, color: 0xffffff };
 
   /** `pace` scales every scroll speed; menus drift slower than play. */
   constructor(
@@ -324,7 +377,12 @@ export class ParallaxBackdrop implements Tintable {
     return [
       this.sky,
       ...this.tiles.flatMap((t) => t.parts.map((p) => p.sprite)),
-      ...this.stills.flatMap((s) => [s.image, ...s.glows.map((g) => g.image), ...s.rails.map((r) => r.sprite)]),
+      ...this.stills.flatMap((s) => [
+        s.image,
+        ...s.glows.map((g) => g.image),
+        ...s.rails.map((r) => r.sprite),
+        ...(s.water ? [s.water.sprite, s.water.streak] : []),
+      ]),
       ...this.glows.map((g) => g.image),
       ...this.motes.map((m) => m.emitter),
     ];
@@ -340,6 +398,9 @@ export class ParallaxBackdrop implements Tintable {
     this.stills = [];
     this.landing = 'away';
     this.falling = 0;
+    this.glowLevel = this.glowTarget = 1;
+    this.surging = 0;
+    this.reflection.amount = 0;
     if (!this.still) this.paceTarget = this.wantPace;
     this.glows = [];
     this.motes = [];
@@ -412,7 +473,25 @@ export class ParallaxBackdrop implements Tintable {
                   .setDepth(depth + 0.5),
               }))
             : [];
-        this.stills.push({ look: layer, image, glows, rails, srcY: src.y ?? 0, scale: 1 });
+        let water: StillLayer['water'];
+        if (layer.water) {
+          ensureRippleTexture(scene);
+          water = {
+            sprite: scene.add
+              .tileSprite(0, 0, src.width, layer.water.height, RIPPLE_KEY)
+              .setOrigin(0.5, 0)
+              .setBlendMode(Phaser.BlendModes.ADD)
+              .setTileScale(1, RIPPLE_SQUASH)
+              .setDepth(depth + 0.25),
+            streak: scene.add
+              .image(0, 0, GLOW_KEY)
+              .setOrigin(0.5, 0)
+              .setBlendMode(Phaser.BlendModes.ADD)
+              .setDepth(depth + 0.3),
+          };
+        }
+        const mix = layer.reveal ? 0 : 1;
+        this.stills.push({ look: layer, image, glows, rails, srcY: src.y ?? 0, scale: 1, mix, water });
       } else if (!this.still) {
         this.motes.push(this.addMotes(layer, depth));
       }
@@ -587,6 +666,42 @@ export class ParallaxBackdrop implements Tintable {
     this.flare = Math.min(0.6, this.flare + amount * 0.25);
   }
 
+  /**
+   * Brings a still plate in over the ones behind it, `k` from 0 to 1, as a room changes under the
+   * same view. A plate that is not a reveal can be taken out the same way.
+   */
+  crossStill(name: string, k: number): void {
+    const s = this.stills.find((p) => p.look.name === name);
+    if (!s) return;
+    s.mix = Phaser.Math.Clamp(k, 0, 1);
+    this.placeStills();
+  }
+
+  /** The still plates' lights ease to `level` (0..1) of their own brightness: the room dims or comes back. */
+  setGlowLevel(level: number): void {
+    this.glowTarget = Phaser.Math.Clamp(level, 0, 1);
+  }
+
+  /** Blows the still plates' lights out at once. They come back by themselves, to the level last set. */
+  snuff(): void {
+    this.glowLevel = 0;
+  }
+
+  /** The still water heaves, `k` from 0 (glass) to 1 (something huge moving under it). */
+  surge(k: number): void {
+    this.surging = Phaser.Math.Clamp(k, 0, 1);
+  }
+
+  /**
+   * A light over the still water throws its streak down it: `x` across the field, `amount` 0..1
+   * (0 takes it away), in `color`. Call it as the light moves.
+   */
+  reflect(x: number, amount: number, color = this.reflection.color): void {
+    this.reflection.x = x;
+    this.reflection.amount = Phaser.Math.Clamp(amount, 0, 1);
+    this.reflection.color = color;
+  }
+
   /** Where a still plate is drawn now, for props that ride on it. Undefined when it isn't shown. */
   stillFrame(name: string): Readonly<StillFrame> | undefined {
     const s = this.stills.find((p) => p.look.name === name);
@@ -655,6 +770,7 @@ export class ParallaxBackdrop implements Tintable {
       s.image.setTint(multiply(s.look.tint ?? 0xffffff, this.tint));
       for (const r of s.rails) r.sprite.setTint(multiply(s.look.tint ?? 0xffffff, this.tint));
       for (const g of s.glows) g.image.setTint(multiply(g.spec.color, this.tint));
+      if (s.water && s.look.water) s.water.sprite.setTint(multiply(s.look.water.color, this.tint));
     }
     const light = luminance(this.tint);
     for (const m of this.motes) m.emitter.setAlpha(light * this.fade);
@@ -743,8 +859,10 @@ export class ParallaxBackdrop implements Tintable {
     const vy = HEIGHT * FALL_FOCUS_Y;
     const beat = this.pulsing;
     const flicker = this.still ? 1 : 1 + 0.08 * Math.sin(this.clock * 2.3) + 0.05 * Math.sin(this.clock * 5.1);
+    const heave = this.still ? 0 : SURGE_HEAVE * this.surging * Math.sin(this.clock * SURGE_RATE);
+    const lit = this.glowLevel;
     for (const s of this.stills) {
-      const top = LEVEL_OFFSET_Y + s.look.top + rise * HEIGHT * LAND_DROP;
+      const top = LEVEL_OFFSET_Y + s.look.top + rise * HEIGHT * LAND_DROP + heave;
       let zoom = 1;
       let y = top + s.srcY * s.scale;
       let x = vx;
@@ -760,6 +878,7 @@ export class ParallaxBackdrop implements Tintable {
           alpha = 1 - Phaser.Math.Clamp((k - 0.55) / 0.4, 0, 1);
         }
       }
+      alpha *= s.mix;
       s.image
         .setVisible(shown)
         .setPosition(x, y)
@@ -779,9 +898,38 @@ export class ParallaxBackdrop implements Tintable {
           .setVisible(shown)
           .setPosition(x + (spec.x - s.image.frame.width / 2) * s.scale * zoom, y + (spec.y - s.srcY) * s.scale * zoom)
           .setDisplaySize(spec.width * s.scale * zoom * 1.3, spec.height * s.scale * zoom * 1.3)
-          .setAlpha(Math.min(1, spec.alpha * flicker * (0.7 + 0.6 * beat) + this.flare) * alpha * this.fade);
+          .setAlpha(Math.min(1, spec.alpha * lit * flicker * (0.7 + 0.6 * beat) + this.flare) * alpha * this.fade);
       }
+      if (s.water && s.look.water) this.placeWater(s, s.look.water, s.water, x, y, zoom, alpha * (shown ? 1 : 0));
     }
+  }
+
+  /** A plate's water: glints over its band, brighter as it heaves, and a light's streak down it. */
+  private placeWater(
+    s: StillLayer,
+    spec: NonNullable<StillLook['water']>,
+    water: NonNullable<StillLayer['water']>,
+    x: number,
+    y: number,
+    zoom: number,
+    alpha: number,
+  ): void {
+    const scale = s.scale * zoom;
+    const top = y + (spec.y - s.srcY) * scale;
+    const glints = spec.alpha * (1 + 1.5 * this.surging) * (0.6 + 0.4 * this.glowLevel);
+    water.sprite
+      .setVisible(alpha > 0)
+      .setPosition(x, top)
+      .setScale(scale)
+      .setAlpha(Math.min(1, glints * alpha * this.fade));
+    const r = this.reflection;
+    const wobble = this.still ? 1 : 1 + 0.25 * Math.sin(this.clock * 3.1) + 0.12 * Math.sin(this.clock * 7.3);
+    water.streak
+      .setVisible(alpha > 0 && r.amount > 0)
+      .setPosition(r.x, top)
+      .setDisplaySize(46 * zoom * wobble, spec.height * scale * 1.1)
+      .setTint(multiply(r.color, this.tint))
+      .setAlpha(Math.min(1, r.amount * 0.55 * alpha * this.fade));
   }
 
   private onUpdate(_time: number, delta: number): void {
@@ -797,6 +945,21 @@ export class ParallaxBackdrop implements Tintable {
       if (t >= 1) this.landing = 'landed';
     }
     this.pulsing *= Math.exp(-dt * PULSE_DECAY);
+    if (this.glowLevel !== this.glowTarget) {
+      const step = GLOW_RECOVER * dt;
+      this.glowLevel =
+        this.glowLevel < this.glowTarget
+          ? Math.min(this.glowTarget, this.glowLevel + step)
+          : Math.max(this.glowTarget, this.glowLevel - step * 2);
+    }
+    if (!this.still) {
+      for (const s of this.stills) {
+        if (!s.water) continue;
+        const drift = RIPPLE_DRIFT * (1 + 3 * this.surging) * dt;
+        s.water.sprite.tilePositionX += drift;
+        s.water.sprite.tilePositionY = 6 * Math.sin(this.clock * (0.6 + 2 * this.surging));
+      }
+    }
     for (const t of this.tiles) t.offset = (t.offset + t.look.speed * this.pace * dt) % t.period;
     this.place();
 

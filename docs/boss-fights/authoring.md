@@ -2,6 +2,9 @@
 
 Written from the code. Every signature here is copied from `src/core/Boss.ts` or
 `src/systems/BossDirector.ts`. The Warden (`src/bosses/warden.ts`) is the example throughout.
+The Lantern Angler (`src/bosses/angler.ts`, World 2's finale) is the example for a body drawn by a
+rig instead of a sprite sheet (`src/bosses/anglerRig.ts`), attacks timed to its own track
+(`beatLock`, `music`), hazards in its own art (`hazards`), and a scenery it drives.
 
 ## 1. What a boss is here
 
@@ -226,10 +229,21 @@ export interface AttackDef {
 }
 
 export type HazardSpec =
-  | { kind: 'shot'; from: string; x: number; at: number; flightMs: number; onPaddle: PaddleEffect }
+  | {
+      kind: 'shot';
+      from: string;
+      x: number;
+      at: number;
+      flightMs: number;
+      onPaddle: PaddleEffect;
+      look?: 'decoy';
+      offset?: { dx: number; dy: number };
+    }
   | { kind: 'beam'; x: number; width: number; at: number; liveMs: number; onPaddle: PaddleEffect }
   /** Takes a life. */
-  | { kind: 'skull'; from: string; x: number; at: number; flightMs: number };
+  | { kind: 'skull'; from: string; x: number; at: number; flightMs: number }
+  /** Harmless: caught, it flies back at the first part of `returnTo` still standing for `hits`. */
+  | { kind: 'slag'; from: string; x: number; at: number; flightMs: number; returnTo: string[]; hits: number };
 
 export type PaddleEffect =
   | { kind: 'jam'; ms: number }
@@ -263,6 +277,17 @@ the paddle takes a life and ends the attack. A ball in flight that touches a sku
 uses `{ pose: 'open', lock: 'core' }`: dodge the attack, then the eye is yours for `recoverMs`.
 An attack without an opening gives the player nothing for surviving it.
 
+**Gifts and lies.** Slag is the opposite of a shot: catch it and it flies back at the boss, and
+the boss hears `{ type: 'returned', part, hits }` in `on()` (the Angler flares the room for three
+beats). A shot with `look: 'decoy'` is drawn as a lookalike of the slag, but its warning on the
+line is a shot's, so a player who reads the marks is never fooled. `offset` starts a shot away
+from its part's centre, from an eye the picture draws there.
+
+**Looks.** `hazards: HazardLooks` (`src/systems/HazardSystem.ts`) dresses the hazards in the boss's
+art: textures for `shot`, `slag`, `splash`, `skull`, a `decoy` with its colour and sound, a `beam`
+colour (`negative` darkens the room under a firing beam), `shotGlow` to light a shot too dark to
+read, and `fx` presets for the trails and the splash.
+
 ## 7. Dev tools
 
 Dev builds only (`pnpm dev`):
@@ -270,6 +295,7 @@ Dev builds only (`pnpm dev`):
 | Tool | What it does |
 | --- | --- |
 | `?map=bosslab.tmj` | Plays the boss lab (any map file under `public/assets/levels`). |
+| `?stop=20` | Plays the campaign's boss stop after that level (here the Angler), as the campaign does. |
 | `&phase=2` | Starts the fight in that phase (counted from 1), with every earlier `setup` run and no intro. |
 | `&attack=volley` | Makes every phase's deck that one attack. |
 | `&debug` | Draws the parts' hit zones and the performance overlay. |

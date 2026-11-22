@@ -130,6 +130,28 @@ WORLDS = {
             {"name": "rail", "haze": 0.08, "haze_rgb": (60, 16, 8), "gain": 0.8},
         ],
     },
+    # The Lantern Angler's arena: the Crypt's own shaft (`from` reuses its paintings) sunk in the dark
+    # and gone green with the lake's light, ending at the black lake. The ark is the same view with
+    # the water gone, crossfaded in when the boss breaches.
+    "abyss": {
+        "key": "green",
+        "haze": (22, 18, 44),
+        "despill": 0.8,
+        "card": False,
+        "layers": [
+            {"name": "far", "from": "crypt", "haze": 0.62, "haze_rgb": (14, 22, 30), "gain": 0.55, "speed": 6},
+            {"name": "fog1", "fog": (60, 130, 110), "alpha": 0.2, "scale": 1.0, "seed": 11, "speed": 9},
+            {"name": "mid", "from": "crypt", "haze": 0.32, "haze_rgb": (16, 12, 32), "gain": 0.58, "speed": 17},
+            {"name": "fog2", "fog": (26, 44, 56), "alpha": 0.36, "scale": 0.6, "seed": 12, "speed": 24},
+            {"name": "near", "from": "crypt", "haze": 0.12, "haze_rgb": (8, 6, 18), "gain": 0.5, "speed": 36},
+        ],
+        "stills": [
+            {"name": "lake", "haze": 0.08, "haze_rgb": (16, 12, 30), "gain": 0.95,
+             "feather": 70, "feather_bottom": 90, "feather_sides": 50},
+            {"name": "ark", "haze": 0.08, "haze_rgb": (16, 12, 30), "gain": 0.95,
+             "feather": 70, "feather_bottom": 90, "feather_sides": 50},
+        ],
+    },
 }
 
 
@@ -344,7 +366,7 @@ def build(world: str, keep: bool = False) -> tuple[dict, dict]:
             }
             print(f"{world}/{name}: fog {tile.shape[1]}x{tile.shape[0]}")
             continue
-        sections = section_paths(src, name)
+        sections = section_paths(SRC / opts["from"] if "from" in opts else src, name)
         graded = [
             grade(
                 key_out(load(path), spec["key"], spec["despill"]),
@@ -382,6 +404,18 @@ def build(world: str, keep: bool = False) -> tuple[dict, dict]:
         if feather:
             ramp = np.clip(np.arange(plate.shape[0]) / feather, 0, 1) ** 1.5
             plate = plate * ramp[:, None, None]
+        # A plate cut square (a painted window onto the room) fades out at its other edges as well.
+        painted = np.flatnonzero(plate[..., 3].max(axis=1) > 8)
+        bottom_feather = opts.get("feather_bottom", 0)
+        if bottom_feather and painted.size:
+            last = int(painted[-1])
+            ramp = np.clip((last - np.arange(plate.shape[0])) / bottom_feather, 0, 1) ** 1.5
+            plate = plate * ramp[:, None, None]
+        side_feather = opts.get("feather_sides", 0)
+        if side_feather:
+            cols = np.arange(plate.shape[1])
+            ramp = np.clip(np.minimum(cols, plate.shape[1] - 1 - cols) / side_feather, 0, 1) ** 1.5
+            plate = plate * ramp[None, :, None]
         rows = np.flatnonzero(plate[..., 3].max(axis=1) > 8)
         top, bottom = int(rows[0]), int(rows[-1]) + 1
         plate = plate[top:bottom]

@@ -215,9 +215,9 @@ describe('boss stops in levels/index.json', () => {
   const resolveTemplate = (path: string) => templates.get(path.split('/').pop()!);
   const stops = validStops(index.bosses, index.levels.length);
 
-  it('lists every stop it means to, after levels 5, 8 and 10 among them', () => {
+  it('lists every stop it means to, after levels 5, 8, 10 and 20 among them', () => {
     expect(Array.isArray(index.bosses) ? index.bosses.length : 0).toBe(stops.length);
-    expect(stops.map((s) => s.after)).toEqual(expect.arrayContaining([5, 8, 10]));
+    expect(stops.map((s) => s.after)).toEqual(expect.arrayContaining([5, 8, 10, 20]));
   });
 
   const fights = stops.filter((s) => s.map).map((s) => [s.map!, s.map!] as const);
@@ -230,10 +230,11 @@ describe('boss stops in levels/index.json', () => {
     expect(index.levels).not.toContain(file);
   });
 
-  it('puts the Crucible after level 5 and the Warden after level 10', () => {
+  it('puts the Crucible after level 5, the Warden after level 10 and the Angler after level 20', () => {
     for (const [after, key, boss] of [
       [5, 'boss05', 'crucible'],
       [10, 'boss10', 'warden'],
+      [20, 'boss20', 'angler'],
     ] as const) {
       const stop = stops.find((s) => s.after === after)!;
       const map = readJson<TiledMap>(join(LEVELS_DIR, stop.map!));

@@ -156,7 +156,7 @@ export const BOSS_FX: Record<string, FxDef> = {
         channel: 'glow',
         frames: F.boomg,
         anim: { frames: F.boomg },
-        only: ['crypt', 'mainframe'],
+        only: ['crypt', 'abyss', 'mainframe'],
         count: 1,
         life: 640,
         size: 0.8,

@@ -103,6 +103,21 @@ export const FX_PALETTES: Record<SceneryId, FxPalette> = {
     steam: 0xa89080,
     party: [0xffc93c, 0xff7a1a, 0xffe0a0, 0xfff4d0],
   },
+  // The lake: cold green from below and black ink, with lantern-gold the one warm thing in it.
+  abyss: {
+    core: 0xf0fff4,
+    hot: 0xffc860,
+    warm: 0x3aff9a,
+    cool: 0x0a3a2a,
+    spark: 0xd8ffe8,
+    accent: 0x3aff9a,
+    accent2: 0xffc060,
+    volt: 0xc8fff0,
+    arcane: 0x8a4ad8,
+    soot: 0x08040e,
+    steam: 0x6a8a84,
+    party: [0xffc060, 0x3aff9a, 0xd8ffe8, 0x8a4ad8],
+  },
 };
 
 /** Resolves a color reference against a world and the caller's tint. */
