@@ -23,16 +23,19 @@ against their hard limits and fails the build if any is breached:
 
 | Limit                         | Theirs | Ours                         |
 | ----------------------------- | ------ | ---------------------------- |
-| Total size                    | 250MB  | 32.6MB                       |
-| File count                    | 1500   | 291                          |
-| Initial download              | 50MB   | 19.9MB desktop, 14.9MB phone |
-| Initial download, mobile home | 20MB   | 14.9MB, so eligible          |
+| Total size                    | 250MB  | 92.4MB                       |
+| File count                    | 1500   | 624                          |
+| Initial download              | 50MB   | 44.9MB desktop, 40.0MB phone |
+| Initial download, mobile home | 20MB   | 40.0MB, so not eligible      |
 
 The initial download is what the player fetches between the page opening and the first
 `gameplayStart` event, which this game reports when a level scene opens. Everything in
 `AUDIO_ASSETS` and `IMAGE_ASSETS` preloads before the title screen, but backdrop art does not:
 `ParallaxBackdrop.preload` pulls one world at one resolution from the Play scene, and phones take
-the smaller set. That is why the figure differs by device, and why the packer reports both.
+the smaller set. That is why the figure differs by device, and why the packer reports both. The
+bosses' sheets and rigs and the boss and gallery tracks load as a fight or bonus stage starts, never
+before the first level, so they are left out too, all but the Crucible's folder, which Chapter I
+borrows before level 1. Cutscene art and sound are counted in full, which overstates the figure.
 
 Keeping the phone figure under 20MB is what makes the game eligible for their mobile home page, so
 it is worth watching when assets are added.

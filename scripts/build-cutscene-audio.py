@@ -104,6 +104,35 @@ def glitch(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return B.drive(crushed + 0.8 * fall, 1.4)
 
 
+# The dawn bed's chords, a bar of DAWN_BAR seconds each: D, A over C sharp, B minor, G.
+DAWN_CHORDS = ((50, 57, 62, 66, 69), (49, 57, 61, 64, 69), (47, 54, 62, 66, 71), (43, 55, 59, 62, 67))
+DAWN_BAR = 4.0
+DAWN_BLUR = 1.2  # s each chord takes to fade into the next
+
+
+def dawn(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Daylight, for the first time: a warm pad breathing through four major-key chords, soft
+    bells over it like light on water, and an open-air hush. The chords run round, so the bar
+    after the last is the first again and the loop's seam falls on a chord change."""
+    out = np.zeros((2, len(t)))
+    for j in range(-1, int(t[-1] / DAWN_BAR) + 2):
+        start = j * DAWN_BAR - DAWN_BLUR / 2
+        env = B.swell(t - start, DAWN_BLUR) * (1 - B.swell(t - start - DAWN_BAR, DAWN_BLUR))
+        if not env.any():
+            continue
+        chord = DAWN_CHORDS[j % len(DAWN_CHORDS)]
+        for k, note in enumerate(chord):
+            f = B.hz(note)
+            warm = B.saw(f * 1.0023, t) + B.saw(f / 1.0023, t)
+            voice = B.lowpass(warm, 700 + 140 * k) * 0.25 + B.sine(f, t) * 0.5
+            out += B.spread(voice * env * (1.0 if k else 1.3), (k - 2) * 0.18)
+        if j >= 0:
+            bell = B.chime(rng, B.clock(3.0), [(B.hz(chord[-1] + 12), 1.4, 0.5), (B.hz(chord[-2] + 24), 0.9, 0.18)])
+            B.put(out, j * DAWN_BAR + 1.5, bell * B.swell(B.clock(3.0), 0.01), 0.6)
+    air = B.hiss(rng, t, 300, 5000) * (0.6 + 0.4 * B.wander(rng, t, 0.2))
+    return out + air * 0.12
+
+
 # File name, length (s), fade-out (s), synth, loops.
 SOUNDS = (
     ("cs_heartbeat", 1.9, 0.25, heartbeat, False),
@@ -112,6 +141,7 @@ SOUNDS = (
     ("cs_chime", 2.4, 0.6, lantern, False),
     ("cs_wind", 14.0, 0.0, wind, True),
     ("cs_glitch", 1.1, 0.2, glitch, False),
+    ("cs_dawn", 4 * DAWN_BAR, 0.0, dawn, True),
 )
 
 
@@ -175,11 +205,22 @@ SOURCED = (
     ("vo_mainframe_02", "vo/vo_mainframe_02.mp3", MACHINE, -14, 0.4, 1, "96k"),
     ("vo_mainframe_03", "vo/vo_mainframe_03.mp3", MACHINE, -14, 0.4, 1, "96k"),
     ("vo_mainframe_04", "vo/vo_mainframe_04.mp3", MACHINE, -14, 0.4, 1, "96k"),
+    ("vo_overseer_01", "vo/vo_overseer_01.mp3", MACHINE, -14, 0.4, 1, "96k"),
+    ("vo_overseer_02", "vo/vo_overseer_02.mp3", MACHINE, -14, 0.5, 1, "96k"),
+    ("cs_anthem", "audio/anthem.wav", "", -15, 0.0, 2, "128k"),
+    ("cs_credits", "audio/credits.wav", "", -15, 0.0, 2, "128k"),
+    ("cs_victory_sting", "audio/victory_sting.mp3", "atrim=end=6.5", -13, 2.4, 2, "128k"),
+    ("vo_vesper_end_01", "vo/vo_vesper_end_01.mp3", "", -15, 0.3, 1, "96k"),
+    ("vo_vesper_end_02", "vo/vo_vesper_end_02.mp3", "", -15, 0.3, 1, "96k"),
+    ("vo_vesper_end_03", "vo/vo_vesper_end_03.mp3", "", -15, 0.3, 1, "96k"),
+    ("vo_vesper_end_04", "vo/vo_vesper_end_04.mp3", "", -15, 0.3, 1, "96k"),
+    ("vo_vesper_end_05", "vo/vo_vesper_end_05.mp3", "", -15, 0.3, 1, "96k"),
+    ("vo_vesper_end_06", "vo/vo_vesper_end_06.mp3", "", -15, 0.3, 1, "96k"),
 )
 TRIM = "silenceremove=start_periods=1:start_threshold=-50dB"
 # Generated loops (Ludo's are seamless already): no trim, no fade, and one fixed gain instead of
 # loudnorm's moving one, so the seam stays where it was.
-LOOPED = {"cs_rain", "cs_mainframe_bed"}
+LOOPED = {"cs_rain", "cs_mainframe_bed", "cs_anthem", "cs_credits"}
 LOOP_TP = -1.5  # dBTP a loop's gain may not push its peaks past
 
 

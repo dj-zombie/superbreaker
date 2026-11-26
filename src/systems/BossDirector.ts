@@ -11,11 +11,13 @@ import {
   BOSS_PHASE_BONUS,
   BOSS_TUNING,
   BossState,
+  Habits,
   HURT_GAP_MS,
   HURT_MS,
   HUSH_DARK,
   LETHAL_GAP_MS,
   MAX_HAZARDS,
+  MAX_PLAN_BRICKS,
   REVEAL_MS,
   MUSIC_LEAD_MS,
   beatStretch,
@@ -38,6 +40,7 @@ import {
   type SpriteDef,
 } from '../core/Boss';
 import type { MusicTrack } from '../art/music';
+import { LEVEL_OFFSET_Y } from '../config';
 import type { SceneryId } from '../art/backdrops';
 import { BOSS_TRACK } from '../art/bossMusic';
 import { CueSheet } from '../core/Cues';
@@ -153,6 +156,11 @@ export interface BossDef {
    * State changes belong in a phase's `setup`; this only presents.
    */
   on?(s: BossStage, e: BossEvent): void;
+  /**
+   * Every frame from the entrance on, with `dt` in ms of the fight clock: where a part the boss
+   * steers live (`s.steer`) should be now. It runs while play is frozen too, when nothing moves.
+   */
+  tick?(s: BossStage, dt: number): void;
   poses?: Record<string, Pose>;
   phases: PhaseDef[];
   /** The scene the boss arrives in, before the music and its name. */
@@ -181,6 +189,21 @@ export interface BossStage {
   part(id: string): Brick | undefined;
   /** Sets the pose the parts move to. Null is the phase's own pose. */
   pose(id: string | null): void;
+  /**
+   * Steers a part live: it heads for `offset` px from its place at rest at `speed` px/s on Normal, in place
+   * of its pose, until steered again or handed back with null. A new phase hands every part back.
+   * Call it from the boss's `tick`; a cue never steers.
+   */
+  steer(partId: string, offset: Readonly<{ dx: number; dy: number }> | null, speed: number): void;
+  /** Balls in flight, as an attack's plan sees them. Read before the next call; never kept. */
+  balls(): BossView['balls'];
+  /** Where the paddle has tended to stand this fight, as an attack's plan sees it. Never changed by the boss. */
+  readonly habits: readonly number[];
+  /**
+   * Ms of the fight clock since caught slag last struck `partId`, Infinity if none has this fight.
+   * A `tick` can steer by it: what a return does to the boss is the boss's own.
+   */
+  sinceReturn(partId: string): number;
   retire(...partIds: string[]): void;
   /** Breaks parts off as their health running out would, with what the picture shows for it. */
   break(...partIds: string[]): void;
@@ -359,7 +382,7 @@ const KILL_STOP_MS = 180;
 /** Placeholder sounds until the fight has its own: the title card's hit and the award's chime. */
 const TITLE_SFX = 'boss_title';
 const AWARD_SFX = 'boss_award';
-/** The lock reticle draws over the aim arrow (4) and under the hazards and the ball (5). */
+/** The lock reticle draws over the aim arrow (4) and under the hazards (4.6) and the ball. */
 const RETICLE_DEPTH = 4.1;
 /** The reticle on screen, in px. Square, so the cross shows it turning. */
 const RETICLE_SIZE = 72;
@@ -367,6 +390,8 @@ const RETICLE_SIZE = 72;
 const RETICLE_TURN_MS = 7000;
 /** How loud an attack's wind-up sound plays. */
 const TELL_VOLUME = 0.5;
+/** An attack's brick goes up only with no ball in flight within this many px of it. */
+const BUILD_CLEAR = 14;
 
 /** Lights and tweens made through the stage, kept so they can be taken down together. */
 interface Props {
@@ -427,6 +452,8 @@ export class BossDirector implements BrickOwner {
   private armed: AttackPlan | null = null;
   /** Slag that struck home since the last update, reported before the damage it dealt. */
   private readonly returns: Array<Extract<BossEvent, { type: 'returned' }>> = [];
+  /** When caught slag last struck each part, in ms of the fight clock. */
+  private readonly struckAt = new Map<string, number>();
   /** Beats counted on the fight's own clock, for when no music plays. */
   private freeBeats = 0;
   /** The part of a hit struck but not yet credited to the combo and the score. */
@@ -485,6 +512,12 @@ export class BossDirector implements BrickOwner {
   private readonly lockAt = { x: 0, y: 0 };
   /** The mark on the locked part. Made the first time a lock shows. */
   private reticle?: Phaser.GameObjects.Image;
+  /** Where the paddle has stood while the ball was live, on the fight clock. */
+  private readonly habits = new Habits();
+  /** The habits' shares as the stage hands them out, refilled each read, so a frame allocates nothing. */
+  private readonly habitShares: number[] = [];
+  /** The balls as the stage hands them out, refilled each call. */
+  private readonly ballSpots: BossView['balls'] = [];
 
   /** `seed` feeds the fight's Rng. Play picks it once; it is the only randomness outside Rng. */
   constructor(
@@ -604,7 +637,7 @@ export class BossDirector implements BrickOwner {
     return this.lockAt;
   }
 
-  /** Dev tools: hazards of the attack under way that are not over yet. */
+  /** Hazards of the attack under way that are not over yet: for dev tools and the ball's marker. */
   get hazardCount(): number {
     return this.hazards.count;
   }
@@ -661,6 +694,7 @@ export class BossDirector implements BrickOwner {
     this.freeBeats += (tick * this.bpm) / 60_000;
     if (this.def.beatLock) this.lockToBeat();
     const events: BossEvent[] = state.tick(tick, inPlay);
+    for (const r of this.returns) this.struckAt.set(r.part, this.clock);
     events.push(...this.returns);
     this.returns.length = 0;
     if (this.pending.size > 0) {
@@ -682,14 +716,19 @@ export class BossDirector implements BrickOwner {
     if (state.step === 'entrance') state.holdUntil(state.stepMs + audio.ringingMs());
     // Hazards keep the attack's time: like its windows, they wait while no ball is in play.
     // Last of the state changes, since a skull that lands comes back in through onLifeLost.
-    if (state.step === 'fight' && inPlay) this.hazards.update(tick);
+    if (state.step === 'fight' && inPlay) {
+      this.hazards.update(tick);
+      // Only live play teaches the boss where the player stands: not a serve, nor a scene.
+      this.habits.add(host.paddle.x, tick);
+    }
     const body = this.cast?.body;
     if (body) {
       // A step with no length is passed straight through, so an entrance seen here has one.
       if (state.step === 'entrance') body.arrive(Math.min(1, state.stepMs / this.entranceMs));
+      this.def.tick?.(this.cast!.stage, tick);
       // Balls hang still while play is frozen, so the body holds still too and cannot cover one.
       const speed = this.frozen ? 0 : inPlay ? BODY_MAX_SPEED : BODY_SCENE_SPEED;
-      body.move(this.offset(), (speed * tick) / 1000);
+      body.move(this.offset(), (speed * tick) / 1000, this.frozen ? 0 : tick);
       body.tick(tick, this.beats(), state.progress);
       body.show(this.anim());
       const gone = state.step === 'finale' || state.step === 'aftermath';
@@ -761,6 +800,8 @@ export class BossDirector implements BrickOwner {
     if (e.type === 'phase') {
       this.host.addScore(BOSS_PHASE_BONUS);
       this.label();
+      // What the last phase steered goes back to its pose; the new phase steers its own.
+      this.cast?.body.unsteer();
       // Without an entry scene the fight carries straight on. With one, `fight` sets the phase up.
       if (this.state.step === 'fight') this.setUp();
       return;
@@ -839,6 +880,7 @@ export class BossDirector implements BrickOwner {
         break;
       case 'live':
         this.hazards.go();
+        this.build(this.armed?.bricks);
         break;
       case 'recover':
         if (!attack?.opening) break;
@@ -847,6 +889,31 @@ export class BossDirector implements BrickOwner {
         this.pose(attack.opening.pose ?? null);
         break;
     }
+  }
+
+  /** An attack's bricks go up as it goes live, all but any a ball in flight is in the way of. */
+  private build(bricks: AttackPlan['bricks']): void {
+    const body = this.cast?.body;
+    if (!body || !bricks?.length) return;
+    const balls = this.flying();
+    const standing = this.host.bricks.bricks.filter((b) => b.life !== 'dead');
+    const clear = bricks.filter((b) => {
+      const top = b.y + LEVEL_OFFSET_Y;
+      const ballInWay = balls.some(
+        (ball) =>
+          ball.x > b.x - BUILD_CLEAR &&
+          ball.x < b.x + b.width + BUILD_CLEAR &&
+          ball.y > top - BUILD_CLEAR &&
+          ball.y < top + b.height + BUILD_CLEAR,
+      );
+      const brickInWay = standing.some(
+        (o) =>
+          Math.abs(o.x - (b.x + b.width / 2)) < (o.spec.width + b.width) / 2 &&
+          Math.abs(o.y - (top + b.height / 2)) < (o.spec.height + b.height) / 2,
+      );
+      return !ballInWay && !brickInWay;
+    });
+    if (clear.length > 0) body.spawn(clear);
   }
 
   /** No attack is under way: nothing is on the field, nothing is marked, nothing is given away. */
@@ -868,16 +935,13 @@ export class BossDirector implements BrickOwner {
       if (!brick) continue;
       parts[id] = { x: brick.x, y: brick.y, width: brick.spec.width, height: brick.spec.height };
     }
-    const balls: BossView['balls'] = [];
-    for (const b of host.balls()) {
-      if (!b.attached) balls.push({ x: b.x, y: b.y, vx: b.body.velocity.x, vy: b.body.velocity.y });
-    }
     const plan = attack.plan({
       rng: this.rng,
       phaseProgress: 1 - state.pool / state.poolMax,
       paddle: { x: host.paddle.x, width: host.paddle.displayWidth },
-      balls,
+      balls: this.flying().map((b) => ({ ...b })),
       parts,
+      habits: this.habits.shares(),
     });
     if (import.meta.env.DEV) {
       const ids = this.def.parts.map((p) => p.id);
@@ -886,10 +950,29 @@ export class BossDirector implements BrickOwner {
       }
     }
     // Hazard counts are part of the fight, the same on every device: only the ceiling cuts them.
-    this.armed = { hazards: plan.hazards.slice(0, MAX_HAZARDS) };
+    this.armed = {
+      hazards: plan.hazards.slice(0, MAX_HAZARDS),
+      bricks: plan.bricks?.slice(0, MAX_PLAN_BRICKS),
+    };
     this.hazards.arm(this.armed, windupFor(attack, this.tuning));
     const sfx = attack.tell?.sfx;
     if (sfx) audio.sfx(sfx, TELL_VOLUME, 0, { x: body.center.x });
+  }
+
+  /** The balls in flight, in a list refilled on every call. */
+  private flying(): BossView['balls'] {
+    const out = this.ballSpots;
+    let n = 0;
+    for (const b of this.host.balls()) {
+      if (b.attached) continue;
+      const spot = (out[n++] ??= { x: 0, y: 0, vx: 0, vy: 0 });
+      spot.x = b.x;
+      spot.y = b.y;
+      spot.vx = b.body.velocity.x;
+      spot.vy = b.body.velocity.y;
+    }
+    out.length = n;
+    return out;
   }
 
   /** Keeps the reticle on the locked part, and takes it down when nothing is locked. */
@@ -1175,12 +1258,13 @@ export class BossDirector implements BrickOwner {
       step === 'reveal' || step === 'fight' || step === 'transition' || step === 'finale';
     view.control = step === 'fight';
     // The bar fills from empty while the boss is named.
-    view.health = step === 'reveal' ? Math.min(1, state.stepMs / REVEAL_MS) : state.pool / state.poolMax;
+    view.health =
+      step === 'reveal' ? Math.min(1, state.stepMs / REVEAL_MS) : state.pool / state.poolMax;
     this.host.setHud(view);
   }
 
   private makeStage(body: BossBody): BossStage {
-    const { host, state } = this;
+    const { host, state, habits, habitShares: shares } = this;
     const armed = () => this.armed;
     return {
       scene: host.scene,
@@ -1200,6 +1284,15 @@ export class BossDirector implements BrickOwner {
       },
       part: (id) => body.part(id),
       pose: (id) => this.pose(id),
+      steer: (id, offset, speed) => body.steer(id, offset, speed * this.tuning.steer),
+      balls: () => this.flying(),
+      get habits() {
+        return habits.shares(shares);
+      },
+      sinceReturn: (id) => {
+        const at = this.struckAt.get(id);
+        return at === undefined ? Infinity : this.clock - at;
+      },
       retire: (...ids) => body.retire(...ids),
       break: (...ids) => {
         for (const id of ids) body.break(id);

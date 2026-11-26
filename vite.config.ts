@@ -24,7 +24,8 @@ export default defineConfig(({ mode }) => ({
         theme_color: '#0b0820',
         background_color: '#0b0820',
         display: 'fullscreen',
-        orientation: 'portrait',
+        // Tablets play either way up; landscape phones get the rotate prompt in index.html.
+        orientation: 'any',
         start_url: './',
         scope: './',
         icons: [

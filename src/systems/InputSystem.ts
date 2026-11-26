@@ -17,9 +17,10 @@ import type { Paddle } from '../entities/Paddle';
 import { stickSensitivityGain } from './stickSensitivity';
 
 /** Pointers that start on the pause button, a slot or a skill belong to the HUD, not the paddle. */
-function onHudControl(x: number, y: number): boolean {
-  // The wide stage keeps its HUD in the wing plates, off the board.
-  if (WIDE) return x < 0 || x > WIDTH;
+function onHudControl(x: number, y: number, touch: boolean): boolean {
+  // The wide stage keeps its HUD in the wing plates, off the board. On a tablet only the right
+  // plate has buttons, so a thumb resting on the left wing drags the paddle.
+  if (WIDE) return touch ? x > WIDTH : x < 0 || x > WIDTH;
   if (y < HUD_HEIGHT + 6 && x < 56) return true;
   if (slotPositions().some((p) => Math.hypot(p.x - x, p.y - y) < SLOT_RADIUS + 8)) return true;
   if (skillPositions().some((p) => Math.hypot(p.x - x, p.y - y) < SKILL_RADIUS + 8)) return true;
@@ -105,7 +106,7 @@ export class InputSystem {
     this.moved = false;
     this.onHud =
       this.hudLive() &&
-      (onHudControl(p.worldX, p.worldY) ||
+      (onHudControl(p.worldX, p.worldY, p.wasTouch) ||
         [...this.blockers].some((test) => test(p.worldX, p.worldY)));
   }
 

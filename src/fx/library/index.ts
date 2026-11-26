@@ -6,8 +6,10 @@ import { BOSS_FX } from './boss';
 import { BRICK_FX } from './bricks';
 import { ELEMENT_FX } from './elements';
 import { FANFARE_FX } from './fanfare';
+import { FEVER_FX } from './fever';
 import { IMPACT_FX } from './impacts';
 import { LEVEL_FX } from './level';
+import { OVERSEER_FX } from './overseer';
 import { POWERUP_FX } from './powerups';
 import { SCREEN_FX } from './screen';
 import { WEAPON_FX } from './weapons';
@@ -24,7 +26,9 @@ export const FX_LIBRARY = {
   Powerups: POWERUP_FX,
   Boss: BOSS_FX,
   Angler: ANGLER_FX,
+  Overseer: OVERSEER_FX,
   Fanfare: FANFARE_FX,
+  Fever: FEVER_FX,
   Weather: WEATHER_FX,
   Ambient: AMBIENT_FX,
   Screen: SCREEN_FX,

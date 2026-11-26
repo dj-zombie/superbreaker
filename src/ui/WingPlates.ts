@@ -4,16 +4,18 @@ import {
   ABILITY_INFO,
   HEIGHT,
   HUD_HEIGHT,
+  IS_TOUCH,
   POWERUP_INFO,
   RENDER_ZOOM,
   WIDTH,
   WING,
 } from '../config';
 import type { AbilityId } from '../core/Abilities';
+import { lerpColor } from '../fx/math';
 import { MAX_LIVES } from '../core/Difficulty';
 import { MAX_POWERUP_STOCK } from '../core/Session';
 import { SKILLS, SKILL_IDS, type SkillId, type SkillView } from '../core/Skills';
-import { inputSource, onInputSource, type InputSource } from '../platform/gamepad';
+import { controlDevice, inputSource, onInputSource, type InputSource } from '../platform/gamepad';
 import { PAUSE_LABEL, onKeyLabels, skillKeyLabel, slotKeyLabel } from '../platform/keyboard';
 import type { HudState, Play } from '../scenes/Play';
 import type { SlotState } from '../systems/AbilitySystem';
@@ -31,7 +33,8 @@ type Text = Phaser.GameObjects.Text;
 
 /** Inner padding of a plate. */
 const INSET = 20;
-const SLOT_ROW = 46;
+/** Fingers need taller rows than a mouse: about 54 units clears Apple's 44pt on any iPad. */
+const SLOT_ROW = IS_TOUCH ? 54 : 46;
 const EFFECT_ROW = 36;
 const SLOT_RING = 36;
 
@@ -49,9 +52,13 @@ const PAD_HINTS: Hints = {
   stock: ['LB', 'RB', 'LT', 'RT'],
 };
 
+/** A tablet in landscape has no keys to name. */
+const TOUCH_HINTS: Hints = { pause: '', slots: [], skills: [], stock: [] };
+
 /** Keyboard hints name the keys as the player's layout prints them. */
 function hintsFor(source: InputSource): Hints {
   if (source === 'pad') return PAD_HINTS;
+  if (controlDevice(source) === 'touch') return TOUCH_HINTS;
   return {
     pause: PAUSE_LABEL,
     slots: [slotKeyLabel(0), slotKeyLabel(1)],
@@ -403,8 +410,7 @@ export class WingPlates {
   private drawFever(s: HudState): void {
     this.fever.set(Phaser.Math.Clamp(s.fever, 0, 1), false);
     if (s.feverActive) {
-      const hue = (this.scene.time.now / 1500) % 1;
-      this.fever.setColor(Phaser.Display.Color.HSVToRGB(hue, 0.7, 1).color);
+      this.fever.setColor(lerpColor(s.feverColor, 0xffffff, s.feverPulse * 0.45));
     } else {
       const full = s.fever > 0.8 && Math.floor(this.scene.time.now / 120) % 2 === 0;
       this.fever.setColor(full ? 0xffffff : this.t.palette.accent);
@@ -449,8 +455,9 @@ export class WingPlates {
     const x = this.rx + INSET;
     const right = this.rx + this.w - INSET;
     let y = this.top + 32;
-    iconButton(scene, x + 19, y, 'pause', () => this.play.requestPause(), 38).setDepth(2);
-    label(scene, x + 50, y, 'Pause', 13, { t, originX: 0 }).setDepth(2);
+    const pause = IS_TOUCH ? 44 : 38;
+    iconButton(scene, x + pause / 2, y, 'pause', () => this.play.requestPause(), pause).setDepth(2);
+    label(scene, x + pause + 12, y, 'Pause', 13, { t, originX: 0 }).setDepth(2);
     this.pauseHint = this.hintText(right, y, this.hints.pause);
     y += 52;
     for (let i = 0; i < 2; i++) {
@@ -470,7 +477,7 @@ export class WingPlates {
       .setDepth(2);
     this.stockLabel = label(scene, x, 0, 'Stock', 13, { t, originX: 0 }).setDepth(2);
     this.stockGap = Math.min(44, this.inner / MAX_POWERUP_STOCK);
-    this.stockRadius = Math.round(Math.min(16, this.stockGap * 0.38));
+    this.stockRadius = Math.round(Math.min(IS_TOUCH ? 18 : 16, this.stockGap * (IS_TOUCH ? 0.42 : 0.38)));
     for (let i = 0; i < MAX_POWERUP_STOCK; i++) {
       this.sockets.push(ring(scene, 0, 0, this.stockRadius, 2, t.palette.edge, 0.45).setDepth(2));
     }
@@ -702,7 +709,9 @@ export class WingPlates {
           .setOrigin(1, 0.5),
       ]);
       root.setSize(r * 2, r * 2);
-      root.setInteractive(new Phaser.Geom.Circle(r, r, r + 6), Phaser.Geom.Circle.Contains);
+      // On touch the target fills the space to the next socket, so a fingertip still lands on one.
+      const hit = IS_TOUCH ? Math.max(r + 6, this.stockGap / 2) : r + 6;
+      root.setInteractive(new Phaser.Geom.Circle(r, r, hit), Phaser.Geom.Circle.Contains);
       root.on(Phaser.Input.Events.POINTER_DOWN, () => this.play.useStock(i));
       return root;
     });

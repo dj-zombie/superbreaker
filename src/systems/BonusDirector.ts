@@ -128,6 +128,8 @@ export interface Target {
   age: number;
   /** False once it has popped or left. */
   live: boolean;
+  /** The picture: the director moves it and flashes it; a stage may fade, scale or tint it. */
+  readonly sprite: Phaser.GameObjects.Image;
 }
 
 /** The playing area, in world coordinates. */
@@ -206,6 +208,8 @@ export interface BonusStage {
   say(text: string, x: number, y: number, color?: string, size?: number): void;
   /** Keeps a game object for the stage's life: it is destroyed with the stage. */
   keep<T extends Phaser.GameObjects.GameObject>(obj: T): T;
+  /** Runs the timer out `delayMs` of the stage clock from now: the stage ends early. */
+  wrapUp(delayMs: number): void;
 }
 
 /**
@@ -262,6 +266,11 @@ export interface BonusDef {
   ballLost?: Penalty;
   /** The stage has hold-to-fire guns, which heat up and overheat. Without, the gun skill is as ever. */
   guns?: GunsDef;
+  /**
+   * The stage ends once its timer is out and the field is cleared: no "TIME!", no tally card and
+   * no best recorded. Its `onTimeUp` says what the end is.
+   */
+  noTally?: true;
   /** The stage's own scenery, and how fast it scrolls against a level's. The world's when left out. */
   backdrop?: SceneryId;
   pace?: number;
@@ -351,6 +360,8 @@ export interface BonusHud {
   medalValue: number;
   /** The medal reached so far. */
   medal: Medal;
+  /** The stage plays for medals, so its HUD shows the track toward them. */
+  medalTrack: boolean;
   intro: BonusIntroCard | null;
   tally: BonusTallyCard | null;
 }
@@ -421,7 +432,6 @@ interface PendingHit {
 
 interface TargetSlot extends Target {
   brick: Brick;
-  sprite: Phaser.GameObjects.Image;
   /** Stage-clock time of the last ball hit. */
   ballAt: number;
   flashMs: number;
@@ -463,6 +473,8 @@ export class BonusDirector implements BrickOwner {
   /** The stage clock in ms. It follows the world's time scale and stops for hit-stop. */
   private clock = 0;
   private over = false;
+  /** The stage clock the stage asked to end at, with `wrapUp`. */
+  private wrapAt?: number;
   private hyped = false;
   private steering: { x: number; y: number; turn: number } | null = null;
   /** Bolts fired before the stage began, so the accuracy only counts its own. */
@@ -538,6 +550,7 @@ export class BonusDirector implements BrickOwner {
       medalBy: this.state.medalBy,
       medalValue: 0,
       medal: 'none',
+      medalTrack: !def.noTally,
       intro: this.intro,
       tally: null,
     };
@@ -663,6 +676,10 @@ export class BonusDirector implements BrickOwner {
       this.applyHits();
     }
     for (const e of events) this.react(e);
+    if (this.wrapAt !== undefined && this.clock >= this.wrapAt && state.step === 'play') {
+      this.wrapAt = undefined;
+      for (const e of state.endTimer()) this.react(e);
+    }
     if (this.over) return;
     this.moveTargets(tick);
     this.items.update(state.step === 'tally' ? dt : tick);
@@ -704,7 +721,8 @@ export class BonusDirector implements BrickOwner {
         this.timeUp();
         break;
       case 'tally':
-        this.beginTally();
+        if (this.def.noTally) this.finish();
+        else this.beginTally();
         break;
       case 'done':
         this.finish();
@@ -729,6 +747,7 @@ export class BonusDirector implements BrickOwner {
     this.items.dropUnpulled();
     const shots = this.rail ? this.railShots : host.shotsFired() - this.shotsBefore;
     this.state.count('shots', shots);
+    if (this.def.noTally) return;
     const p = theme().palette;
     host.juice.popText(WIDTH / 2, this.field.top + 160, 'TIME!', css(p.accentHi), 56, 1.4);
     audio.sfx('wave_clear', 0.55);
@@ -1244,6 +1263,9 @@ export class BonusDirector implements BrickOwner {
       keep: (obj) => {
         this.kept.push(obj);
         return obj;
+      },
+      wrapUp: (delayMs) => {
+        this.wrapAt = Math.min(this.wrapAt ?? Infinity, this.clock + Math.max(0, delayMs));
       },
     };
   }

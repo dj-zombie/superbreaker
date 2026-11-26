@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { worldForLevel, worldForRun, type SceneryId, type WorldId } from '../art/backdrops';
 import { BOSS_MUSIC_KEY, BOSS_TRACK } from '../art/bossMusic';
+import { CREDITS_BED, loadFinale, VICTORY_PLATE } from '../art/finale';
 import { GALLERY_MUSIC_KEY, GALLERY_TRACK } from '../art/galleryMusic';
 import {
   ARENA_MID,
@@ -14,6 +15,7 @@ import {
   POWERUP_INFO,
   SCENES,
   HYPER_DAMAGE_MULT,
+  HYPER_GRACE_MS,
   HYPER_TIME_SCALE,
   PHYSICS_FPS,
   RENDER_ZOOM,
@@ -73,6 +75,7 @@ import {
 } from '../core/Session';
 import {
   clearedLabel,
+  isFinalStep,
   stepAfter,
   stepKey,
   stepLabel,
@@ -109,6 +112,7 @@ import {
 import { BrickSystem, type DestroyCause } from '../systems/BrickSystem';
 import { Backdrop } from '../systems/Backdrop';
 import { BallFx } from '../systems/BallFx';
+import { BallMarker } from '../systems/BallMarker';
 import { ElementFx } from '../systems/ElementFx';
 import { ElementIntro } from '../systems/ElementIntro';
 import { FrameMonitor, particleDensity } from '../systems/Quality';
@@ -124,6 +128,7 @@ import { GUN_DEPTH } from '../systems/RailGunFx';
 import { RunDirector, type RunHost } from '../systems/RunDirector';
 import { framePanel, glowLineTexture } from '../ui/frames';
 import { slam } from '../ui/fx/motion';
+import { transitionTo } from '../ui/fx/transitions';
 import { solid } from '../ui/shapes';
 import { onBack } from '../ui/nav';
 import { calm, css, pickWorld, theme, useWorld, worldLevels } from '../ui/theme';
@@ -143,6 +148,8 @@ export interface PlayData {
   handoff?: BackdropSnapshot;
   /** Dev only: a map pushed from Tiled's Live Preview dock, played in place of `index`'s. */
   editor?: EditorPlay;
+  /** The credits stage after the campaign's ending, played in place of `index`. It ends on Victory. */
+  finale?: 'credits';
 }
 
 /** A previewed map and the world it plays in. Its level replays on a clear or a loss, unsaved. */
@@ -202,6 +209,9 @@ export interface HudState {
   /** Fever meter fill, or time left while Fever runs (0..1). */
   fever: number;
   feverActive: boolean;
+  /** Fever's color and beat pulse (0..1) this frame, while it runs. */
+  feverColor: number;
+  feverPulse: number;
   /** Drives the control deck's slider marker. */
   paddleX: number;
   /** A ball is waiting on the paddle for a launch. */
@@ -222,6 +232,9 @@ export interface HudState {
 
 /** Shield bar center, just under the paddle and above the deck panel. */
 const shieldY = () => DECK_TOP - 8;
+const SHIELD_BAR_H = 14;
+/** Where a ball's center turns back off Hyperspeed's barrier, which stands where the shield does. */
+const hyperFloorY = () => shieldY() - SHIELD_BAR_H / 2 - BALL_SIZE / 2;
 
 /** Arcade passes sprite-vs-group callback args in its own order, so find the ball explicitly. */
 function pickBall(a: unknown, b: unknown): Ball {
@@ -303,10 +316,23 @@ const BREACH_DEATH_DELAY = 0.35;
 const LASER_GLOW_GAP_MS = 80;
 /** Bullet time cools the whole field by multiplying it with this. */
 const SLOWMO_TINT = 0xa8c4ff;
+/** Hyperspeed's barrier blinks for this long before it drops. */
+const HYPER_WARN_MS = 1_500;
+/**
+ * The ball's marker reads the field as fully busy past this many particles over a calm baseline
+ * (weather aside), at this many pickups and boss shots in the air, or at this many balls in
+ * flight. Hyperspeed and Fever always count as busy.
+ */
+const BUSY_CALM_PARTICLES = 120;
+const BUSY_PARTICLES = 400;
+const BUSY_THINGS = 4;
+const BUSY_BALLS = 3;
 /** A ball lost in a bonus stage is back on the paddle and away again after this long. */
 const BONUS_SERVE_MS = 600;
 /** The words over the paddle as a stage played without a ball begins. */
 const FIRE_HINT = { pad: 'PRESS A TO FIRE', touch: 'TAP TO FIRE', desktop: 'CLICK TO FIRE' } as const;
+/** The credits groove's level, as a cutscene bed. */
+const FINALE_BED_VOLUME = 0.55;
 export class Play extends BaseScene {
   levelIndex = 1;
   /** Campaign: this is a stop after level `levelIndex`, the boss fight or its bonus stage. */
@@ -315,6 +341,8 @@ export class Play extends BaseScene {
   runConfig?: RunConfig;
   private handoff?: BackdropSnapshot;
   private editor?: EditorPlay;
+  /** Set while the credits stage plays. */
+  private finale?: 'credits';
   hud!: HudState;
 
   private level!: LevelSpec;
@@ -349,6 +377,7 @@ export class Play extends BaseScene {
   private beacons = new Map<Brick, Light>();
   private shieldLight?: Light;
   private ballFx!: BallFx;
+  private ballMarker!: BallMarker;
   private elements!: ElementFx;
   /** Every particle effect in the level, on one atlas and one frame budget. */
   private fx!: FxEngine;
@@ -383,6 +412,9 @@ export class Play extends BaseScene {
   /** Time until a held ball launches by itself. */
   private serveMs = 0;
   private shieldBar?: Phaser.Physics.Arcade.Image;
+  /** Time left on Hyperspeed's barrier, counting its grace, and the barrier on the deck line. */
+  private hyperGuardMs = 0;
+  private hyperBar?: Phaser.GameObjects.Image;
   private aim = -Math.PI / 2;
   private aimDir = 1;
   private laserGlowAt = -Infinity;
@@ -408,8 +440,11 @@ export class Play extends BaseScene {
       ? 0
       : Phaser.Math.Clamp(data.index ?? 1, 1, Math.max(1, this.levels.length));
     this.editor = data.run ? undefined : data.editor;
+    this.finale = data.run || this.editor || !this.finaleLevel ? undefined : data.finale;
+    // The credits roll in the campaign's last world, as the level after its last.
+    if (this.finale) this.levelIndex = Math.max(1, this.levels.length);
     this.atStop =
-      data.run || this.editor ? undefined : stopOf(this.stopAfter(this.levelIndex), data.stop);
+      data.run || this.editor || this.finale ? undefined : stopOf(this.stopAfter(this.levelIndex), data.stop);
     this.world = data.run
       ? worldForRun(data.run.seed)
       : (this.editor?.world ?? worldForLevel(this.levelIndex));
@@ -431,6 +466,14 @@ export class Play extends BaseScene {
     this.tapFire = false;
     this.burstTaught = false;
     this.sidearmTap = false;
+    this.bonusTrack = false;
+  }
+
+  /** What plays this again from the start: the pause menu's Restart. */
+  get replayData(): PlayData {
+    if (this.runConfig) return { run: { ...this.runConfig, seed: randomSeed() } };
+    if (this.finale) return { finale: this.finale };
+    return this.campaignStep;
   }
 
   /** Campaign: where this level sits, a level or one of the stops after one. */
@@ -441,6 +484,7 @@ export class Play extends BaseScene {
   /** Campaign: the map this scene plays. */
   private campaignLevel(): LevelSpec | undefined {
     if (this.editor) return this.editor.level;
+    if (this.finale) return this.finaleLevel;
     if (this.atStop) return stopLevel(this.stopAfter(this.levelIndex), this.atStop);
     return this.levels[this.levelIndex - 1];
   }
@@ -467,6 +511,7 @@ export class Play extends BaseScene {
     if ((level?.bonus || this.bonusAhead) && !this.cache.audio.exists(GALLERY_MUSIC_KEY)) {
       this.load.audio(GALLERY_MUSIC_KEY, `assets/${GALLERY_TRACK.path}`);
     }
+    if (this.finale) loadFinale(this, [VICTORY_PLATE], [CREDITS_BED]);
     // A boss's sheet loads with its level, so the levels without one never fetch it.
     const boss = level?.boss;
     if (!boss) return;
@@ -522,6 +567,8 @@ export class Play extends BaseScene {
       stock: [],
       fever: 0,
       feverActive: false,
+      feverColor: 0xffffff,
+      feverPulse: 0,
       paddleX: WIDTH / 2,
       ballHeld: true,
       coaching: false,
@@ -545,6 +592,8 @@ export class Play extends BaseScene {
     this.brickLights = [];
     this.beacons = new Map();
     this.shieldLight = undefined;
+    this.hyperGuardMs = 0;
+    this.hyperBar = undefined;
     this.setupPhysics();
 
     this.fx = new FxEngine(this, {
@@ -561,6 +610,7 @@ export class Play extends BaseScene {
     this.juice = new JuiceSystem(this, this.fx);
     this.juice.particleScale = particleDensity();
     this.ballFx = new BallFx(this.fx);
+    this.ballMarker = new BallMarker(this, () => this.ballList);
     this.elements = new ElementFx({
       scene: this,
       fx: this.fx,
@@ -629,12 +679,17 @@ export class Play extends BaseScene {
     this.musicMood = new MusicIntensity();
     this.fever = new FeverSystem(
       this,
-      this.juice,
-      this.backdrop,
-      (active) => {
-        this.onEffectsChanged();
-        this.scenery.setPace((active ? 3.5 : 1) * this.sceneryPace);
-        if (active) this.fx.play('fanfare.fever', WIDTH / 2, ARENA_MID, { tint: this.fever.trailColor, quiet: true });
+      {
+        juice: this.juice,
+        backdrop: this.backdrop,
+        fx: this.fx,
+        lighting: this.lighting,
+        paddle: this.paddle,
+        world: () => this.scenery.current,
+        onChange: () => {
+          this.onEffectsChanged();
+          this.scenery.setPace((this.fever.active ? 3.5 : 1) * this.sceneryPace);
+        },
       },
       this.lighting.look.lightsOut ? 0.35 : 1,
     );
@@ -678,7 +733,7 @@ export class Play extends BaseScene {
         lights: this.lighting,
         paddle: this.paddle,
         powerups: this.powerups,
-        feverTint: () => (this.fever.active ? this.fever.trailColor : undefined),
+        feverTint: () => (this.fever.active ? this.fever.color : undefined),
       },
       world,
     );
@@ -818,7 +873,7 @@ export class Play extends BaseScene {
 
     this.scene.launch(SCENES.hud);
     audio.resetArpeggio();
-    if (!bossIntro) audio.playMusic('music');
+    if (!bossIntro && !this.finale) audio.playMusic('music');
 
     this.unsubscribeBackground = onAppBackground(() => this.requestPause());
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewport, this);
@@ -862,6 +917,7 @@ export class Play extends BaseScene {
     this.intro?.update(dt);
     this.syncFreeze();
     this.ballFx.update(this.ballList);
+    this.ballMarker.busy = this.fieldBusy();
     this.elements.update(dt);
     this.syncLights();
     this.updateSkills(dt);
@@ -869,6 +925,7 @@ export class Play extends BaseScene {
     this.laser.update(dt);
     this.updatePacing(dt);
     this.updateMusic(dt);
+    this.updateHyperGuard(dt);
     this.checkLostBalls();
     this.runDirector?.update(dt);
     // The last life going ends the level first: a boss can't also die on that frame.
@@ -897,6 +954,8 @@ export class Play extends BaseScene {
     this.hud.stock = save.state.stock.powerups;
     this.hud.fever = this.fever.meter.display;
     this.hud.feverActive = this.fever.active;
+    this.hud.feverColor = this.fever.color;
+    this.hud.feverPulse = this.fever.pulse;
     this.hud.paddleX = this.paddle.x;
     // A boss level is won by killing the boss, not by clearing the bricks; a bonus stage by its tally.
     if (this.boss?.active || this.bonus) return;
@@ -1409,23 +1468,85 @@ export class Play extends BaseScene {
 
   private checkLostBalls(): void {
     if (this.ballless) return;
-    if (save.state.settings.godMode) this.bounceOffFloor();
+    if (this.hyperGuardMs > 0) {
+      for (const b of this.bounceOffFloor(hyperFloorY())) this.onHyperGuardBounce(b);
+    }
+    // God mode: balls bounce back up where they would otherwise be lost.
+    if (save.state.settings.godMode) {
+      for (const b of this.bounceOffFloor(Math.min(LOSE_Y, HEIGHT) - BALL_SIZE / 2)) this.onWallBounce(b);
+    }
     for (const b of this.ballList) {
       if (b.y > LOSE_Y) b.destroy();
     }
     if (this.ballList.length === 0) this.loseLife();
   }
 
-  /** God mode: balls bounce back up where they would otherwise be lost. */
-  private bounceOffFloor(): void {
-    const floor = Math.min(LOSE_Y, HEIGHT) - BALL_SIZE / 2;
+  /** Balls whose center went past `floor` are put back on it, and turned up if they were falling. */
+  private bounceOffFloor(floor: number): Ball[] {
+    const bounced: Ball[] = [];
     for (const b of this.ballList) {
       if (b.attached || b.y < floor) continue;
       b.setY(floor);
       if (b.body.velocity.y <= 0) continue;
       b.body.velocity.y = -b.body.velocity.y;
-      this.onWallBounce(b);
+      bounced.push(b);
     }
+    return bounced;
+  }
+
+  /**
+   * Hyperspeed runs the world too fast to always catch, so while it lasts, and for a moment after,
+   * a barrier on the shield's line sends every ball back up. It blinks before it drops.
+   */
+  private updateHyperGuard(dt: number): void {
+    const hyper = this.powerups.effect('hyper');
+    this.hyperGuardMs = hyper
+      ? hyper.remainingMs + HYPER_GRACE_MS
+      : Math.max(0, Math.min(this.hyperGuardMs, HYPER_GRACE_MS) - dt);
+    if (this.hyperGuardMs <= 0) {
+      this.dropHyperGuard();
+      return;
+    }
+    if (!this.hyperBar) {
+      this.hyperBar = this.add
+        .image(WIDTH / 2, shieldY(), 'shield_bar')
+        .setDisplaySize(WIDTH, SHIELD_BAR_H)
+        .setTint(POWERUP_INFO.hyper.color)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(3);
+    }
+    const blink = Math.floor(this.hyperGuardMs / 110) % 2 ? 0.2 : 0.9;
+    const pulse = 0.75 + 0.25 * Math.sin(this.time.now / 90);
+    this.hyperBar.alpha = this.hyperGuardMs < HYPER_WARN_MS ? blink : pulse;
+  }
+
+  private dropHyperGuard(): void {
+    this.hyperGuardMs = 0;
+    this.hyperBar?.destroy();
+    this.hyperBar = undefined;
+  }
+
+  private onHyperGuardBounce(ball: Ball): void {
+    ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
+    this.refillPlow(ball);
+    const color = POWERUP_INFO.hyper.color;
+    const y = shieldY() - SHIELD_BAR_H / 2;
+    this.juice.ring(ball.x, y, color, 60);
+    this.fx.play('impact.paddle', ball.x, y, { tint: color, angle: -90, bare: true });
+    audio.sfx('sfx_shield_on', 0.35, 0, { x: ball.x });
+    haptic('light');
+  }
+
+  /**
+   * How busy the field is for the ball's marker, 0..1: bursts of particles, pickups and boss
+   * shots in the air, several balls at once, or the speed of Hyperspeed and Fever.
+   */
+  private fieldBusy(): number {
+    if (this.powerups.is('hyper') || this.fever.active) return 1;
+    const particles = (this.fx.aliveCount(false) - BUSY_CALM_PARTICLES) / BUSY_PARTICLES;
+    const things = (this.powerups.group.countActive() + (this.boss?.hazardCount ?? 0)) / BUSY_THINGS;
+    const balls = (this.freeBallCount - 1) / (BUSY_BALLS - 1);
+    return Phaser.Math.Clamp(Math.max(particles, things, balls), 0, 1);
   }
 
   private currentMode() {
@@ -1599,6 +1720,7 @@ export class Play extends BaseScene {
       floor: this.paddle.y + 18,
       bare: true,
     });
+    this.fever.sparkAt(b.x, b.y);
     const glow = b.spec.light;
     this.lighting.flash(
       b.x,
@@ -1785,7 +1907,7 @@ export class Play extends BaseScene {
   private syncLights(): void {
     this.lighting.held = !!this.boss?.cinematic;
     const look = this.lighting.look.ball;
-    const fever = this.fever.active ? this.fever.trailColor : undefined;
+    const fever = this.fever.active ? this.fever.color : undefined;
     let main: Ball | undefined;
     for (const b of this.ballList) {
       let l = this.ballLights.get(b);
@@ -1804,7 +1926,8 @@ export class Play extends BaseScene {
       l.color = fever ?? (b.isHyper ? 0xffe14d : look[mode]);
       l.flicker = mode === 'fireball' ? 'torch' : 'steady';
       l.speed = 2;
-      l.radius = look.radius * (mode === 'fireball' ? 1.25 : 1) * (main ? 0.75 : 1);
+      const reach = fever !== undefined ? 1.3 : mode === 'fireball' ? 1.25 : 1;
+      l.radius = look.radius * reach * (main ? 0.75 : 1);
       l.intensity = look.intensity * (mode === 'fireball' ? 1.2 : 1);
       main ??= b;
     }
@@ -1910,7 +2033,7 @@ export class Play extends BaseScene {
     this.hud.shield = true;
     if (this.shieldBar) return;
     const bar = this.physics.add.staticImage(WIDTH / 2, shieldY(), 'shield_bar');
-    bar.setDisplaySize(WIDTH, 14).refreshBody();
+    bar.setDisplaySize(WIDTH, SHIELD_BAR_H).refreshBody();
     bar.setBlendMode(Phaser.BlendModes.ADD).setDepth(3);
     this.tweens.add({
       targets: bar,
@@ -1919,15 +2042,21 @@ export class Play extends BaseScene {
       yoyo: true,
       repeat: -1,
     });
-    this.physics.add.collider(bar, this.balls, (a, b) => {
-      const ball = pickBall(a, b);
-      ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
-      ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
-      this.juice.ring(ball.x, bar.y, 0x78dcff, 60);
-      audio.sfx('sfx_shield_break', 0.5, 0, { x: ball.x });
-      haptic('medium');
-      this.removeShield();
-    });
+    this.physics.add.collider(
+      bar,
+      this.balls,
+      (a, b) => {
+        const ball = pickBall(a, b);
+        ball.body.setVelocityY(-Math.abs(ball.body.velocity.y));
+        ball.normalize(this.diff.minSpeed, this.diff.maxSpeed);
+        this.juice.ring(ball.x, bar.y, 0x78dcff, 60);
+        audio.sfx('sfx_shield_break', 0.5, 0, { x: ball.x });
+        haptic('medium');
+        this.removeShield();
+      },
+      // Hyperspeed's barrier stands on the same line and takes the ball instead, keeping the shield.
+      () => this.hyperGuardMs <= 0,
+    );
     this.shieldBar = bar;
     this.shieldLight = this.lighting.addLight({
       x: 0,
@@ -2006,7 +2135,7 @@ export class Play extends BaseScene {
     for (const b of free) {
       b.speed = relaxSpeed(chaseSpeed(b.speed, target, dt), target, dt);
       b.setHyper(hyper);
-      if (this.fever.active) b.setTrailTint(this.fever.trailColor);
+      if (this.fever.active) b.setTrailTint(this.fever.color);
     }
   }
 
@@ -2179,6 +2308,7 @@ export class Play extends BaseScene {
       this.skills.gun.stop();
       if (this.skills.slowmo.active) this.endSlowmo();
       this.removeShield();
+      this.dropHyperGuard();
       this.paddle.resetSize();
       this.paddle.jam(0);
       this.coach?.ballReturned(false);
@@ -2199,6 +2329,12 @@ export class Play extends BaseScene {
 
   /** True while the shooting gallery has the music. The bed stops once, as the stage ends. */
   private updateBonusMusic(): boolean {
+    // The credits roll to their own groove, which plays on into the Victory screen.
+    if (this.finale) {
+      if (!this.bonusTrack) audio.sceneBed(CREDITS_BED, { volume: FINALE_BED_VOLUME });
+      this.bonusTrack = true;
+      return true;
+    }
     const on = !!this.bonus?.active;
     if (!on) {
       if (this.bonusTrack) {
@@ -2404,10 +2540,44 @@ export class Play extends BaseScene {
     };
     if (!data.next) {
       this.inputSys.enabled = false;
-      this.time.delayedCall(RESULTS_DELAY_MS, () => this.showResults(data));
+      const last = isFinalStep(
+        here,
+        (i) => !!this.stopAfter(i)?.level,
+        (i) => !!this.stopAfter(i)?.bonus,
+        total,
+      );
+      this.time.delayedCall(RESULTS_DELAY_MS, () =>
+        last ? this.finishCampaign(data) : this.showResults(data),
+      );
       return;
     }
     this.showClearBanner(data);
+  }
+
+  /**
+   * The campaign's last step is won. The first time, the ending plays and the credits roll after
+   * it; after that, the win goes straight to the Victory screen.
+   */
+  private finishCampaign(data: ResultsData): void {
+    gameplayStop();
+    const story = storyBetween(this, { index: data.index, stop: data.stop }, undefined);
+    if (story) {
+      playCutscene(
+        this,
+        story,
+        { scene: SCENES.play, data: { finale: 'credits' } satisfies PlayData },
+        { handoff: this.scenery.snapshot(), stop: [SCENES.hud] },
+      );
+      return;
+    }
+    this.toVictory();
+  }
+
+  /** On to the Victory screen, from the campaign's last win or the end of the credits. */
+  private toVictory(): void {
+    gameplayStop();
+    this.inputSys.enabled = false;
+    transitionTo(this, SCENES.victory, undefined, { stop: [SCENES.hud] });
   }
 
   /**
@@ -2418,6 +2588,7 @@ export class Play extends BaseScene {
     this.bannerUp = true;
     this.clearHint();
     this.powerups.clear();
+    this.dropHyperGuard();
     this.laser.clear();
     this.physics.world.pause();
 
@@ -2809,6 +2980,11 @@ export class Play extends BaseScene {
       this.hud.coinsEarned += reward.coins;
       save.addCoins(reward.coins);
     }
+    if (this.finale) {
+      this.finished = this.cleared = true;
+      this.toVictory();
+      return;
+    }
     const run = this.runDirector;
     const owned = unlockedAbilities(save.state.abilities);
     for (let i = 0; i < reward.abilityCharges; i++) {
@@ -2872,6 +3048,7 @@ export class Play extends BaseScene {
       this.shieldBar.refreshBody();
     }
     if (this.shieldLight) this.shieldLight.y = shieldY() - 34;
+    this.hyperBar?.setY(shieldY());
   }
 
   /** Runs after the Arcade plugin has torn down its world, so never touch `this.physics.world` here. */

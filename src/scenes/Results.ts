@@ -15,7 +15,6 @@ import { cascade, countUp, slam } from '../ui/fx/motion';
 import { burst, flyCoins } from '../ui/fx/particles';
 import { BehindFx } from '../ui/fx/sceneFx';
 import { transitionTo } from '../ui/fx/transitions';
-import { playCutscene, storyBetween, type CutsceneNext } from './Cutscene';
 import { onBack } from '../ui/nav';
 import { calm, css, themeFor, type UiTheme } from '../ui/theme';
 import { display, glowWord, heading, label } from '../ui/type';
@@ -248,24 +247,12 @@ export class Results extends Overlay {
     const next = this.result.win ? this.result.next : undefined;
     if (!next || stepKey(step) !== stepKey(next)) runCarry.discard();
     const data = { index: step.index, stop: step.stop };
-    if (this.ending({ scene: SCENES.play, data })) return;
     void this.adBreak(() => transitionTo(this, SCENES.play, data, { stop: [SCENES.hud] }));
   }
 
   private goLevels(): void {
     runCarry.discard();
     const world = worldForLevel(this.result.index);
-    if (this.ending({ scene: SCENES.worldPath, data: { world } })) return;
     transitionTo(this, SCENES.worldPath, { world }, { stop: [SCENES.play, SCENES.hud] });
-  }
-
-  /** The campaign's last win plays the scene that follows it, once, on the way to `next`. */
-  private ending(next: CutsceneNext): boolean {
-    const d = this.result;
-    if (!d.win || d.next || d.run) return false;
-    const story = storyBetween(this, { index: d.index, stop: d.stop }, undefined);
-    if (!story) return false;
-    playCutscene(this, story, next, { stop: [SCENES.play, SCENES.hud] });
-    return true;
   }
 }

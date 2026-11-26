@@ -40,7 +40,7 @@ import { installBack } from '../ui/nav';
 import { cutsceneDef } from '../cutscenes';
 import { editorMode, installEditorHost } from '../editor/liveHost';
 import type { CachedResolvers } from '../editor/payload';
-import { BaseScene } from './BaseScene';
+import { BaseScene, FINALE_MAP, FINALE_REG } from './BaseScene';
 import { CUTSCENES_REG, storyBetween, type CutsceneData } from './Cutscene';
 
 const LEVEL_INDEX = 'levels-index';
@@ -116,12 +116,27 @@ function devScene(): CutsceneData | undefined {
   if (!id || !cutsceneDef(id)) return undefined;
   const at = q.get('at');
   const ms = Number(at);
-  return { id, at: at === null ? undefined : Number.isFinite(ms) ? ms : at };
+  return { id, at: at === null ? undefined : Number.isFinite(ms) ? ms : at, preview: true };
+}
+
+/** Dev only: `?unsee=ending,the-door` (or `?unsee=all`) forgets that those cutscenes were watched. */
+function devUnsee(): void {
+  if (!import.meta.env.DEV) return;
+  const ids = new URLSearchParams(location.search).get('unsee')?.split(',').filter(Boolean);
+  if (!ids?.length) return;
+  save.update((s) => {
+    s.seenScenes = ids.includes('all') ? [] : s.seenScenes.filter((id) => !ids.includes(id));
+  });
 }
 
 /** Dev only: `?fx=lab` opens the FX Lab. */
 function devFxLab(): boolean {
   return import.meta.env.DEV && new URLSearchParams(location.search).get('fx') === 'lab';
+}
+
+/** Dev only: `?finale=credits` rolls the credits stage, and `?finale=victory` opens the Victory screen. */
+function devFinale(): string | null {
+  return import.meta.env.DEV ? new URLSearchParams(location.search).get('finale') : null;
 }
 
 export class Preload extends BaseScene {
@@ -166,7 +181,7 @@ export class Preload extends BaseScene {
       // A map opened from Tiled that isn't in the campaign yet is played as an extra level.
       const map = devMap();
       if (map && !index.levels.includes(map) && !stops.includes(map)) index.levels.push(map);
-      for (const file of new Set([...index.levels, ...stops, ...bonuses])) {
+      for (const file of new Set([...index.levels, ...stops, ...bonuses, FINALE_MAP])) {
         this.load.json(`level:${file}`, `levels/${file}`);
       }
     });
@@ -200,11 +215,13 @@ export class Preload extends BaseScene {
     this.registry.set('levels', levels);
     const stops = this.parseStops(levels.length);
     this.registry.set('bossStops', stops);
+    this.registry.set(FINALE_REG, this.parseMap(FINALE_MAP));
     this.registry.set(CUTSCENES_REG, this.parseScenes());
     loadingStop();
     // Reported on every load, not just on a clear: added levels lower a finished player's share.
     reportProgress((save.clearedCount() / Math.max(1, levels.length)) * 100);
     installBack(() => transitioning(this));
+    devUnsee();
     const jump = devLevel(levels);
     const stop = devStop(stops);
     const run = devRun();
@@ -219,6 +236,8 @@ export class Preload extends BaseScene {
     else if (jump) this.scene.start(SCENES.play, { index: jump });
     else if (devGallery()) this.scene.start(SCENES.gallery);
     else if (devFxLab()) this.scene.start(SCENES.fxLab);
+    else if (devFinale() === 'credits') this.scene.start(SCENES.play, { finale: 'credits' });
+    else if (devFinale() === 'victory') this.scene.start(SCENES.victory);
     // A new player lands in level 1 with no clicks, and the tutorial runs over real play. The
     // story scene routed before level 1, if any, plays first.
     else if (save.isNewPlayer()) this.startFirstLevel();

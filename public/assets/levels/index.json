@@ -48,6 +48,10 @@
     {
       "after": 20,
       "map": "boss20.tmj"
+    },
+    {
+      "after": 30,
+      "map": "boss30.tmj"
     }
   ],
   "scenes": [
@@ -66,6 +70,14 @@
     {
       "id": "chapter-3",
       "before": "level21"
+    },
+    {
+      "id": "the-door",
+      "before": "boss30"
+    },
+    {
+      "id": "ending",
+      "after": "boss30"
     }
   ]
 }

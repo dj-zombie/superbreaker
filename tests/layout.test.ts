@@ -8,6 +8,7 @@ import {
   DECK_MIN_TOUCH,
   DECK_MOUSE,
   HUD_STRIP,
+  TABLET_MIN_SIDE,
   WING_MIN,
   computeLayout,
   computeStage,
@@ -20,11 +21,13 @@ const DEVICES: Record<string, LayoutInput> = {
   'iPhone 15 Safari toolbars': { vpW: 393, vpH: 659, safeTop: 0, safeBottom: 0, touch: true },
   'Pixel 8': { vpW: 412, vpH: 915, safeTop: 24, safeBottom: 16, touch: true },
   iPad: { vpW: 820, vpH: 1180, safeTop: 24, safeBottom: 20, touch: true },
+  'iPad 4:3': { vpW: 768, vpH: 1024, safeTop: 20, safeBottom: 0, touch: true },
   desktop: { vpW: 1280, vpH: 800, safeTop: 0, safeBottom: 0, touch: false },
   'tall desktop window': { vpW: 600, vpH: 1000, safeTop: 0, safeBottom: 0, touch: false },
 };
 
 const PHONES = ['iPhone SE', 'iPhone 15 fullscreen', 'iPhone 15 Safari toolbars', 'Pixel 8'];
+const TABLETS = ['iPad', 'iPad 4:3'];
 
 const deckOf = (l: ReturnType<typeof computeLayout>) => l.height - l.safeBottom - l.paddleY;
 
@@ -105,6 +108,21 @@ describe('touch controls', () => {
     const { slotY } = touchDeckYs(l.deckTop, l.deckBottom, TOUCH_SLOT_R, TOUCH_SKILL_R);
     expect(Math.abs(slotY - (l.deckTop + l.deckBottom) / 2)).toBeLessThanOrEqual(2);
   });
+
+  it.each(PHONES)('%s stacks the skills under the slots', (name) => {
+    const l = computeLayout(DEVICES[name]!);
+    expect(touchDeckYs(l.deckTop, l.deckBottom, TOUCH_SLOT_R, TOUCH_SKILL_R).stacked).toBe(true);
+  });
+
+  it.each(TABLETS)('%s puts slots and skills on one row inside the deck', (name) => {
+    const l = computeLayout(DEVICES[name]!);
+    const { slotY, skillY, stacked } = touchDeckYs(l.deckTop, l.deckBottom, TOUCH_SLOT_R, TOUCH_SKILL_R);
+    expect(stacked).toBe(false);
+    expect(skillY).toBe(slotY);
+    expect(slotY + TOUCH_SLOT_R).toBeLessThanOrEqual(l.deckBottom);
+    // Clear of the paddle, even when the row rises out of a short deck panel.
+    expect(slotY - TOUCH_SLOT_R).toBeGreaterThanOrEqual(l.paddleY + 20);
+  });
 });
 
 describe('wide stage', () => {
@@ -125,10 +143,32 @@ describe('wide stage', () => {
     expect(computeStage({ vpW: 1000, vpH: 800, touch: false }).wide).toBe(true);
   });
 
-  it('leaves portrait windows and touch screens alone', () => {
+  it('leaves portrait windows and portrait tablets alone', () => {
     expect(computeStage({ vpW: 600, vpH: 1000, touch: false }).wide).toBe(false);
-    expect(computeStage({ vpW: 1180, vpH: 820, touch: true }).wide).toBe(false);
+    expect(computeStage({ vpW: 820, vpH: 1180, touch: true }).wide).toBe(false);
     expect(computeStage({ vpW: 0, vpH: 0, touch: false }).wide).toBe(false);
+  });
+
+  it.each([
+    [1180, 820],
+    [1024, 768],
+    [1366, 1024],
+  ])('gives a %ix%i landscape tablet the wide stage', (vpW, vpH) => {
+    const s = computeStage({ vpW, vpH, touch: true });
+    expect(s.wide).toBe(true);
+    expect(s.wing).toBeGreaterThanOrEqual(WING_MIN);
+  });
+
+  it('keeps a landscape phone narrow, under its rotate prompt', () => {
+    expect(Math.min(844, 390)).toBeLessThan(TABLET_MIN_SIDE);
+    expect(computeStage({ vpW: 844, vpH: 390, touch: true }).wide).toBe(false);
+  });
+
+  it('drops the thumb deck for a tablet on the wide stage', () => {
+    // applyViewport lays out a wide touch stage as a mouse one: the buttons are in the wings.
+    const l = computeLayout({ vpW: 1180, vpH: 820, safeTop: 24, safeBottom: 20, touch: false });
+    expect(deckOf(l)).toBeCloseTo(DECK_MOUSE);
+    expect(l.loseY).toBeGreaterThan(l.height);
   });
 
   it('caps ultrawide windows at 16:9', () => {

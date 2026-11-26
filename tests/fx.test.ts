@@ -23,12 +23,14 @@ import { SCENERY_IDS } from '../src/art/backdrops';
 import { F, FX_SHEETS, fxFrameNames, packShelves, seq } from '../src/fx/atlas';
 import { ABILITY_FX } from '../src/fx/library/abilities';
 import { AMBIENT_FX } from '../src/fx/library/ambient';
+import { ANGLER_FX } from '../src/fx/library/angler';
 import { BOSS_FX } from '../src/fx/library/boss';
 import { BRICK_FX } from '../src/fx/library/bricks';
 import { ELEMENT_FX } from '../src/fx/library/elements';
 import { FANFARE_FX } from '../src/fx/library/fanfare';
 import { IMPACT_FX } from '../src/fx/library/impacts';
 import { LEVEL_FX } from '../src/fx/library/level';
+import { OVERSEER_FX } from '../src/fx/library/overseer';
 import { POWERUP_FX } from '../src/fx/library/powerups';
 import { SCREEN_FX } from '../src/fx/library/screen';
 import { WEAPON_FX } from '../src/fx/library/weapons';
@@ -57,10 +59,12 @@ import type { FxDef } from '../src/fx/types';
 const GROUPS = {
   ABILITY_FX,
   AMBIENT_FX,
+  ANGLER_FX,
   BOSS_FX,
   BRICK_FX,
   LEVEL_FX,
   ELEMENT_FX,
+  OVERSEER_FX,
   FANFARE_FX,
   IMPACT_FX,
   POWERUP_FX,

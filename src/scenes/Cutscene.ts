@@ -29,6 +29,8 @@ export interface CutsceneData {
   handoff?: BackdropSnapshot;
   /** Dev: start this far in, in ms, or at a label. */
   at?: number | string;
+  /** Dev: watched outside the campaign, so it isn't marked seen and still plays there. */
+  preview?: true;
 }
 
 /** The registry key Preload stores the index file's cutscene entries under. */
@@ -255,7 +257,7 @@ export class Cutscene extends BaseScene {
   private leave(skipped: boolean, handoff: BackdropSnapshot): void {
     if (this.leaving) return;
     this.leaving = true;
-    if (!save.state.seenScenes.includes(this.def.id))
+    if (!this.info.preview && !save.state.seenScenes.includes(this.def.id))
       save.update((s) => s.seenScenes.push(this.def.id));
     const next = this.info.then ?? { scene: SCENES.title };
     const style = skipped ? 'dissolve' : this.def.closes.handoff;
@@ -264,7 +266,8 @@ export class Cutscene extends BaseScene {
 
   private exposeDev(): void {
     const api: CutsceneDevApi = {
-      play: (id, at) => this.scene.restart({ id, then: this.info.then, at } satisfies CutsceneData),
+      play: (id, at) =>
+        this.scene.restart({ id, then: this.info.then, at, preview: this.info.preview } satisfies CutsceneData),
       seek: (to) => this.director?.seek(to) ?? 0,
       pause: () => {
         if (this.director) this.director.paused = true;

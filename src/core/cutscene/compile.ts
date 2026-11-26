@@ -222,6 +222,7 @@ class Compiler {
           to: { x: 0.5, y: 0.5, zoom: 1, ...s.to },
           fadeMs: s.fadeMs ?? 700,
           ease: s.ease ?? 'linear',
+          behind: s.behind ?? false,
         });
         this.reach(t + s.ms);
         return 0;

@@ -1,6 +1,15 @@
 import type Phaser from 'phaser';
 import { dropSheet, loadSheet } from '../art/sheets';
-import { BOSS_ANIMS, BOSS_ID_BASE, ENTRANCE_DROP, SPRITE_DEPTH, type BossAnim } from '../core/Boss';
+import {
+  BOSS_ANIMS,
+  BOSS_ID_BASE,
+  ENTRANCE_DROP,
+  SPRITE_DEPTH,
+  approach,
+  movePart,
+  type BossAnim,
+  type Steer,
+} from '../core/Boss';
 import { BH, BRICK_HEALTH, BW } from '../core/procgen/grid';
 import type { BrickSpec } from '../core/types';
 import type { Brick, BrickOwner } from '../entities/Brick';
@@ -60,20 +69,6 @@ function partSpec(part: PartDef, id: number): BrickSpec {
   return spec;
 }
 
-/** Moves `p` toward (x, y), by `step` px at most. */
-function approach(p: { x: number; y: number }, x: number, y: number, step: number): void {
-  const dx = x - p.x;
-  const dy = y - p.y;
-  const far = Math.hypot(dx, dy);
-  if (far <= step) {
-    p.x = x;
-    p.y = y;
-  } else {
-    p.x += (dx / far) * step;
-    p.y += (dy / far) * step;
-  }
-}
-
 /**
  * The body of a boss: its parts, standing in the level as bricks the boss owns, and the picture
  * drawn over them. With a picture the parts are invisible hit zones; without one they show as
@@ -89,6 +84,10 @@ export class BossBody {
   private readonly drift = { x: 0, y: 0 };
   /** The pose the parts are moving to. */
   private posed: Pose = {};
+  /** Parts the boss is steering live, by part id, in place of their pose. */
+  private readonly steered = new Map<string, Steer>();
+  /** Where a part is headed this frame. One object, so a frame allocates nothing. */
+  private readonly rest = { x: 0, y: 0 };
   private sprite?: Phaser.GameObjects.Sprite;
   /** The picture in pieces, for a boss drawn by a rig instead of a sheet. */
   private rig?: BossRig;
@@ -189,6 +188,7 @@ export class BossBody {
       if (!brick) continue;
       this.bricks.delete(id);
       this.defs.delete(brick);
+      this.steered.delete(id);
       this.glows.get(brick)?.kill();
       this.glows.delete(brick);
       gone.push(brick);
@@ -209,18 +209,46 @@ export class BossBody {
   }
 
   /**
-   * Moves the body toward `offset` from rest and each part toward its place in the pose, nothing
-   * travelling further than `step` px. The sprite goes with the body, not with the poses.
+   * Steers a standing part live: it heads for `offset` from rest at `speed` px/s in place of its
+   * pose. Null hands it back to the pose.
    */
-  move(offset: Readonly<{ x: number; y: number }>, step: number): void {
-    const { anchor, drift } = this;
+  steer(id: string, offset: Readonly<{ dx: number; dy: number }> | null, speed: number): void {
+    const brick = this.part(id);
+    if (!brick || !offset) {
+      this.steered.delete(id);
+      return;
+    }
+    const s = this.steered.get(id);
+    if (s) {
+      s.dx = offset.dx;
+      s.dy = offset.dy;
+      s.speed = speed;
+    } else {
+      this.steered.set(id, { dx: offset.dx, dy: offset.dy, speed });
+    }
+    // Moved by its position, a brick looks still to the physics, so a fast part would slide over a
+    // ball. Direct control has the physics read its motion from the move, so the ball bounces off.
+    brick.body.setDirectControl(true);
+  }
+
+  /** Hands every steered part back to its pose. */
+  unsteer(): void {
+    this.steered.clear();
+  }
+
+  /**
+   * Moves the body toward `offset` from rest and each part toward its place in the pose, nothing
+   * travelling further than `step` px; a steered part travels at its own speed for `steerMs`. The
+   * sprite goes with the body, not with the poses.
+   */
+  move(offset: Readonly<{ x: number; y: number }>, step: number, steerMs = 0): void {
+    const { anchor, drift, rest } = this;
     // The body as a whole is held to the step, so the picture and its hit zones stay together.
     approach(drift, offset.x, offset.y, step);
     for (const [id, brick] of this.bricks) {
-      const shift = this.posed[id];
-      const x = brick.homeX + drift.x + (shift?.dx ?? 0);
-      const y = brick.homeY + drift.y + (shift?.dy ?? 0);
-      approach(brick, x, y, step);
+      rest.x = brick.homeX + drift.x;
+      rest.y = brick.homeY + drift.y;
+      movePart(brick, rest, this.posed[id], this.steered.get(id), step, steerMs);
       brick.syncOverlay();
     }
     const sheet = this.def.sprite;

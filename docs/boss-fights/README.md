@@ -9,6 +9,7 @@ Work orders for building the boss fight framework. Nothing here is built until
 | `phase-N-*.md` | One work order per phase. One agent, one session, one phase. |
 | [review.md](review.md) | The reviewer's work order. A separate agent runs it after every phase. |
 | [STATUS.md](STATUS.md) | The log. Every agent writes to it before it stops. |
+| [world3-finale.md](world3-finale.md) | Handoff for the game's last boss, the Overseer (after level 30): design, framework work, pipeline, pitfalls, kickoff prompt. |
 
 ## Phases
 

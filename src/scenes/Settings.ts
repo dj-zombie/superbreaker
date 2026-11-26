@@ -195,7 +195,7 @@ export class Settings extends Overlay {
       paintUnlock();
     }, pair);
     const paintUnlock = () => {
-      const done = save.state.unlocked >= total;
+      const done = save.state.allUnlocked;
       unlock.setText(done ? 'All levels unlocked' : 'Unlock all levels').setEnabled(!done);
     };
     paintUnlock();

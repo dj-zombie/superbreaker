@@ -48,6 +48,16 @@ ART = {
     "cs_mainframe_face": {"kind": "portrait", "source": "mainframe_eye.jpg", "size": 256},
     # The same eye at stage size: a portrait cut is already keyed, trimmed and square.
     "cs_mainframe_eye": {"kind": "portrait", "source": "mainframe_eye.jpg", "size": 512},
+    "cs_plate_door": {"kind": "plate", "source": "plate_door.jpg", "height": 1280},
+    "cs_plate_daylight": {"kind": "plate", "source": "plate_daylight.jpg", "height": 1280},
+    "cs_plate_surface": {"kind": "plate", "source": "plate_surface.jpg", "height": 1280},
+    "cs_plate_victory": {"kind": "plate", "source": "plate_victory.jpg", "height": 1280},
+    # The four bosses' trophies, for the ending's montage and the Victory screen, and the crown.
+    "cs_trophy_crucible": {"kind": "sprite", "source": "trophy_crucible.png", "size": 256},
+    "cs_trophy_warden": {"kind": "sprite", "source": "trophy_warden.png", "size": 256},
+    "cs_trophy_angler": {"kind": "sprite", "source": "trophy_angler.png", "size": 256},
+    "cs_trophy_overseer": {"kind": "sprite", "source": "trophy_overseer.png", "size": 256},
+    "cs_crown": {"kind": "sprite", "source": "crown.png", "size": 192},
 }
 
 PORTRAIT_MARGIN = 0.04  # of the square kept clear around the character

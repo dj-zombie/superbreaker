@@ -273,10 +273,12 @@ export class FxEngine {
     }
   }
 
-  /** Particles alive across every channel. */
-  aliveCount(): number {
+  /** Particles alive across every channel. `weather: false` leaves out the ambient fields. */
+  aliveCount(weather = true): number {
     let n = 0;
-    for (const e of this.emitters.values()) n += e.getAliveParticleCount();
+    for (const [key, e] of this.emitters) {
+      if (weather || !key.startsWith('weather:')) n += e.getAliveParticleCount();
+    }
     return n;
   }
 

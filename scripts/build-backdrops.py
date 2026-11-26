@@ -152,6 +152,26 @@ WORLDS = {
              "feather": 70, "feather_bottom": 90, "feather_sides": 50},
         ],
     },
+    # The Overseer's arena: the Mainframe's shaft sunk deeper and darker, down to the chamber at
+    # the bottom of the machine, where every camera looks at the Breaker. Phase 3 drops it away
+    # into the shaft again: the data tunnel.
+    "kernel": {
+        "key": "magenta",
+        "haze": (8, 24, 40),
+        "despill": 0.9,
+        "card": False,
+        "layers": [
+            {"name": "far", "from": "mainframe", "haze": 0.6, "haze_rgb": (10, 30, 48), "gain": 0.6, "speed": 6},
+            {"name": "fog1", "fog": (30, 90, 120), "alpha": 0.22, "scale": 1.0, "seed": 13, "speed": 10},
+            {"name": "mid", "from": "mainframe", "haze": 0.3, "haze_rgb": (8, 20, 36), "gain": 0.6, "speed": 18},
+            {"name": "fog2", "fog": (60, 10, 24), "alpha": 0.3, "scale": 0.6, "seed": 14, "speed": 26},
+            {"name": "near", "from": "mainframe", "haze": 0.1, "haze_rgb": (6, 10, 20), "gain": 0.55, "speed": 38},
+        ],
+        "stills": [
+            {"name": "chamber", "haze": 0.06, "haze_rgb": (8, 20, 36), "gain": 0.9,
+             "feather": 60, "feather_bottom": 90, "feather_sides": 40},
+        ],
+    },
 }
 
 
@@ -329,6 +349,12 @@ def section_paths(folder: Path, name: str) -> list[Path]:
     return paths
 
 
+def painted_rows(plate: np.ndarray, share: float = 0.005) -> np.ndarray:
+    """Rows of a keyed plate with more than `share` of their width painted. An upscale can leave
+    specks and edge smears in the key, far below the painting, that a single pixel would count."""
+    return np.flatnonzero((plate[..., 3] > 8).sum(axis=1) > plate.shape[1] * share)
+
+
 def load(path: Path) -> np.ndarray:
     img = Image.open(path).convert("RGB")
     if img.width != SRC_WIDTH:
@@ -400,23 +426,23 @@ def build(world: str, keep: bool = False) -> tuple[dict, dict]:
             opts.get("haze_rgb", spec["haze"]), opts["haze"], opts["gain"],
         )
         # The plate's top edge fades out, so a tall view shows the shaft above it, not a cut.
-        feather = opts.get("feather", 0)
+        feather = opts.get("feather", 0) * PX
         if feather:
             ramp = np.clip(np.arange(plate.shape[0]) / feather, 0, 1) ** 1.5
             plate = plate * ramp[:, None, None]
         # A plate cut square (a painted window onto the room) fades out at its other edges as well.
-        painted = np.flatnonzero(plate[..., 3].max(axis=1) > 8)
-        bottom_feather = opts.get("feather_bottom", 0)
+        painted = painted_rows(plate, 0.5)
+        bottom_feather = opts.get("feather_bottom", 0) * PX
         if bottom_feather and painted.size:
             last = int(painted[-1])
             ramp = np.clip((last - np.arange(plate.shape[0])) / bottom_feather, 0, 1) ** 1.5
             plate = plate * ramp[:, None, None]
-        side_feather = opts.get("feather_sides", 0)
+        side_feather = opts.get("feather_sides", 0) * PX
         if side_feather:
             cols = np.arange(plate.shape[1])
             ramp = np.clip(np.minimum(cols, plate.shape[1] - 1 - cols) / side_feather, 0, 1) ** 1.5
             plate = plate * ramp[None, :, None]
-        rows = np.flatnonzero(plate[..., 3].max(axis=1) > 8)
+        rows = painted_rows(plate)
         top, bottom = int(rows[0]), int(rows[-1]) + 1
         plate = plate[top:bottom]
         if keep:

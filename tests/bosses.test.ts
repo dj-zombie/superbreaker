@@ -8,9 +8,11 @@ import {
   BOSS_IDS,
   BOSS_STINGER,
   BOSS_TUNING,
+  HABIT_BINS,
   MIN_WINDUP_MS,
   SAFE_GAP,
   SHOT_RADIUS,
+  habitBin,
   planProblems,
   safeGap,
   type AttackDef,
@@ -28,6 +30,7 @@ import { Rng } from '../src/core/Rng';
 import { BH, BW, COLS } from '../src/core/procgen/grid';
 import { FIELD_WIDTH, LEVEL_MAX_Y } from '../src/core/types';
 import type { BossDef, BossStage, Cutscene } from '../src/systems/BossDirector';
+import { crossing } from '../src/bosses/overseer';
 import { sheetFrames } from './sheets';
 
 const ASSETS = join(__dirname, '..', 'public', 'assets');
@@ -41,6 +44,16 @@ const PADDLE_WIDTH = 104;
 const PADDLE_XS = [PADDLE_WIDTH / 2, 150, 300, 450, FIELD_WIDTH - PADDLE_WIDTH / 2];
 const PROGRESS = [0, 0.5, 1];
 const SEEDS = Array.from({ length: 20 }, (_, i) => i + 1);
+/** What the boss may have learned of the player: nothing yet, a player who stays put, one who stood elsewhere. */
+const HABIT_KINDS = ['even', 'here', 'far'] as const;
+
+/** Habit shares for a paddle at `x`: even, nearly all under it, or nearly all at the far wall. */
+function habitsOf(kind: (typeof HABIT_KINDS)[number], x: number): number[] {
+  const even = Array.from({ length: HABIT_BINS }, () => 1 / HABIT_BINS);
+  if (kind === 'even') return even;
+  const at = kind === 'here' ? habitBin(x) : habitBin(x) < HABIT_BINS / 2 ? HABIT_BINS - 1 : 0;
+  return even.map((_, i) => (i === at ? 0.9 : 0.1 / (HABIT_BINS - 1)));
+}
 
 /** Every attack a boss can play, once each however many decks it is in. */
 function attacksOf(def: BossDef): AttackDef[] {
@@ -48,7 +61,13 @@ function attacksOf(def: BossDef): AttackDef[] {
 }
 
 /** The field as a wind-up would find it: the parts at rest, one ball on its way up. */
-function viewOf(def: BossDef, x: number, phaseProgress: number, seed: number): BossView {
+function viewOf(
+  def: BossDef,
+  x: number,
+  phaseProgress: number,
+  seed: number,
+  habits = habitsOf('even', x),
+): BossView {
   const parts: BossView['parts'] = {};
   for (const p of def.parts) {
     parts[p.id] = {
@@ -64,15 +83,19 @@ function viewOf(def: BossDef, x: number, phaseProgress: number, seed: number): B
     paddle: { x, width: PADDLE_WIDTH },
     balls: [{ x: 300, y: 500, vx: 120, vy: -320 }],
     parts,
+    habits,
   };
 }
 
-/** Calls `check` with a fresh view for every paddle position, pool level and seed. */
+/** Calls `check` with a fresh view for every paddle position, pool level, seed and habit. */
 function everyView(def: BossDef, check: (view: () => BossView, at: string) => void): void {
   for (const x of PADDLE_XS) {
     for (const progress of PROGRESS) {
       for (const seed of SEEDS) {
-        check(() => viewOf(def, x, progress, seed), `paddle ${x}, pool ${progress}, seed ${seed}`);
+        for (const kind of HABIT_KINDS) {
+          const at = `paddle ${x}, pool ${progress}, seed ${seed}, habits ${kind}`;
+          check(() => viewOf(def, x, progress, seed, habitsOf(kind, x)), at);
+        }
       }
     }
   }
@@ -192,7 +215,10 @@ describe.each(BOSS_IDS)('boss %s', (id) => {
       // The framework's own blow on the final hit opens the death scene.
       if (name === 'death') times.unshift(0);
       for (let i = allowed; i < times.length; i++) {
-        expect(times[i]! - times[i - allowed]!, `${name}: the flash at ${times[i]} ms`).toBeGreaterThanOrEqual(1000);
+        expect(
+          times[i]! - times[i - allowed]!,
+          `${name}: the flash at ${times[i]} ms`,
+        ).toBeGreaterThanOrEqual(1000);
       }
     }
   });
@@ -306,7 +332,7 @@ describe('boss sounds', () => {
 
   it('has a file on disk behind every boss sound', () => {
     const boss = [...keys].filter(([, path]) => path.startsWith('audio/boss/'));
-    expect(boss.length).toBe(49);
+    expect(boss.length).toBe(65);
     for (const [key, path] of boss) {
       const file = join(ASSETS, path);
       expect(existsSync(file), `${key}: ${path}`).toBe(true);
@@ -449,6 +475,88 @@ describe('the Warden attacks', () => {
         expect(Math.abs(h.x - skulls[0]!.x), at).toBeGreaterThan(PADDLE_WIDTH / 2 + SHOT_RADIUS);
       }
     });
+  });
+});
+
+describe('the Overseer attacks', () => {
+  const def = BOSSES.overseer;
+  const named = (id: string): AttackDef => attacksOf(def).find((a) => a.id === id)!;
+  const mirror = def.parts.find((p) => p.id === 'mirror')!;
+  const eye = def.parts.find((p) => p.id === 'eye')!;
+
+  it('forecasts where a rising ball meets the rail, off the walls, and nothing for a falling one', () => {
+    expect(crossing(300, 0, -400, 200)).toBe(300);
+    expect(crossing(300, 300, -300, 100)).toBe(400);
+    // 400 px right of 500 is 311 past the right wall's reach of 589: it comes back to 278.
+    expect(crossing(500, 400, -400, 400)).toBeCloseTo(278);
+    expect(crossing(300, 100, 400, 200)).toBeNull();
+  });
+
+  it('rebuilds a past row only between the Mirror and the paddle, leaving the way to the eye open', () => {
+    const below = (mirror.row + mirror.rows) * BH;
+    const eyeLo = eye.col * BW;
+    const eyeHi = (eye.col + eye.cols) * BW;
+    everyView(def, (view, at) => {
+      const bricks = named('overwrite').plan(view()).bricks ?? [];
+      expect(bricks.length, at).toBeGreaterThan(0);
+      for (const b of bricks) {
+        expect(b.y, at).toBeGreaterThanOrEqual(below);
+        expect(b.y + b.height, at).toBeLessThanOrEqual(LEVEL_MAX_Y);
+        expect(b.x + b.width <= eyeLo || b.x >= eyeHi, at).toBe(true);
+        expect(b.kind, at).toBe('normal');
+      }
+    });
+  });
+
+  it('scans its way onto where the paddle stands most', () => {
+    for (const x of PADDLE_XS) {
+      const hazards = named('scan').plan(viewOf(def, x, 1, 1, habitsOf('here', x))).hazards;
+      const last = hazards[hazards.length - 1]!;
+      expect(last.kind).toBe('beam');
+      if (last.kind !== 'beam') continue;
+      expect(Math.abs(last.x - x), `paddle ${x}`).toBeLessThan(last.width / 2 + PADDLE_WIDTH / 2);
+    }
+  });
+
+  it('purges every lane but the ones the paddle stands in least', () => {
+    for (const x of PADDLE_XS) {
+      const habits = habitsOf('here', x);
+      const hazards = named('purge').plan(viewOf(def, x, 1, 1, habits)).hazards;
+      expect(hazards.every((h) => h.kind === 'beam')).toBe(true);
+      const burned = new Set(hazards.map((h) => habitBin(h.x)));
+      const clear = habits.map((_, i) => i).filter((i) => !burned.has(i));
+      expect(clear, `paddle ${x}`).toHaveLength(2);
+      for (const i of clear) expect(habits[i], `paddle ${x}`).toBe(Math.min(...habits));
+      expect(burned.has(habitBin(x)), `paddle ${x}`).toBe(true);
+    }
+  });
+
+  it('starts each fight copying the paddle, however the last one ended', () => {
+    const fight = () => {
+      const steered = new Set<string>();
+      const stage = {
+        paddle: { x: 200, resetSize: () => {} },
+        habits: Array.from({ length: HABIT_BINS }, () => 1 / HABIT_BINS),
+        balls: () => [],
+        part: (id: string) => {
+          const p = def.parts.find((q) => q.id === id)!;
+          return { x: (p.col + p.cols / 2) * BW, y: (p.row + p.rows / 2) * BH };
+        },
+        sinceReturn: () => Infinity,
+        steer: (id: string) => steered.add(id),
+        scenery: { fall: () => {} },
+      };
+      return { stage: stage as unknown as BossStage, steered };
+    };
+    // A fight that got as far as the last phase, where both Mirrors are steered.
+    const last = fight();
+    for (const phase of def.phases) phase.setup?.(last.stage);
+    def.tick!(last.stage, 16);
+    expect([...last.steered].sort()).toEqual(['mirror', 'mirror2']);
+    // The next fight's entrance ticks before any phase is set up: the second Mirror stays stowed.
+    const next = fight();
+    def.tick!(next.stage, 16);
+    expect([...next.steered]).toEqual(['mirror']);
   });
 });
 

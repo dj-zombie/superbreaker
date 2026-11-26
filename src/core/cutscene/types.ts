@@ -231,6 +231,8 @@ export interface PlateStep {
   to?: Partial<Frame>;
   fadeMs?: number;
   ease?: Ease;
+  /** Over the backdrop but under the cast and the effects: a set the actors stand in front of. */
+  behind?: boolean;
 }
 
 export interface ActorStep extends Timed {
@@ -449,6 +451,7 @@ export interface CompiledPlate {
   to: Frame;
   fadeMs: number;
   ease: Ease;
+  behind: boolean;
 }
 
 export interface CompiledAmbient {

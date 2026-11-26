@@ -92,6 +92,11 @@ export interface SaveData {
   levels: Record<string, LevelProgress>;
   /** Number of levels unlocked, counted from the first. */
   unlocked: number;
+  /**
+   * Unlock all levels was used. Distinct from `unlocked`: that counter also reaches the last
+   * level once it is earned, and the boss after the last level stays shut until the level is cleared.
+   */
+  allUnlocked: boolean;
   /** Arcade bests, keyed by loop and goal, e.g. "waves-endless". */
   runs: Record<string, RunBest>;
   /** Bonus stage bests, keyed by stage id, e.g. "gallery". */
@@ -127,6 +132,7 @@ export function defaultSave(): SaveData {
     stock: emptyStock(),
     levels: {},
     unlocked: 1,
+    allUnlocked: false,
     runs: {},
     bonus: {},
     arcade: { loop: 'waves', goal: 'endless' },
@@ -176,6 +182,7 @@ export function normalizeSave(raw: unknown): SaveData {
     }
   }
   d.unlocked = Math.max(1, nonNegInt(r.unlocked, 1));
+  d.allUnlocked = r.allUnlocked === true;
   if (r.runs && typeof r.runs === 'object') {
     for (const [k, v] of Object.entries(r.runs)) {
       d.runs[k] = { bestScore: nonNegInt(v?.bestScore, 0), bestReach: nonNegInt(v?.bestReach, 0) };
@@ -443,9 +450,16 @@ export class SaveStore {
     return this.data.unlocked <= 1 && Object.keys(this.data.levels).length === 0 && !this.data.seenInstructions;
   }
 
-  /** Opens every campaign level. Stars and best scores are left as they are. */
+  /**
+   * Opens every campaign level and every stop, including the boss after the last level.
+   * Stars and best scores are left as they are. A non-positive count is ignored.
+   */
   unlockAll(totalLevels: number): void {
-    this.update((d) => (d.unlocked = Math.max(d.unlocked, totalLevels)));
+    if (totalLevels < 1) return;
+    this.update((d) => {
+      d.unlocked = Math.max(d.unlocked, totalLevels);
+      d.allUnlocked = true;
+    });
   }
 
   /** Records the end of an Arcade run; returns true if it is a new best score. */

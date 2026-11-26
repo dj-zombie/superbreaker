@@ -1,21 +1,14 @@
 import type { MusicMood } from './MusicMood';
 import type { Rng } from './Rng';
-import { BRICK_HEALTH } from './procgen/grid';
-import { FIELD_WIDTH, type DifficultyId } from './types';
+import { BH, BRICK_HEALTH, BW } from './procgen/grid';
+import { FIELD_WIDTH, LEVEL_MAX_Y, type BrickSpec, type DifficultyId } from './types';
 
-export const BOSS_IDS = ['crucible', 'warden', 'angler'] as const;
+export const BOSS_IDS = ['crucible', 'warden', 'angler', 'overseer'] as const;
 export type BossId = (typeof BOSS_IDS)[number];
 
 /** The fight flow, in order. A fight without an intro starts in `fight`. */
 export type BossStep =
-  | 'hush'
-  | 'entrance'
-  | 'reveal'
-  | 'fight'
-  | 'transition'
-  | 'finale'
-  | 'aftermath'
-  | 'done';
+  'hush' | 'entrance' | 'reveal' | 'fight' | 'transition' | 'finale' | 'aftermath' | 'done';
 
 /** Where the fight is in its attack cycle: calm, warning, hurting, then open to be hit. */
 export type AttackWindow = 'gap' | 'windup' | 'live' | 'recover';
@@ -40,17 +33,18 @@ export interface BossSpec {
   parts?: Record<string, number>;
 }
 
-/** Multipliers by difficulty: pool size, wind-up time and the calm between attacks. */
+/** Multipliers by difficulty: pool size, wind-up time, the calm between attacks, and how fast a steered part goes. */
 export interface BossTuning {
   health: number;
   windup: number;
   gap: number;
+  steer: number;
 }
 
 export const BOSS_TUNING: Record<DifficultyId, BossTuning> = {
-  easy: { health: 0.8, windup: 1.25, gap: 1.25 },
-  normal: { health: 1, windup: 1, gap: 1 },
-  hard: { health: 1.25, windup: 0.85, gap: 0.8 },
+  easy: { health: 0.8, windup: 1.25, gap: 1.25, steer: 0.85 },
+  normal: { health: 1, windup: 1, gap: 1, steer: 1 },
+  hard: { health: 1.25, windup: 0.85, gap: 0.8, steer: 1.12 },
 };
 
 /** Boss hits from one explosion. */
@@ -119,6 +113,8 @@ export const MAX_JAM_MS = 900;
 export const REGROUP_MS = 1200;
 /** Most hazards one plan may hold. */
 export const MAX_HAZARDS = 48;
+/** Most bricks one plan may build: a full row of the field. */
+export const MAX_PLAN_BRICKS = FIELD_WIDTH / BW;
 /** Paddle line that stays free at every moment, in px: the widest paddle (104 x 1.7) and a margin. */
 export const SAFE_GAP = 200;
 /** Half-width of a shot on the paddle line, in px. */
@@ -264,11 +260,25 @@ export type HazardSpec =
    * Harmless: caught on the paddle, it flies back at the first part of `returnTo` still standing
    * and deals `hits`. A miss splashes on the line.
    */
-  | { kind: 'slag'; from: string; x: number; at: number; flightMs: number; returnTo: string[]; hits: number };
+  | {
+      kind: 'slag';
+      from: string;
+      x: number;
+      at: number;
+      flightMs: number;
+      returnTo: string[];
+      hits: number;
+    };
 
 /** Everything one attack will do, decided when its wind-up starts. Warnings are drawn from it. */
 export interface AttackPlan {
   hazards: HazardSpec[];
+  /**
+   * Ordinary bricks the attack builds as it goes live, placed as a level places them: top-left
+   * corners in px from the top of the bricks' area. They break, score and drop like any other, and
+   * stay. One that would go up over a ball in flight, or over a brick or part already there, is left out.
+   */
+  bricks?: Array<Omit<BrickSpec, 'id'>>;
 }
 
 /** What an attack may look at to make its plan: the field as the wind-up starts. */
@@ -281,6 +291,8 @@ export interface BossView {
   balls: Array<{ x: number; y: number; vx: number; vy: number }>;
   /** Centre and size of every part still on the field, by part id. */
   parts: Record<string, { x: number; y: number; width: number; height: number }>;
+  /** Where the paddle has tended to stand this fight: each HABIT_BIN of the line's share, summing to 1. */
+  habits: readonly number[];
 }
 
 export interface AttackDef {
@@ -390,7 +402,8 @@ export class BossState {
    * Infinity outside a gap, and in a phase that never attacks.
    */
   get gapLeft(): number {
-    if (this.at !== 'fight' || this.win !== 'gap' || this.decks[this.index]!.length === 0) return Infinity;
+    if (this.at !== 'fight' || this.win !== 'gap' || this.decks[this.index]!.length === 0)
+      return Infinity;
     return Math.max(0, this.windowLength() - this.stretch - this.inWindow);
   }
 
@@ -671,8 +684,95 @@ export function beatStretch(leftMs: number, beats: number, bpm: number): number 
   return Math.max(0, (next - end) * beatMs);
 }
 
+/**
+ * A live offset for one part, from its place at rest as a pose's is, followed at `speed` px/s of
+ * the fight clock in place of the pose. The boss sets it from its `tick`, frame by frame.
+ */
+export interface Steer {
+  dx: number;
+  dy: number;
+  speed: number;
+}
+
+/** Moves `p` toward (x, y), by `step` px at most. */
+export function approach(p: { x: number; y: number }, x: number, y: number, step: number): void {
+  const dx = x - p.x;
+  const dy = y - p.y;
+  const far = Math.hypot(dx, dy);
+  if (far <= step) {
+    p.x = x;
+    p.y = y;
+  } else {
+    p.x += (dx / far) * step;
+    p.y += (dy / far) * step;
+  }
+}
+
+/**
+ * One frame of a part's travel from `rest`, its place at rest with the body's motion added. A
+ * steered part heads for its steering's offset at its own speed over `dtMs`; any other for its
+ * pose's offset, `step` px at most.
+ */
+export function movePart(
+  p: { x: number; y: number },
+  rest: { x: number; y: number },
+  pose: { dx?: number; dy?: number } | undefined,
+  steer: Steer | undefined,
+  step: number,
+  dtMs: number,
+): void {
+  const off = steer ?? pose;
+  const reach = steer ? (steer.speed * dtMs) / 1000 : step;
+  approach(p, rest.x + (off?.dx ?? 0), rest.y + (off?.dy ?? 0), reach);
+}
+
+/** The paddle line is counted in bins this wide for the boss's model of the player, in px. */
+export const HABIT_BIN = 100;
+/** How many bins span the field. */
+export const HABIT_BINS = Math.ceil(FIELD_WIDTH / HABIT_BIN);
+/** A habit fades to half in this long, in ms of the fight clock, so the model follows a change of style. */
+export const HABIT_HALF_LIFE_MS = 20_000;
+
+/** The habit bin over `x`, clamped to the field. */
+export function habitBin(x: number): number {
+  const i = Math.floor(x / HABIT_BIN);
+  return Number.isFinite(i) ? Math.max(0, Math.min(HABIT_BINS - 1, i)) : 0;
+}
+
+/**
+ * Where the paddle tends to stand: the time spent over each bin of the paddle line, older time
+ * counting for less. Fed on the fight clock, so it pauses with the game and is the same on every
+ * device for the same play.
+ */
+export class Habits {
+  private readonly time = new Array<number>(HABIT_BINS).fill(0);
+
+  /** The paddle stood at `x` for `dtMs`: what was counted fades by that long, and the time is added. */
+  add(x: number, dtMs: number): void {
+    // Written this way round so a NaN adds nothing.
+    if (!(dtMs > 0)) return;
+    const keep = Math.pow(0.5, dtMs / HABIT_HALF_LIFE_MS);
+    for (let i = 0; i < HABIT_BINS; i++) this.time[i]! *= keep;
+    this.time[habitBin(x)]! += dtMs;
+  }
+
+  /** Each bin's share of the time, summing to 1. Even before anything is counted. Writes into `out`. */
+  shares(out: number[] = []): number[] {
+    const total = this.time.reduce((sum, t) => sum + t, 0);
+    out.length = HABIT_BINS;
+    for (let i = 0; i < HABIT_BINS; i++)
+      out[i] = total > 0 ? this.time[i]! / total : 1 / HABIT_BINS;
+    return out;
+  }
+}
+
 /** Where on the paddle line a hazard is, and from when to when, for the fairness checks. */
-function occupancy(h: Exclude<HazardSpec, { kind: 'slag' }>): { lo: number; hi: number; from: number; to: number } {
+function occupancy(h: Exclude<HazardSpec, { kind: 'slag' }>): {
+  lo: number;
+  hi: number;
+  from: number;
+  to: number;
+} {
   if (h.kind === 'beam') {
     return { lo: h.x - h.width / 2, hi: h.x + h.width / 2, from: h.at, to: h.at + h.liveMs };
   }
@@ -731,7 +831,8 @@ export function planProblems(
     if (h.kind === 'slag') {
       if (h.returnTo.length === 0) problems.push(`${name} has nowhere to go back to`);
       for (const id of h.returnTo) {
-        if (!partIds.includes(id)) problems.push(`${name} goes back to "${id}", which is not a part`);
+        if (!partIds.includes(id))
+          problems.push(`${name} goes back to "${id}", which is not a part`);
       }
       if (!(h.hits > 0 && h.hits <= MAX_SLAG_HITS)) {
         problems.push(`${name} deals ${h.hits} hits, outside 0 to ${MAX_SLAG_HITS}`);
@@ -764,6 +865,21 @@ export function planProblems(
     } else if (!(effect.factor >= MIN_SHRINK && effect.factor <= 1)) {
       problems.push(`${name} shrinks by ${effect.factor}, outside ${MIN_SHRINK} to 1`);
     }
+  });
+  const bricks = plan.bricks ?? [];
+  if (bricks.length > MAX_PLAN_BRICKS) {
+    problems.push(`${bricks.length} bricks, and the most is ${MAX_PLAN_BRICKS}`);
+  }
+  bricks.forEach((b, i) => {
+    const inside =
+      b.x >= 0 &&
+      b.width > 0 &&
+      b.x + b.width <= FIELD_WIDTH &&
+      b.y >= 2 * BH &&
+      b.height > 0 &&
+      b.y + b.height <= LEVEL_MAX_Y;
+    if (!inside)
+      problems.push(`brick ${i} at ${b.x}, ${b.y} is outside the arena or in its top two rows`);
   });
   if (skulls > MAX_SKULLS) problems.push(`${skulls} skulls, and the most is ${MAX_SKULLS}`);
   // A jammed paddle cannot walk away from a skull.

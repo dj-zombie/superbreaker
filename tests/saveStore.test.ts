@@ -38,6 +38,9 @@ describe('normalizeSave', () => {
     expect(s.upgrades.magnet).toBe(5);
     expect(s.difficulty).toBe('easy');
     expect(s.levels.level01).toEqual({ stars: 3, bestScore: 100 });
+    expect(s.allUnlocked).toBe(false);
+    expect(normalizeSave({ allUnlocked: true }).allUnlocked).toBe(true);
+    expect(normalizeSave({ unlocked: 30 }).allUnlocked).toBe(false);
   });
 
   it('returns defaults for garbage', () => {
@@ -138,12 +141,18 @@ describe('unlockAll', () => {
     store.recordWin(1, 2, 5000, 30);
     store.unlockAll(30);
     expect(store.state.unlocked).toBe(30);
+    expect(store.state.allUnlocked).toBe(true);
     expect(store.state.levels.level01).toEqual({ stars: 2, bestScore: 5000 });
     store.unlockAll(10);
     expect(store.state.unlocked).toBe(30);
+    expect(store.state.allUnlocked).toBe(true);
+    store.recordWin(5, 1, 100, 30, true);
+    expect(store.state.allUnlocked).toBe(true);
     await store.flush();
 
-    expect((await new SaveStore(storage).load()).unlocked).toBe(30);
+    const loaded = await new SaveStore(storage).load();
+    expect(loaded.unlocked).toBe(30);
+    expect(loaded.allUnlocked).toBe(true);
   });
 });
 

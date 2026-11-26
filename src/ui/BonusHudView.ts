@@ -98,6 +98,7 @@ export class BonusHudView {
   update(v: BonusHud | null): void {
     const live = !!v && (v.step === 'intro' || v.step === 'play');
     for (const o of this.parts()) o.setVisible(live);
+    if (!v?.medalTrack) for (const o of [this.track, this.fill, ...this.marks]) o.setVisible(false);
     this.drawRules(v?.intro ?? null, v);
     if (!v || !live) return;
     const t = theme();

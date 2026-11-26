@@ -8,9 +8,14 @@ import {
   BossState,
   DEFAULT_GAP_MS,
   EXPLOSION_HITS,
+  HABIT_BIN,
+  HABIT_BINS,
+  HABIT_HALF_LIFE_MS,
+  Habits,
   HUSH_MS,
   LAND_MS,
   MAX_HAZARDS,
+  MAX_PLAN_BRICKS,
   MAX_JAM_MS,
   MAX_SKULLS,
   MIN_FLIGHT_MS,
@@ -22,12 +27,15 @@ import {
   SHOT_RADIUS,
   SKIP_GUARD_MS,
   SKULL_RADIUS,
+  habitBin,
   hitsFor,
+  movePart,
   planProblems,
   safeGap,
   sway,
   windupFor,
   type AttackPlan,
+  type Steer,
   type AttackWindow,
   type BossEvent,
   type BossSpec,
@@ -48,9 +56,14 @@ describe('BOSS_TUNING', () => {
     for (const id of DIFFICULTIES) {
       const t = BOSS_TUNING[id];
       expect(t, id).toBeDefined();
-      for (const k of [t.health, t.windup, t.gap]) expect(k, id).toBeGreaterThan(0);
+      for (const k of [t.health, t.windup, t.gap, t.steer]) expect(k, id).toBeGreaterThan(0);
     }
-    expect(BOSS_TUNING.normal).toEqual({ health: 1, windup: 1, gap: 1 });
+    expect(BOSS_TUNING.normal).toEqual({ health: 1, windup: 1, gap: 1, steer: 1 });
+  });
+
+  it('steers faster the harder the difficulty', () => {
+    expect(BOSS_TUNING.easy.steer).toBeLessThan(BOSS_TUNING.normal.steer);
+    expect(BOSS_TUNING.hard.steer).toBeGreaterThan(BOSS_TUNING.normal.steer);
   });
 });
 
@@ -843,6 +856,32 @@ describe('planProblems', () => {
     expect(problems(many(MAX_HAZARDS + 1))).toHaveLength(1);
   });
 
+  it('builds bricks only inside the arena, below its top two rows, a row at most', () => {
+    const brick = (x: number, y: number) => ({
+      x,
+      y,
+      width: 30,
+      height: 16,
+      texture: 'brick_red',
+      kind: 'normal' as const,
+      health: 1,
+      armor: 0,
+      moveX: 0,
+      moveSpeed: 0,
+      regenDelay: 0,
+    });
+    const row = (y: number, n = MAX_PLAN_BRICKS) =>
+      Array.from({ length: n }, (_, i) => brick(i * 30, y));
+    expect(problems({ hazards: [], bricks: row(23 * 16) })).toEqual([]);
+    expect(problems({ hazards: [], bricks: [brick(0, 2 * 16), brick(570, 480 - 16)] })).toEqual([]);
+    expect(problems({ hazards: [], bricks: [...row(23 * 16), brick(0, 24 * 16)] })).toHaveLength(1);
+    expect(problems({ hazards: [], bricks: [brick(0, 16)] })).toHaveLength(1);
+    expect(problems({ hazards: [], bricks: [brick(580, 300)] })).toHaveLength(1);
+    expect(problems({ hazards: [], bricks: [brick(-1, 300)] })).toHaveLength(1);
+    expect(problems({ hazards: [], bricks: [brick(0, 480 - 15)] })).toHaveLength(1);
+    expect(problems({ hazards: [], bricks: [brick(Number.NaN, 300)] })).toHaveLength(1);
+  });
+
   it('reports a hazard that starts before the attack is live', () => {
     expect(problems(plan(shot(300, -1)))).toHaveLength(1);
     expect(problems(plan(beam(300, 100, -1, 400)))).toHaveLength(1);
@@ -1057,5 +1096,135 @@ describe('letterbox', () => {
     expect(letterbox('aftermath', 0, AFTERMATH_MS)).toBe(1);
     expect(letterbox('aftermath', AFTERMATH_MS, AFTERMATH_MS)).toBe(1);
     expect(letterbox('done', 0, Infinity)).toBe(0);
+  });
+});
+
+describe('movePart', () => {
+  const rest = { x: 300, y: 200 };
+  const FRAME_MS = 16;
+  /** Runs frames until the part settles or `limit` frames pass; the frames it took. */
+  function run(p: { x: number; y: number }, frame: () => void, limit = 1000): number {
+    for (let n = 1; n <= limit; n++) {
+      const was = { ...p };
+      frame();
+      if (was.x === p.x && was.y === p.y) return n - 1;
+    }
+    return limit;
+  }
+
+  it('moves an unsteered part to its pose, step px a frame at most', () => {
+    const p = { ...rest };
+    const pose = { dx: 0, dy: -48 };
+    movePart(p, rest, pose, undefined, 2, FRAME_MS);
+    expect(p).toEqual({ x: 300, y: 198 });
+    expect(run(p, () => movePart(p, rest, pose, undefined, 2, FRAME_MS))).toBe(23);
+    expect(p).toEqual({ x: 300, y: 152 });
+  });
+
+  it('takes a steered part to its target at its own speed, whatever the pose and step', () => {
+    const p = { ...rest };
+    const steer: Steer = { dx: -200, dy: 0, speed: 400 };
+    const pose = { dy: -48 };
+    // 400 px/s over 16 ms is 6.4 px a frame, though the body's step is 2.
+    movePart(p, rest, pose, steer, 2, FRAME_MS);
+    expect(p.x).toBeCloseTo(293.6);
+    expect(p.y).toBe(200);
+    const frames = run(p, () => movePart(p, rest, pose, steer, 2, FRAME_MS));
+    expect(p).toEqual({ x: 100, y: 200 });
+    // 200 px at 6.4 px a frame: 32 frames in all, the first taken above.
+    expect(frames).toBe(31);
+  });
+
+  it('follows a target that moves, never faster than its speed', () => {
+    const p = { ...rest };
+    const steer: Steer = { dx: 0, dy: 0, speed: 300 };
+    for (let n = 0; n < 200; n++) {
+      steer.dx = 250 * Math.sin(n / 7);
+      const was = p.x;
+      movePart(p, rest, undefined, steer, 2, FRAME_MS);
+      expect(Math.abs(p.x - was)).toBeLessThanOrEqual((300 * FRAME_MS) / 1000 + 1e-9);
+    }
+  });
+
+  it('holds a steered part still when no time passes, as while play is frozen', () => {
+    const p = { ...rest };
+    movePart(p, rest, undefined, { dx: 100, dy: 0, speed: 1000 }, 0, 0);
+    expect(p).toEqual(rest);
+  });
+
+  it('returns a released part to its pose at the body step', () => {
+    const p = { x: 120, y: 200 };
+    movePart(p, rest, { dx: 0 }, undefined, 2, FRAME_MS);
+    expect(p).toEqual({ x: 122, y: 200 });
+    run(p, () => movePart(p, rest, { dx: 0 }, undefined, 2, FRAME_MS));
+    expect(p).toEqual(rest);
+  });
+});
+
+describe('Habits', () => {
+  const sum = (a: readonly number[]) => a.reduce((s, v) => s + v, 0);
+
+  it('splits the field into bins of HABIT_BIN px and clamps to it', () => {
+    expect(HABIT_BINS).toBe(Math.ceil(FIELD_WIDTH / HABIT_BIN));
+    expect(habitBin(0)).toBe(0);
+    expect(habitBin(HABIT_BIN - 1)).toBe(0);
+    expect(habitBin(HABIT_BIN)).toBe(1);
+    expect(habitBin(-40)).toBe(0);
+    expect(habitBin(FIELD_WIDTH + 40)).toBe(HABIT_BINS - 1);
+    expect(habitBin(NaN)).toBe(0);
+  });
+
+  it('shares evenly before it has seen anything', () => {
+    const shares = new Habits().shares();
+    expect(shares).toHaveLength(HABIT_BINS);
+    for (const s of shares) expect(s).toBeCloseTo(1 / HABIT_BINS);
+  });
+
+  it('fills the bin the paddle stands in, and the shares sum to 1', () => {
+    const h = new Habits();
+    for (let n = 0; n < 300; n++) h.add(250, 16);
+    const shares = h.shares();
+    expect(shares[habitBin(250)]).toBeCloseTo(1);
+    expect(sum(shares)).toBeCloseTo(1);
+  });
+
+  it('splits the shares by time spent, recent time counting a little more', () => {
+    const h = new Habits();
+    h.add(50, 1000);
+    h.add(550, 1000);
+    const shares = h.shares();
+    expect(shares[0]! + shares[HABIT_BINS - 1]!).toBeCloseTo(1);
+    expect(shares[HABIT_BINS - 1]!).toBeGreaterThan(shares[0]!);
+    expect(shares[HABIT_BINS - 1]! - shares[0]!).toBeLessThan(0.05);
+  });
+
+  it('lets an old habit fade to half in HABIT_HALF_LIFE_MS', () => {
+    const h = new Habits();
+    h.add(50, 1000);
+    // One half-life spent somewhere else halves the old second.
+    const steps = 1000;
+    for (let n = 0; n < steps; n++) h.add(550, HABIT_HALF_LIFE_MS / steps);
+    const shares = h.shares();
+    const old = 1000 * 0.5;
+    // The new time faded too as it went: integrate it the same way.
+    const fresh = (HABIT_HALF_LIFE_MS / Math.LN2) * (1 - 0.5);
+    expect(shares[0]!).toBeCloseTo(old / (old + fresh), 2);
+  });
+
+  it('ignores time that is not there', () => {
+    const h = new Habits();
+    h.add(50, 500);
+    h.add(550, 0);
+    h.add(550, -10);
+    h.add(550, NaN);
+    expect(h.shares()[0]).toBeCloseTo(1);
+  });
+
+  it('writes into the list it is given, so a frame allocates nothing', () => {
+    const h = new Habits();
+    h.add(350, 100);
+    const out: number[] = [];
+    expect(h.shares(out)).toBe(out);
+    expect(out[habitBin(350)]).toBeCloseTo(1);
   });
 });

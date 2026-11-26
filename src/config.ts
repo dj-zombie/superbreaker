@@ -189,6 +189,8 @@ export const HYPER_DURATION_MS = 6_000;
 /** Arcade timeScale below 1 runs physics faster. */
 export const HYPER_TIME_SCALE = 0.62;
 export const HYPER_DAMAGE_MULT = 2;
+/** Hyperspeed's barrier stays up this long after the speed wears off, so a ball already diving still comes back. */
+export const HYPER_GRACE_MS = 1_000;
 export const PIERCE_DURATION_MS = 5_000;
 export const EXPLOSION_RADIUS = 52;
 
@@ -222,19 +224,33 @@ const TOUCH_SKILL_GAP = 18;
 /** Inset of the skill row from the bottom of the deck, and of the slots from the top. */
 const TOUCH_EDGE = 10;
 
-/** Vertical centers of the slider row and the skill row inside a touch deck. */
+/**
+ * Vertical centers of the slider row and the skill row inside a touch deck. A deck too short for
+ * two rows (a tablet, whose arena can't shrink below ARENA_MIN) puts both on one row: `stacked`
+ * is false and the skills sit beside their slots.
+ */
 export function touchDeckYs(
   deckTop: number,
   deckBottom: number,
   slotR = SLOT_RADIUS,
   skillR = SKILL_RADIUS,
-): { slotY: number; skillY: number } {
+): { slotY: number; skillY: number; stacked: boolean } {
   const skillY = deckBottom - TOUCH_EDGE - skillR;
   const aboveSkills = skillY - skillR - TOUCH_SKILL_GAP - slotR;
   const centered = (deckTop + deckBottom) / 2;
   const inDeck = deckTop + slotR + TOUCH_EDGE;
+  if (aboveSkills < inDeck) {
+    // Staying on screen wins over staying inside the panel: the row may rise into the gap under the paddle.
+    const y = Math.min(centered, deckBottom - TOUCH_EDGE / 2 - slotR);
+    return { slotY: y, skillY: y, stacked: false };
+  }
   const slotY = Math.max(inDeck, Math.min(centered, aboveSkills));
-  return { slotY, skillY };
+  return { slotY, skillY, stacked: true };
+}
+
+/** True when the touch deck holds the skills on their own row under the slots. */
+export function deckStacked(): boolean {
+  return IS_TOUCH && !WIDE && touchDeckYs(DECK_TOP, DECK_BOTTOM).stacked;
 }
 
 /** Vertical center of the deck buttons. Without a deck they hug the bottom edge, as before. */
@@ -282,12 +298,14 @@ function safeInsetsCss(): { top: number; bottom: number } {
 export function applyViewport(w?: number, h?: number): void {
   const vp = w === undefined || h === undefined ? viewportPixels() : { w, h };
   const insets = safeInsetsCss();
+  const stage = computeStage({ vpW: vp.w, vpH: vp.h, touch: IS_TOUCH });
+  // A tablet on the wide stage keeps its buttons in the wing plates, so it needs no thumb deck.
   const l = computeLayout({
     vpW: vp.w,
     vpH: vp.h,
     safeTop: insets.top,
     safeBottom: insets.bottom,
-    touch: IS_TOUCH,
+    touch: IS_TOUCH && !stage.wide,
   });
   coverScreen = l.coverScreen;
   HEIGHT = l.height;
@@ -302,7 +320,6 @@ export function applyViewport(w?: number, h?: number): void {
   DECK_TOP = l.deckTop;
   DECK_BOTTOM = l.deckBottom;
   LOSE_Y = l.loseY;
-  const stage = computeStage({ vpW: vp.w, vpH: vp.h, touch: IS_TOUCH });
   WIDE = stage.wide;
   STAGE_W = stage.width;
   WING = stage.wing;
@@ -330,22 +347,27 @@ export function designY(y: number): number {
   return top + (span - FIELD_HEIGHT) / 2 + y;
 }
 
+/** Space between a slot's edge and the button beside it on the same row. */
+const BESIDE_GAP = 12;
+
 /**
- * On touch, one skill under each corner slot, clear of the slider. On desktop they stay in a
- * row inboard of the right slot, where there is no slider to protect.
+ * On touch, one skill under each corner slot, clear of the slider; on a deck too short for that,
+ * one just inboard of each slot. On desktop they stay in a row inboard of the right slot, where
+ * there is no slider to protect.
  */
 export function skillPositions(): ReadonlyArray<{ x: number; y: number }> {
   const slots = slotPositions();
   if (IS_TOUCH) {
-    const y = touchDeckYs(DECK_TOP, DECK_BOTTOM).skillY;
+    const { skillY: y, stacked } = touchDeckYs(DECK_TOP, DECK_BOTTOM);
+    const inboard = stacked ? 0 : SLOT_RADIUS + BESIDE_GAP + SKILL_RADIUS;
     return [
-      { x: slots[0]!.x, y },
-      { x: slots[1]!.x, y },
+      { x: slots[0]!.x + inboard, y },
+      { x: slots[1]!.x - inboard, y },
     ];
   }
   const slot = slots[1]!;
   const gap = SKILL_RADIUS * 2 + 10;
-  const x0 = slot.x - SLOT_RADIUS - 12 - SKILL_RADIUS;
+  const x0 = slot.x - SLOT_RADIUS - BESIDE_GAP - SKILL_RADIUS;
   return SKILL_IDS.map((_, i) => ({ x: x0 - i * gap, y: slot.y }));
 }
 
@@ -353,7 +375,9 @@ export function stockPositions(count: number): Array<{ x: number; y: number }> {
   if (count <= 0) return [];
   const slot = slotPositions()[0]!;
   const gap = STOCK_RADIUS * 2 + 8;
-  const x0 = slot.x + SLOT_RADIUS + 12 + STOCK_RADIUS;
+  // A one-row touch deck has the left skill beside the slot, so the stock starts past it.
+  const skill = IS_TOUCH && !touchDeckYs(DECK_TOP, DECK_BOTTOM).stacked ? SKILL_RADIUS * 2 + BESIDE_GAP : 0;
+  const x0 = slot.x + SLOT_RADIUS + BESIDE_GAP + skill + STOCK_RADIUS;
   return Array.from({ length: count }, (_, i) => ({ x: x0 + i * gap, y: slot.y }));
 }
 
@@ -583,6 +607,27 @@ export const AUDIO_ASSETS: ImageAsset[] = [
   { key: 'angler_vesper_come', path: 'audio/boss/angler/vesper-come.mp3' },
   { key: 'angler_vesper_hungry', path: 'audio/boss/angler/vesper-hungry.mp3' },
   { key: 'angler_vesper_free', path: 'audio/boss/angler/vesper-free.mp3' },
+  ...[
+    'hum',
+    'scan',
+    'packet',
+    'glitch',
+    'rewind',
+    'build',
+    'purge',
+    'shutter',
+    'freeze',
+    'hurt',
+    'recompile',
+    'split',
+    'total',
+    'decoy',
+    'death',
+    'door',
+  ].map((name) => ({ key: `overseer_${name}`, path: `audio/boss/overseer/${name}.mp3` })),
+  // The Overseer's lines, built with the Mainframe's in build-cutscene-audio.py: its voice.
+  { key: 'vo_overseer_01', path: 'audio/cutscenes/vo/vo_overseer_01.mp3' },
+  { key: 'vo_overseer_02', path: 'audio/cutscenes/vo/vo_overseer_02.mp3' },
 ];
 
 export const SCENES = {
@@ -594,6 +639,7 @@ export const SCENES = {
   hud: 'Hud',
   pause: 'Pause',
   results: 'Results',
+  victory: 'Victory',
   upgrades: 'Upgrades',
   settings: 'Settings',
   worlds: 'Worlds',

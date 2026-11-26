@@ -5,7 +5,7 @@ import manifest from './backdrops.json';
 export const WORLD_IDS = ['hell', 'crypt', 'mainframe'] as const;
 export type WorldId = (typeof WORLD_IDS)[number];
 /** Every painted backdrop: the worlds, and scenery a stage brings with it. */
-export const SCENERY_IDS = [...WORLD_IDS, 'carnival', 'crucible', 'abyss'] as const;
+export const SCENERY_IDS = [...WORLD_IDS, 'carnival', 'crucible', 'abyss', 'kernel'] as const;
 export type SceneryId = (typeof SCENERY_IDS)[number];
 
 interface ManifestPart {
@@ -88,7 +88,14 @@ export interface StillLook {
   /** How near it is, 0..1, for the fall's perspective: the far layers 0.2, the near ones 1. */
   depth: number;
   /** Light behind its openings, in the plate's own pixels: pulses with `pulse`. */
-  glows?: Array<{ color: number; alpha: number; x: number; y: number; width: number; height: number }>;
+  glows?: Array<{
+    color: number;
+    alpha: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
   /**
    * Girders across its top and bottom edges, the whole stage wide, so it rises as one piece of the
    * room rather than a picture: the manifest layer they tile, how tall they stand in playfield
@@ -336,6 +343,51 @@ export const WORLD_LOOKS: Record<SceneryId, WorldLook> = {
         scale: [0.3, 0.6],
         alpha: 0.45,
         count: 8,
+      },
+    ],
+  },
+  // The Overseer's: the bottom of the Mainframe, a chamber walled with cameras round an empty socket.
+  kernel: {
+    skyTint: 0x8c98a8,
+    base: 0x02060c,
+    layers: [
+      { kind: 'tiles', name: 'far', speed: 6, sway: 3 },
+      { kind: 'glow', color: 0x1ab8ff, alpha: 0.18, y: 1.05, size: 0.9 },
+      {
+        kind: 'motes',
+        shape: 'bit',
+        colors: [0x40e0ff, 0x2a80ff],
+        rise: [20, 50],
+        scale: [0.4, 0.7],
+        alpha: 0.4,
+        count: 30,
+      },
+      { kind: 'tiles', name: 'fog1', speed: 10, alpha: 0.85, sway: 5, optional: true },
+      { kind: 'tiles', name: 'mid', speed: 18, sway: 8 },
+      {
+        kind: 'still',
+        name: 'chamber',
+        width: 700,
+        top: -376,
+        depth: 0.6,
+        glows: [
+          // The socket's rim, the camera walls either side, and the floor's light strip.
+          { color: 0x1ab8ff, alpha: 0.3, x: 360, y: 469, width: 320, height: 320 },
+          { color: 0xff2a2a, alpha: 0.28, x: 110, y: 600, width: 200, height: 640 },
+          { color: 0xff2a2a, alpha: 0.28, x: 610, y: 600, width: 200, height: 640 },
+          { color: 0x40c8ff, alpha: 0.3, x: 360, y: 900, width: 140, height: 120 },
+        ],
+      },
+      { kind: 'tiles', name: 'fog2', speed: 26, alpha: 0.7, sway: 10, optional: true },
+      { kind: 'tiles', name: 'near', speed: 38, sway: 16 },
+      {
+        kind: 'motes',
+        shape: 'bit',
+        colors: [0xff4040, 0x80f0ff],
+        rise: [60, 120],
+        scale: [0.7, 1.1],
+        alpha: 0.6,
+        count: 12,
       },
     ],
   },

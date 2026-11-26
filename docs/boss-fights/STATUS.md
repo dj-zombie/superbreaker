@@ -2194,3 +2194,119 @@ Open
 - With a fresh save, `?stop=20` shows the "New: Phantoms" hint over the title card. In the
   campaign the phantoms were met earlier.
 
+
+## User request: The Overseer (World 3 finale): DONE, 2026-11-22, Claude (Cursor agent)
+
+The user asked for the World 3 finale from `docs/boss-fights/world3-finale.md`, following its
+work order. Check-in 1: the user chose look B (Panopticon) and the default story. Check-in 2,
+after playing `?stop=30`: phase 1 was too hard, the Mirror too fast, and the look should be
+lighter; all three were eased (see Deviations).
+
+The fight: the campaign's last stop, after level 30, on a 120 BPM beat (pools 24, 32, 36).
+Recognition: the Mirror on its rail stands where the paddle would in a mirror; scans, packets
+and the Warden's echo. Prediction: the eye recompiles, the heatmap comes up, and the Mirror
+chases where the ball will cross its rail, feinting every fourth return; the Angler's echo (catch
+the slag to freeze the Mirror), `overwrite` (a row of a cleared level built as bricks). Kernel:
+the chamber falls into the data tunnel, the eye opens wide, the Mirror splits (the left copies
+you, the right chases the ball); the Crucible's echo, `purge` (the safe gap in your least-used
+zone) and `total-recall`. The death cracks the eye, dissolves the Mirrors into warm light,
+relights the room and opens the door to daylight; then the `ending`.
+
+Built
+- Framework (`src/core/Boss.ts`, `src/systems/BossDirector.ts`, `src/systems/BossBody.ts`,
+  `src/core/Campaign.ts`, `src/scenes/Title.ts`):
+  - a stop after the last level (`validStops` allows `after === levelCount`; nothing follows
+    it; the title line says "Boss fight" until it is beaten);
+  - `BossStage.steer` with `BossDef.tick` and `BossTuning.steer` (0.85 / 1 / 1.12);
+  - `BossStage.balls()` and `sinceReturn(partId)`;
+  - habits (`HABIT_BIN` 100 px, `HABIT_HALF_LIFE_MS` 20 s) as `BossView.habits` and
+    `BossStage.habits`;
+  - `AttackPlan.bricks`.
+  Tests in `tests/boss.test.ts`, `tests/campaign.test.ts`.
+- Boss: `src/bosses/overseer.ts` (parts, poses `shut`/`open`/`wide`, eight attacks, three
+  phases, `on()`, `tick`, entrance, `recompile` and `kernel` phase scenes, death),
+  `overseerRig.ts` (housing, iris, shutters, lens, Mirrors, rail, heatmap, ghost line, glitch,
+  divide, dissolve, door, lights, reduced motion), `overseerMusic.ts` (cue sheet). Registered in
+  `src/bosses/index.ts`; `BOSS_IDS`; the Tiled Boss enum.
+- Map: `public/assets/levels/boss30.tmj` ("The Overseer", darkness 0.25, lights out), and in
+  `index.json` the stop after 30 and the scenes `the-door` (before `boss30`) and `ending`
+  (after it).
+- Scenery `kernel` (`scripts/build-backdrops.py`, `src/art/backdrops.ts`, both JSON sets): the
+  Mainframe's layers under a chamber still walled with cameras, a tunnel to fall into, and the
+  phone and 16:9 sets. `kernel` added to the FX `only:` lists and palettes next to `mainframe`,
+  to `SCENERIES` in `src/scenes/FxLab.ts`, and to the cutscene actors' sprite sets
+  (`ActorStage.ts`).
+- Art: rig sheets in `art-src/bosses/overseer/` sliced by `scripts/build-bosses.py`; cutscene
+  plates `cs_plate_door` and `cs_plate_daylight` (`scripts/build-cutscene-art.py`), made with
+  Cursor's GenerateImage.
+- Audio: 16 `overseer/*` effects appended to `scripts/build-boss-audio.py`, the track from
+  `scripts/build-overseer-music.py` (`boss-overseer.mp3`), two Overseer lines through the
+  `MACHINE` chain, and the ending's `cs_dawn` bed (`scripts/build-cutscene-audio.py`).
+  `AUDIO_ASSETS` +18; the boss sound count in `tests/bosses.test.ts` is 65.
+- Cutscenes: `src/cutscenes/door.ts` (`the-door`) and `src/cutscenes/ending.ts` (`ending`,
+  closing on "Super Breaker / The End"), registered in `src/cutscenes/index.ts`.
+- FX: `src/fx/library/overseer.ts` (`OVERSEER_FX`): slag and packet trails, the splash, and
+  `recompile`, `crack`, `dissolve`, `daylight` for the scenes. Registered in `FX_LIBRARY` and used
+  by the boss's `hazards.fx` and its cues.
+- Docs: `authoring.md` (the Overseer as an example; steering and `tick`; `habits`;
+  `AttackPlan.bricks`; the last stop; `pose` in cues; `?stop=30`).
+- Tests: `bosses.test.ts`, `campaign.test.ts` (the Overseer after 30, the stop is the last
+  step), `cutscenes.test.ts` (`the-door` and `ending` placement, scenery and beats),
+  `fx.test.ts` (now checks `ANGLER_FX`, which it had left out, and `OVERSEER_FX`).
+
+Verified
+- `pnpm typecheck`: clean. `pnpm lint`: the one known error, `src/art/procedural.ts:465`.
+  `pnpm test`: 1066 passed, 9 skipped (the sprite checks, which skip for rig bosses as they did
+  for the Angler), 1 failed: the known `tests/skills.test.ts` one; `src/core/Skills.ts` is
+  untouched.
+- Headless Chrome at `localhost:5199` with the paddle steered by script and god mode on; no
+  console errors or `[boss]` fairness warnings in any run:
+  - every attack alone with `&attack=<id>`, at the phase it belongs to: each was seen;
+  - every phase with `&phase=N`; the `recompile` and `kernel` scenes and the death, played
+    into from the phase before;
+  - `?stop=30` on Easy; phase 3 on Hard at 1600x900; phase 2 with reduced motion;
+  - the whole run: `?level=30`, level won, `the-door` (tap holds tapped), the fight to the
+    award, Results, `ending`, then the world map with the skull after 30 beaten.
+- The flash test covers the Overseer's scenes.
+
+Not verified
+- Sound by ear: every effect, the track, the dawn bed and the two voice lines are synthesized
+  or processed and have not been heard.
+- A human Normal run for length. The scripted paddle and forced damage say nothing about it.
+- A real phone.
+
+Deviations from the documents
+- Parts: fitted to the art, not the proposal. Crown and ring are steel, the eye is 4x5 at col 8,
+  row 5 (weak 3), the lids are two 2x1 halves, and the Mirror sits at row 20 rather than 12.
+- Mirror speeds are 260 px/s (copying) and 230 (chasing), not the proposed 380 and 300; phase 1
+  was eased and the arena lightened at check-in 2. Arena darkness is 0.25.
+- Habits count only while a ball is in play, not over the whole fight clock, so a serve or a
+  scene teaches the boss nothing.
+- Echo looks (3.5): not built. The Overseer has its own glitched skull and decoy art.
+- `pose` in cues: authoring.md listed it under state a cue may not change, but the code allows
+  it and the Angler used it. The Overseer's scenes only move to the pose their phase holds
+  anyway; authoring.md now says so.
+- Scenes cannot land stills. `the-door`'s last beat and the `ending`'s opening therefore show
+  the kernel's shaft layers rather than the chamber, which only appears when the fight lands it.
+- The door is a soft daylight glow from the rig, not painted art.
+- `scripts/build-backdrops.py` got a feather and speck fix for the chamber still. The Abyss's
+  16:9 set, built before the fix, was not rebuilt.
+- Voice: only two Overseer lines are recorded, because the Ludo credits ran low. Every new line
+  in `the-door` and the `ending` types out with blips (`RECORDED` is empty in both files).
+- Formatting: Prettier rewrapped parts of files it touched that were not formatted before
+  (`Boss.ts`, `backdrops.ts`, `palettes.ts`, some tests). `FxLab.ts` was put back to a one-line
+  change.
+
+Open
+- `docs/boss-fights/README.md` shows a one-line change that adds `world3-finale.md` to its
+  table. It is probably the user's, made with the handoff; not checked.
+- After the last win, Results' "Play again" plays the `ending` and then replays the fight.
+  That is `Results.ending()` as it was; "Map" plays the ending and lands on the map.
+- Distortion in FX presets (`crack` here, and the Angler's and boss presets) ignores reduced
+  motion; `FxEngine` applies it whatever the setting.
+- Lines to record if the user tops up Ludo credits or picks another voice: three Overseer and
+  two Vesper lines in `the-door`, the Vesper lines and narration in the `ending`.
+
+Later
+- Corrupted echo looks of the earlier bosses (3.5).
+- Painted art for the open door.

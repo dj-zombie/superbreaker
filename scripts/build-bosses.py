@@ -356,6 +356,23 @@ RIGS = {
         {"kind": "loose", "source": "angler/fx.jpg", "grid": (3, 2), "size": 96,
          "names": ["wisp", "decoy", "ink", "skull", "splash", "shard"]},
     ],
+    "overseer": [
+        # The ring of cameras round the empty socket: lit, glaring, broken open, dead. Cut at 1.5
+        # times its size on the field, as the angler's head is.
+        {"kind": "sheet", "source": "overseer/housing.jpg", "out": "housing", "grid": (2, 2), "frame": (450, 480),
+         "reach": 96, "enclosed": (215, 6)},
+        # The eye in the socket: calm, focusing red, cracked and glitching, dead.
+        {"kind": "sheet", "source": "overseer/iris.jpg", "out": "iris", "grid": (2, 2), "frame": (300, 300),
+         "reach": 96},
+        # One leaf of the shutter, point down; the rig turns four of them to the diagonals.
+        {"kind": "piece", "source": "overseer/shutter.jpg", "out": "shutter.png", "width": 240},
+        # The Mirror: idle, frozen by a stun, glitching, dissolving into Vesper's light. The frame
+        # is wide for the frost and the light spilling past the capsule.
+        {"kind": "sheet", "source": "overseer/mirror.jpg", "out": "mirror", "grid": (1, 4), "frame": (340, 120),
+         "reach": 64},
+        {"kind": "loose", "source": "overseer/fx.jpg", "grid": (3, 2), "size": 96,
+         "names": ["packet", "skull", "decoy", "slag", "splash", "shard"]},
+    ],
 }
 
 

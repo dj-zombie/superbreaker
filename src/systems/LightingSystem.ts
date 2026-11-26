@@ -1288,7 +1288,8 @@ export class LightingSystem {
         const x0 = Math.max(0, Math.round((c * fw) / cols) - (c > 0 ? PATCH_BLEED : 0));
         const x1 = Math.min(fw, Math.round(((c + 1) * fw) / cols) + (c < cols - 1 ? PATCH_BLEED : 0));
         cell.setPosition(px, py).setRotation(rotation).setFlip(false, false);
-        if (cell.frame !== frame) cell.setFrame(frame.name);
+        if (cell.texture !== image.texture) cell.setTexture(image.texture.key, frame.name);
+        else if (cell.frame !== frame) cell.setFrame(frame.name);
         cell
           .setScale(flipX ? -scaleX : scaleX, flipY ? -scaleY : scaleY)
           .setAlpha(image.alpha)

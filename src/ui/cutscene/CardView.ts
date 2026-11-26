@@ -56,6 +56,8 @@ export class CardView {
       .setTint(t.palette.glow)
       .setBlendMode(Phaser.BlendModes.ADD);
     const title = worldTitle(s, 0, 24, card.title, 58, { t });
+    const room = WIDTH - 48;
+    if (title.width > room) title.setScale(room / title.width);
     return s.add.container(WIDTH / 2, HEIGHT / 2, [rule, kicker, title]).setDepth(this.depth);
   }
 

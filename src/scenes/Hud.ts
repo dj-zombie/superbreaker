@@ -14,11 +14,13 @@ import {
   STOCK_RADIUS,
   WIDE,
   WIDTH,
+  deckStacked,
   skillPositions,
   slotPositions,
   stockPositions,
 } from '../config';
 import { HUD_FONT } from '../art/fonts';
+import { lerpColor } from '../fx/math';
 import type { SlotState } from '../systems/AbilitySystem';
 import type { BossHud } from '../systems/BossDirector';
 import { BonusHudView } from '../ui/BonusHudView';
@@ -82,7 +84,8 @@ interface FeverView {
   track: Phaser.GameObjects.Image;
   fill: Phaser.GameObjects.Image;
   spark: Phaser.GameObjects.Image;
-  rainbow: Phaser.GameObjects.TileSprite;
+  /** A glow along the fill while Fever runs, swelling on the beat. */
+  halo: Phaser.GameObjects.Image;
 }
 
 /** A boss's health bar, with a pip for each of its phases at the right end. */
@@ -353,11 +356,14 @@ export class Hud extends BaseScene {
     const d = this.deck;
     if (!d) return;
     d.panel.setPosition(WIDTH / 2, DECK_TOP).setDisplaySize(WIDTH, HEIGHT - DECK_TOP);
-    // The track fills the gap between the corner slots. Skills sit on their own row underneath.
-    const [l, r] = slotPositions();
+    // The track fills the gap between the corner slots, with the skills on their own row
+    // underneath; on a deck too short for that, between the skills beside the slots.
+    const stacked = deckStacked();
+    const [l, r] = stacked ? slotPositions() : skillPositions();
+    const edge = stacked ? SLOT_RADIUS : SKILL_RADIUS;
     const y = l!.y;
-    d.left = l!.x + SLOT_RADIUS + 18;
-    d.right = r!.x - SLOT_RADIUS - 18;
+    d.left = l!.x + edge + 18;
+    d.right = r!.x - edge - 18;
     d.track.setPosition((d.left + d.right) / 2, y).setDisplaySize(d.right - d.left, 4);
     d.knob.setY(y);
     d.hint.setPosition(WIDTH / 2, y - 26);
@@ -441,7 +447,7 @@ export class Hud extends BaseScene {
       .setScale(v.scale * size * (1 + 0.06 * wave));
     v.arrow.setVisible(true);
     // The skill row is under the slots, so the arrow comes in from the side instead of covering them.
-    if (IS_TOUCH && skill) {
+    if (skill && deckStacked()) {
       const inward = pos.x < WIDTH / 2 ? 1 : -1;
       v.arrow.setAngle(inward > 0 ? 0 : 180);
       v.arrow.setPosition(pos.x + inward * (radius + 32 + wave * 4), pos.y);
@@ -570,10 +576,12 @@ export class Hud extends BaseScene {
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDisplaySize(40, 16)
       .setVisible(false);
-    const rainbow = this.add.tileSprite(0, 0, WIDTH, FEVER_H, 'rainbow_bar').setOrigin(0, 0);
-    // One hue cycle across the full bar, like the old segmented rainbow.
-    rainbow.setTileScale(WIDTH / 256, FEVER_H / 4).setVisible(false);
-    const view = { track, fill, spark, rainbow };
+    const halo = this.add
+      .image(0, 0, glowLineTexture(this))
+      .setOrigin(0, 0.5)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setVisible(false);
+    const view = { track, fill, spark, halo };
     this.layoutFever(view);
     return view;
   }
@@ -582,7 +590,7 @@ export class Hud extends BaseScene {
     const y = HUD_HEIGHT + 1;
     v.track.setY(y);
     v.fill.setY(y);
-    v.rainbow.setY(y);
+    v.halo.setY(y + FEVER_H / 2);
     v.spark.setY(y + FEVER_H / 2);
   }
 
@@ -630,7 +638,7 @@ export class Hud extends BaseScene {
     }
     this.drawClock(s.clockMs);
     this.drawEffects(s);
-    this.drawFever(s, delta);
+    this.drawFever(s);
     this.drawBoss(s.boss, delta);
     this.drawStock(s);
     this.drawDeck(s);
@@ -664,22 +672,28 @@ export class Hud extends BaseScene {
     this.clock.setTint(urgent ? this.t.palette.danger : 0xffffff);
   }
 
-  private drawFever(s: HudState, delta: number): void {
-    const { fill, rainbow, spark } = this.feverView;
+  private drawFever(s: HudState): void {
+    const { fill, spark, halo } = this.feverView;
     const w = Phaser.Math.Clamp(s.fever, 0, 1);
-    rainbow.setVisible(s.feverActive && w > 0);
-    fill.setVisible(!s.feverActive && w > 0);
+    fill.setVisible(w > 0);
+    halo.setVisible(s.feverActive && w > 0);
     spark.setVisible(w > 0.02 && w < 0.999);
     spark.setX(w * WIDTH);
+    if (w <= 0) return;
+    fill.displayWidth = w * WIDTH;
     if (s.feverActive) {
-      rainbow.scaleX = w;
-      rainbow.tilePositionX -= (256 * delta) / 1000;
-      spark.setTint(0xffffff);
-    } else if (w > 0) {
+      // The bar burns down in the world's color, flaring toward white on the beat.
+      const p = s.feverPulse;
+      fill.setTint(lerpColor(s.feverColor, 0xffffff, p * 0.45));
+      halo
+        .setTint(s.feverColor)
+        .setAlpha(0.3 + 0.5 * p)
+        .setDisplaySize(w * WIDTH, 10 + 10 * p);
+      spark.setTint(0xffffff).setDisplaySize(40 + 24 * p, 16 + 8 * p);
+    } else {
       const full = w > 0.8 && Math.floor(this.time.now / 120) % 2 === 0;
-      fill.displayWidth = w * WIDTH;
       fill.setTint(full ? 0xffffff : this.t.palette.accent);
-      spark.setTint(this.t.palette.accentHi);
+      spark.setTint(this.t.palette.accentHi).setDisplaySize(40, 16);
     }
   }
 

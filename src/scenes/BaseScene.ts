@@ -31,4 +31,14 @@ export abstract class BaseScene extends Phaser.Scene {
   protected stopAfter(index: number): BossStop | undefined {
     return this.bossStops.find((s) => s.after === index);
   }
+
+  /** The credits stage that rolls after the campaign's ending, off the campaign's map. */
+  protected get finaleLevel(): LevelSpec | undefined {
+    return this.registry.get(FINALE_REG) as LevelSpec | undefined;
+  }
 }
+
+/** The registry key Preload stores the credits stage's level under. */
+export const FINALE_REG = 'finaleLevel';
+/** The credits stage's map, in `assets/levels/`. */
+export const FINALE_MAP = 'credits.tmj';

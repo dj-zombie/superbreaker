@@ -46,7 +46,7 @@ export interface LaserHost {
   readonly lights: LightingSystem;
   readonly paddle: Paddle;
   readonly powerups: PowerupSystem;
-  /** The rainbow while Fever runs. */
+  /** Fever's color while it runs. */
   feverTint(): number | undefined;
 }
 

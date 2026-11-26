@@ -168,7 +168,7 @@
       "name": "Boss",
       "type": "enum",
       "storageType": "string",
-      "values": ["none", "crucible", "warden", "angler"],
+      "values": ["none", "crucible", "warden", "angler", "overseer"],
       "valuesAsFlags": false
     },
     {
@@ -176,7 +176,7 @@
       "name": "Bonus",
       "type": "enum",
       "storageType": "string",
-      "values": ["none", "gallery", "pinata"],
+      "values": ["none", "gallery", "pinata", "credits"],
       "valuesAsFlags": false
     }
   ]

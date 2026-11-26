@@ -462,7 +462,7 @@ const painters: Record<string, [number, number, Painter]> = {
   crosshair: [
     128,
     128,
-    (ctx, w, h) => {
+    (ctx, w) => {
       const c = w / 2;
       const ring = w / 2 - 10;
       const gap = 16;
@@ -684,16 +684,6 @@ const painters: Record<string, [number, number, Painter]> = {
       ctx.stroke();
     },
   ],
-  rainbow_bar: [
-    256,
-    4,
-    (ctx, w, h) => {
-      for (let x = 0; x < w; x++) {
-        ctx.fillStyle = `hsl(${(x / w) * 360}, 100%, 58%)`;
-        ctx.fillRect(x, 0, 1, h);
-      }
-    },
-  ],
   edge_glow: [
     30,
     4,
@@ -850,7 +840,6 @@ export const ALWAYS_PROCEDURAL = [
   'deck_panel',
   'deck_knob',
   'edge_glow',
-  'rainbow_bar',
   'laser_tracer',
   'laser_missile',
   'laser_pod',

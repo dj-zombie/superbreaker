@@ -168,17 +168,20 @@ export function scramble(
     delay,
     duration,
     onUpdate: () => {
+      if (!text.active) return;
       const shown = Math.floor(state.p * final.length);
       let s = '';
       for (let i = 0; i < final.length; i++) {
         const ch = final[i] ?? '';
-        if (i < shown || ch === ' ') s += ch;
+        if (i < shown || /\s/.test(ch)) s += ch;
         else if (i < shown + 4) s += GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
         else s += ' ';
       }
       text.setText(s);
     },
-    onComplete: () => text.setText(final),
+    onComplete: () => {
+      if (text.active) text.setText(final);
+    },
   });
 }
 

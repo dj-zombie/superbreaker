@@ -26,7 +26,7 @@
     "cap:android": "pnpm cap:sync && cap open android",
     "desktop:build": "tsc --noEmit && tsc -p desktop && vite build --mode desktop",
     "desktop:dev": "tsc -p desktop && node scripts/desktop-dev.mjs",
-    "desktop:dist": "pnpm desktop:build && electron-builder"
+    "desktop:dist": "pnpm desktop:build && node scripts/desktop-dist.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

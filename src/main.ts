@@ -42,6 +42,7 @@ import { Play } from './scenes/Play';
 import { Hud } from './scenes/Hud';
 import { Pause } from './scenes/Pause';
 import { Results } from './scenes/Results';
+import { Victory } from './scenes/Victory';
 import { Upgrades } from './scenes/Upgrades';
 import { Settings } from './scenes/Settings';
 import { Transition } from './scenes/Transition';
@@ -214,6 +215,7 @@ async function start(): Promise<void> {
       Cutscene,
       Pause,
       Results,
+      Victory,
       Upgrades,
       Settings,
       ...(import.meta.env.DEV ? [UiGallery, FxLab] : []),

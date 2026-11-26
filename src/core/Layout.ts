@@ -109,13 +109,20 @@ export interface Stage {
 }
 
 /**
+ * A touch screen whose short side is at least this many CSS px is a tablet, which may play in
+ * landscape. Matches the rotate prompt's `max-height: 600px` in index.html, which phones get.
+ */
+export const TABLET_MIN_SIDE = 600;
+
+/**
  * On a landscape desktop window FIT would letterbox the 600x800 field. The wide stage fills
- * that width instead. Phones and tablets keep the portrait field.
+ * that width instead, and so does a tablet held in landscape. Phones keep the portrait field.
  */
 export function computeStage(input: StageInput): Stage {
   const { vpW, vpH, touch } = input;
   const narrow: Stage = { wide: false, width: FIELD_WIDTH, wing: 0 };
-  if (touch || vpW <= 0 || vpH <= 0 || vpW / vpH <= FIELD_WIDTH / FIELD_HEIGHT) return narrow;
+  if (vpW <= 0 || vpH <= 0 || vpW / vpH <= FIELD_WIDTH / FIELD_HEIGHT) return narrow;
+  if (touch && Math.min(vpW, vpH) < TABLET_MIN_SIDE) return narrow;
   const width = FIELD_HEIGHT * Math.min(vpW / vpH, STAGE_MAX_ASPECT);
   const wing = (width - FIELD_WIDTH) / 2;
   return wing >= WING_MIN ? { wide: true, width, wing } : narrow;

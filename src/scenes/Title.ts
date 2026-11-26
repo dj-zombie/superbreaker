@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { CROWN, loadFinale } from '../art/finale';
 import { HEIGHT, SAFE_BOTTOM, SAFE_TOP, SCENES, STAGE_W, WIDTH, designY } from '../config';
 import { ABILITY_IDS, abilityCost } from '../core/Abilities';
 import type { CampaignStep } from '../core/Campaign';
@@ -15,7 +16,7 @@ import { backdropTint } from '../systems/Backdrop';
 import { ParallaxBackdrop } from '../systems/ParallaxBackdrop';
 import { Button, iconButton } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { fadeTexture } from '../ui/frames';
+import { fadeTexture, raysTexture } from '../ui/frames';
 import { Logo } from '../ui/fx/logoReveal';
 import { cascade } from '../ui/fx/motion';
 import { ambient } from '../ui/fx/particles';
@@ -27,6 +28,7 @@ import { CurrencyPill } from '../ui/widgets';
 import { startRun } from './ArcadeSelect';
 import { BaseScene } from './BaseScene';
 import { playCutscene, storyBetween } from './Cutscene';
+import type { PlayData } from './Play';
 
 type Item = Phaser.GameObjects.Components.Transform &
   Phaser.GameObjects.Components.AlphaSingle &
@@ -71,6 +73,7 @@ export class Title extends BaseScene {
 
   preload(): void {
     ParallaxBackdrop.preload(this, menuWorld());
+    if (this.campaignWon()) loadFinale(this, [CROWN]);
   }
 
   create(): void {
@@ -175,6 +178,7 @@ export class Title extends BaseScene {
     } else {
       this.logo.setPosition(WIDTH / 2, y).setScale(scale);
     }
+    if (this.campaignWon()) this.crown(y - (lh * scale) / 2);
     this.buildHub(y + (lh * scale) / 2);
     const items = this.hubItems;
     if (animate) cascade(this, items, { delay: 260, stagger: 70 });
@@ -236,7 +240,40 @@ export class Title extends BaseScene {
       add(tile);
     });
 
-    add(label(this, WIDTH / 2, HEIGHT - Math.max(30, SAFE_BOTTOM + 22), 'Zombie Head Studios', 12));
+    const footY = HEIGHT - Math.max(30, SAFE_BOTTOM + 22);
+    add(label(this, WIDTH / 2, footY, 'Zombie Head Studios', 12));
+    if (this.campaignWon()) {
+      const credits = () => {
+        this.input.enabled = false;
+        runCarry.discard();
+        transitionTo(this, SCENES.play, { finale: 'credits' } satisfies PlayData);
+      };
+      add(
+        new Button(this, WIDTH / 2, footY - 44, 'Credits', credits, {
+          width: 150,
+          height: 40,
+          fontSize: 14,
+          icon: 'play',
+          variant: 'secondary',
+        }),
+      );
+    }
+  }
+
+  /** The campaign's crown, set on the logo once the last boss is beaten. */
+  private crown(logoTop: number): void {
+    const y = logoTop - 14;
+    const crown = this.add.image(WIDTH / 2, y, CROWN).setDisplaySize(58, 58).setDepth(11);
+    const glow = this.add
+      .image(WIDTH / 2, y, raysTexture(this))
+      .setTint(this.t.palette.gold)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.4)
+      .setAlpha(0.45)
+      .setDepth(10);
+    this.hubItems.push(glow, crown);
+    if (calm()) return;
+    this.tweens.add({ targets: glow, angle: 360, duration: 14000, repeat: -1 });
   }
 
   /** The main mode: one tap starts a run in the loop and goal played last. */
@@ -329,6 +366,12 @@ export class Title extends BaseScene {
 
   // ---------------------------------------------------------------- data
 
+  /** The campaign's last boss is beaten. */
+  private campaignWon(): boolean {
+    const last = this.bossStops.filter((s) => s.level).at(-1);
+    return !!last && save.bossBeaten(last.after);
+  }
+
   private cleared(): number {
     let n = 0;
     for (let i = 1; i <= this.levels.length; i++) if (save.state.levels[levelId(i)]) n++;
@@ -344,10 +387,10 @@ export class Title extends BaseScene {
   private campaignLine(): string {
     const total = this.levels.length;
     const done = this.cleared();
-    if (total > 0 && done >= total) return 'Campaign complete';
     const index = Math.max(1, Math.min(save.state.unlocked, total));
-    // A cleared level whose boss still stands holds the path there.
+    // A cleared level whose boss still stands holds the path there, the last level's included.
     const boss = !!this.stopAfter(index)?.level && !!save.state.levels[levelId(index)] && !save.bossBeaten(index);
+    if (total > 0 && done >= total && !boss) return 'Campaign complete';
     return `${boss ? 'Boss fight' : `Level ${index}`}  ·  ${done}/${total} cleared`;
   }
 

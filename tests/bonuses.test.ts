@@ -1,6 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The credits stage draws with Phaser at runtime; nothing here touches it.
+vi.mock('phaser', () => ({ default: {} }));
+
 import { BONUSES } from '../src/bonus';
 import {
   FRONT_SLOTS,
@@ -43,7 +47,19 @@ import {
   tierFor,
   type DropKind,
 } from '../src/bonus/pinata';
-import { BONUS_IDS, MEDALS, arcadeBonusFor, medalFor, type BonusStats } from '../src/core/Bonus';
+import {
+  BALL_AT,
+  CREDITS_MS,
+  FALL_SPEED,
+  FIRE_AT,
+  creditTimes,
+  credits,
+  plateLifeMs,
+  plateY,
+  starAt,
+} from '../src/bonus/credits';
+import { ARCADE_BONUS_IDS, BONUS_IDS, MEDALS, arcadeBonusFor, medalFor, type BonusStats } from '../src/core/Bonus';
+import { CREDITS, STARRING } from '../src/credits';
 import { MAX_BALLS } from '../src/core/Difficulty';
 import { AUDIO_ASSETS, IMAGE_ASSETS } from '../src/config';
 import { Rng } from '../src/core/Rng';
@@ -278,6 +294,56 @@ describe('arcade bonus rounds', () => {
   it('takes turns after each boss, starting with the gallery', () => {
     expect([1, 2, 3, 4].map(arcadeBonusFor)).toEqual(['gallery', 'pinata', 'gallery', 'pinata']);
     expect(arcadeBonusFor(0)).toBe('gallery');
+  });
+});
+
+describe('the credits', () => {
+  it('never comes up in Arcade', () => {
+    expect(ARCADE_BONUS_IDS).not.toContain('credits');
+    for (let n = 0; n <= 12; n++) expect(arcadeBonusFor(n)).not.toBe('credits');
+  });
+
+  it('rolls every credit, then the star plate, inside the timer', () => {
+    const times = creditTimes();
+    expect(times).toHaveLength(CREDITS.length);
+    for (let i = 1; i < times.length; i++) expect(times[i]!).toBeGreaterThan(times[i - 1]!);
+    expect(starAt()).toBeGreaterThan(times[times.length - 1]!);
+    // Room for the star plate to come down and take its hits before time runs out.
+    expect(starAt() + 15_000).toBeLessThan(CREDITS_MS);
+    expect(credits.durationMs).toBe(CREDITS_MS);
+  });
+
+  it('lets each plate fall the length of the field, and no further', () => {
+    expect(plateY(FIELD, 0)).toBeGreaterThan(FIELD.top);
+    const end = plateY(FIELD, plateLifeMs(FIELD));
+    expect(end).toBeLessThan(FIELD.bottom);
+    expect(end).toBeGreaterThan(FIELD.bottom - 120);
+  });
+
+  it('rolls the plates far enough apart that they never overlap', () => {
+    const times = creditTimes();
+    for (let i = 1; i < times.length; i++) {
+      expect(((times[i]! - times[i - 1]!) / 1000) * FALL_SPEED).toBeGreaterThan(105);
+    }
+  });
+
+  it('builds up the balls, then the fireballs, while the credits roll', () => {
+    for (const at of BALL_AT) expect(at * CREDITS_MS).toBeLessThan(starAt());
+    expect(FIRE_AT).toBeGreaterThan(BALL_AT[BALL_AT.length - 1]!);
+    expect(FIRE_AT * CREDITS_MS).toBeLessThan(starAt());
+  });
+
+  it('ends with no tally, on the way to Victory', () => {
+    expect(credits.noTally).toBe(true);
+    expect(credits.medalBy ?? 'score').toBe('score');
+  });
+
+  it('stars the player last, with every credit filled in', () => {
+    expect(STARRING.name).toBe('You');
+    for (const c of CREDITS) {
+      expect(c.role.length, c.name).toBeGreaterThan(0);
+      expect(c.name.length, c.role).toBeGreaterThan(0);
+    }
   });
 });
 

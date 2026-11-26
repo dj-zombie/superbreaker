@@ -118,10 +118,30 @@ export const FX_PALETTES: Record<SceneryId, FxPalette> = {
     steam: 0x6a8a84,
     party: [0xffc060, 0x3aff9a, 0xd8ffe8, 0x8a4ad8],
   },
+  // The chamber: the Mainframe's cyan gone colder, and the cameras' red where its magenta was.
+  kernel: {
+    core: 0xeaffff,
+    hot: 0x8af4ff,
+    warm: 0x2ad8ff,
+    cool: 0x08304e,
+    spark: 0xd8fdff,
+    accent: 0x3ce7ff,
+    accent2: 0xff2a3a,
+    volt: 0x9afcff,
+    arcane: 0xff3cbe,
+    soot: 0x010a10,
+    steam: 0x4f7a8a,
+    party: [0x3ce7ff, 0xff3cbe, 0x5cffc0, 0xffe14d, 0xd8fdff],
+  },
 };
 
 /** Resolves a color reference against a world and the caller's tint. */
-export function resolveColor(ref: ColorRef, pal: FxPalette, tint: number, pick = Math.random): number {
+export function resolveColor(
+  ref: ColorRef,
+  pal: FxPalette,
+  tint: number,
+  pick = Math.random,
+): number {
   if (typeof ref === 'number') return ref;
   if (ref === '@tint') return tint;
   if (ref === '@party') return pal.party[Math.floor(pick() * pal.party.length)] ?? 0xffffff;

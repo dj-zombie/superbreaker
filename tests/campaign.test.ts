@@ -2,11 +2,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  campaignSummary,
   clearedLabel,
+  isFinalStep,
   sceneBetween,
   stepAfter,
   stepKey,
   stepLabel,
+  stepState,
   stopOf,
   validScenes,
   validStops,
@@ -66,7 +69,9 @@ describe('campaign steps', () => {
       index: 5,
       stop: 'bonus',
     });
-    expect(stepAfter({ index: 5, stop: 'bonus' }, stopAfterFive, () => true, bonus)).toEqual({ index: 6 });
+    expect(stepAfter({ index: 5, stop: 'bonus' }, stopAfterFive, () => true, bonus)).toEqual({
+      index: 6,
+    });
   });
 
   it('skips a beaten boss, and its bonus stage, when its level is played again', () => {
@@ -102,13 +107,14 @@ describe('campaign steps', () => {
     expect(clearedLabel({ index: 5, stop: 'bonus' })).toBe('Bonus complete');
   });
 
-  it('keeps only stops that sit between two levels, once each, in order', () => {
+  it('keeps only stops that follow one of the levels, once each, in order', () => {
     const stops = validStops(
       [
         { after: 10, map: 'b.tmj', bonus: 7 },
         { after: 5, map: 'a.tmj', bonus: 'party.tmj' },
         { after: 5, map: 'dup.tmj' },
         { after: 30, map: 'last.tmj' },
+        { after: 31, map: 'past.tmj' },
         { after: 0, map: 'zero.tmj' },
         { after: 2.5, map: 'half.tmj' },
         { after: 3 },
@@ -121,8 +127,66 @@ describe('campaign steps', () => {
       { after: 5, map: 'a.tmj', bonus: 'party.tmj' },
       { after: 8, bonus: 'solo.tmj' },
       { after: 10, map: 'b.tmj' },
+      { after: 30, map: 'last.tmj' },
     ]);
     expect(validStops(undefined, 30)).toEqual([]);
+  });
+
+  it('ends the campaign at a boss after the last level: it is next until beaten, and nothing follows it', () => {
+    const last = (after: number) => after === 30;
+    expect(stepAfter({ index: 30 }, last, () => false)).toEqual({ index: 30, stop: 'boss' });
+    // Past the last level: Play hands Results no next step, which plays the ending.
+    expect(stepAfter({ index: 30, stop: 'boss' }, last, () => false).index).toBeGreaterThan(30);
+    expect(stepAfter({ index: 30 }, last, () => true).index).toBeGreaterThan(30);
+  });
+
+  it('ends the campaign on its last step only, not on a replay of the level before a beaten boss', () => {
+    const last = (after: number) => after === 30;
+    const none = () => false;
+    expect(isFinalStep({ index: 30, stop: 'boss' }, last, none, 30)).toBe(true);
+    expect(isFinalStep({ index: 30 }, last, none, 30)).toBe(false);
+    expect(isFinalStep({ index: 29 }, last, none, 30)).toBe(false);
+    // With no stop after it, the last level is the last step; with a bonus after its boss, the bonus is.
+    expect(isFinalStep({ index: 30 }, none, none, 30)).toBe(true);
+    expect(isFinalStep({ index: 30, stop: 'boss' }, last, last, 30)).toBe(false);
+    expect(isFinalStep({ index: 30, stop: 'bonus' }, last, last, 30)).toBe(true);
+  });
+});
+
+describe('stepState', () => {
+  const access = (unlocked: number, allUnlocked = false, levels: Record<string, unknown> = {}) => ({
+    unlocked,
+    allUnlocked,
+    levels,
+  });
+
+  it('keeps the boss after the last level shut until that level is cleared', () => {
+    const earned = access(30, false, { level29: { stars: 3 } });
+    expect(stepState({ index: 30 }, earned, true)).toBe('open');
+    expect(stepState({ index: 30, stop: 'boss' }, earned, true)).toBe('locked');
+    expect(stepState({ index: 30, stop: 'boss' }, access(30, false, { level30: {} }), true)).toBe('open');
+  });
+
+  it('opens every level and the boss after the last one once all levels are unlocked', () => {
+    const open = access(30, true);
+    expect(stepState({ index: 1 }, open, false)).toBe('open');
+    expect(stepState({ index: 21 }, open, false)).toBe('open');
+    expect(stepState({ index: 30 }, open, false)).toBe('open');
+    expect(stepState({ index: 30, stop: 'boss' }, open, true)).toBe('open');
+    expect(stepState({ index: 10, stop: 'boss' }, open, true)).toBe('open');
+    expect(stepState({ index: 5, stop: 'bonus' }, open, true)).toBe('open');
+    expect(stepState({ index: 8, stop: 'bonus' }, open, false)).toBe('open');
+  });
+
+  it('opens a boss with its level cleared, and a bonus with its boss beaten', () => {
+    const at = access(5);
+    expect(stepState({ index: 5, stop: 'boss' }, at, true)).toBe('locked');
+    expect(stepState({ index: 6 }, at, false)).toBe('locked');
+    const cleared = access(5, false, { level05: {} });
+    expect(stepState({ index: 5, stop: 'boss' }, cleared, true)).toBe('open');
+    expect(stepState({ index: 5, stop: 'bonus' }, cleared, true)).toBe('locked');
+    expect(stepState({ index: 5, stop: 'bonus' }, access(5, false, { level05: {}, boss05: {} }), true)).toBe('open');
+    expect(stepState({ index: 8, stop: 'bonus' }, access(8, false, { level08: {} }), false)).toBe('open');
   });
 });
 
@@ -157,6 +221,17 @@ describe('boss stop progress', () => {
     expect(store.state.unlocked).toBe(6);
   });
 
+  it('records the boss after the last level without opening a level past it', async () => {
+    const store = await freshSave();
+    store.unlockAll(30);
+    store.recordWin(30, 3, 100, 30, true);
+    expect(store.bossBeaten(30)).toBe(false);
+    store.recordBoss(30, 2, 5000, 30);
+    expect(store.bossBeaten(30)).toBe(true);
+    expect(store.state.unlocked).toBe(30);
+    expect(store.state.levels.boss30).toEqual({ stars: 2, bestScore: 5000 });
+  });
+
   it('counts levels cleared, not boss stops or bonus stages', async () => {
     const store = await freshSave();
     store.recordWin(5, 3, 100, 30, true);
@@ -177,29 +252,102 @@ describe('cutscenes between steps', () => {
   it('keeps entries with an id and a place, and drops unknown scenes', () => {
     expect(validScenes(null)).toEqual([]);
     expect(
-      validScenes([{ id: 'a' }, { before: 'level02' }, { id: '', after: 'level01' }, null, { id: 'b', after: 'level03' }]),
+      validScenes([
+        { id: 'a' },
+        { before: 'level02' },
+        { id: '', after: 'level01' },
+        null,
+        { id: 'b', after: 'level03' },
+      ]),
     ).toEqual([{ id: 'b', after: 'level03' }]);
     expect(validScenes([{ id: 'x', before: 'level02' }], (id) => id !== 'x')).toEqual([]);
   });
 
   it('plays on the way into a step, from wherever the player comes', () => {
-    expect(sceneBetween({ index: 10, stop: 'bonus' }, { index: 11 }, entries, none)).toBe('chapter-2');
-    expect(sceneBetween({ index: 10, stop: 'boss' }, { index: 11 }, entries, none)).toBe('chapter-2');
+    expect(sceneBetween({ index: 10, stop: 'bonus' }, { index: 11 }, entries, none)).toBe(
+      'chapter-2',
+    );
+    expect(sceneBetween({ index: 10, stop: 'boss' }, { index: 11 }, entries, none)).toBe(
+      'chapter-2',
+    );
     expect(sceneBetween(undefined, { index: 11 }, entries, none)).toBe('chapter-2');
-    expect(sceneBetween({ index: 10 }, { index: 10, stop: 'boss' }, entries, none)).toBe('warden-intro');
+    expect(sceneBetween({ index: 10 }, { index: 10, stop: 'boss' }, entries, none)).toBe(
+      'warden-intro',
+    );
   });
 
   it('plays on the way out of a step, even with nowhere to go', () => {
     expect(sceneBetween({ index: 30 }, undefined, entries, none)).toBe('ending');
+    const final = validScenes([{ id: 'ending', after: 'boss30' }]);
+    expect(sceneBetween({ index: 30, stop: 'boss' }, undefined, final, none)).toBe('ending');
+  });
+
+  it('plays the ending after the final boss once, then wins go straight to Victory', () => {
+    const final = validScenes([{ id: 'ending', after: 'boss30' }]);
+    const won = { index: 30, stop: 'boss' as const };
+    expect(sceneBetween(won, undefined, final, none)).toBe('ending');
+    expect(sceneBetween(won, undefined, final, (id) => id === 'ending')).toBeUndefined();
   });
 
   it('plays a scene once', () => {
-    expect(sceneBetween(undefined, { index: 11 }, entries, (id) => id === 'chapter-2')).toBeUndefined();
+    expect(
+      sceneBetween(undefined, { index: 11 }, entries, (id) => id === 'chapter-2'),
+    ).toBeUndefined();
   });
 
   it('plays nothing elsewhere', () => {
     expect(sceneBetween({ index: 11 }, { index: 12 }, entries, none)).toBeUndefined();
     expect(sceneBetween(undefined, undefined, entries, none)).toBeUndefined();
+  });
+});
+
+describe('campaign summary', () => {
+  const boss = { id: 'b', title: 'b', bricks: [], lights: [], lighting: {} } as unknown as LevelSpec;
+  const stops = [
+    { after: 2, level: boss, bonus: boss },
+    { after: 3, bonus: boss },
+    { after: 4, level: boss },
+  ];
+  const progress = (stars: number, bestScore: number) => ({ stars, bestScore });
+
+  it('adds up stars, cleared levels and every best score, and lists the bosses beaten', () => {
+    const s = campaignSummary(
+      {
+        levels: {
+          level01: progress(3, 1000),
+          level02: progress(2, 2000),
+          level04: progress(1, 500),
+          boss02: progress(3, 7000),
+          bonus02: progress(0, 300),
+          bonus03: progress(0, 200),
+          level09: progress(3, 99999),
+        },
+      },
+      4,
+      stops,
+    );
+    expect(s).toMatchObject({ stars: 6, maxStars: 12, cleared: 3, levels: 4, score: 11000 });
+    expect(s.bosses).toEqual([
+      { after: 2, beaten: true },
+      { after: 4, beaten: false },
+    ]);
+  });
+
+  it('ranks by the share of stars: Breaker, Hero from two thirds, Legend with all', () => {
+    const all = (n: number, stars: number) =>
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [`level0${i + 1}`, progress(stars, 0)]));
+    expect(campaignSummary({ levels: {} }, 3, [])).toMatchObject({ rank: 'Breaker', nextGoal: '6 more stars to Hero' });
+    expect(campaignSummary({ levels: all(3, 2) }, 3, [])).toMatchObject({
+      rank: 'Hero',
+      nextGoal: '3 more stars to Legend',
+    });
+    const one = { ...all(3, 3), level03: progress(2, 0) };
+    expect(campaignSummary({ levels: one }, 3, []).nextGoal).toBe('1 more star to Legend');
+    expect(campaignSummary({ levels: all(3, 3) }, 3, [])).toMatchObject({ rank: 'Legend', nextGoal: 'Every star found' });
+  });
+
+  it('is a Breaker with no levels to rank by', () => {
+    expect(campaignSummary({ levels: {} }, 0, [])).toMatchObject({ stars: 0, maxStars: 0, rank: 'Breaker' });
   });
 });
 
@@ -215,9 +363,9 @@ describe('boss stops in levels/index.json', () => {
   const resolveTemplate = (path: string) => templates.get(path.split('/').pop()!);
   const stops = validStops(index.bosses, index.levels.length);
 
-  it('lists every stop it means to, after levels 5, 8, 10 and 20 among them', () => {
+  it('lists every stop it means to, after levels 5, 8, 10, 20 and 30 among them', () => {
     expect(Array.isArray(index.bosses) ? index.bosses.length : 0).toBe(stops.length);
-    expect(stops.map((s) => s.after)).toEqual(expect.arrayContaining([5, 8, 10, 20]));
+    expect(stops.map((s) => s.after)).toEqual(expect.arrayContaining([5, 8, 10, 20, 30]));
   });
 
   const fights = stops.filter((s) => s.map).map((s) => [s.map!, s.map!] as const);
@@ -230,11 +378,12 @@ describe('boss stops in levels/index.json', () => {
     expect(index.levels).not.toContain(file);
   });
 
-  it('puts the Crucible after level 5, the Warden after level 10 and the Angler after level 20', () => {
+  it('puts the Crucible after level 5, the Warden after 10, the Angler after 20 and the Overseer after 30', () => {
     for (const [after, key, boss] of [
       [5, 'boss05', 'crucible'],
       [10, 'boss10', 'warden'],
       [20, 'boss20', 'angler'],
+      [30, 'boss30', 'overseer'],
     ] as const) {
       const stop = stops.find((s) => s.after === after)!;
       const map = readJson<TiledMap>(join(LEVELS_DIR, stop.map!));
@@ -254,5 +403,12 @@ describe('boss stops in levels/index.json', () => {
     }
     expect(stops.find((s) => s.after === 8)!.map).toBeUndefined();
     expect(stops.find((s) => s.after === 10)!.bonus).toBeUndefined();
+  });
+
+  it('ends the campaign on the Overseer, after the last level and with nothing after it', () => {
+    const last = stops[stops.length - 1]!;
+    expect(last.after).toBe(index.levels.length);
+    expect(last.map).toBe('boss30.tmj');
+    expect(last.bonus).toBeUndefined();
   });
 });

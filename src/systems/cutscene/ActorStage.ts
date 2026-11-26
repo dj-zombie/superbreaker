@@ -75,11 +75,12 @@ function splitSprite(sprite: string): [string, string] {
 }
 
 /**
- * The world sprite set that dresses a scenery: the abyss lies under the Crypt and wears its set;
- * the carnival and the crucible borrow Hell's.
+ * The world sprite set that dresses a scenery: the abyss lies under the Crypt and wears its set,
+ * the kernel under the Mainframe and wears its; the carnival and the crucible borrow Hell's.
  */
 function skinOf(world: SceneryId): WorldId {
   if (world === 'abyss') return 'crypt';
+  if (world === 'kernel') return 'mainframe';
   return (WORLD_IDS as readonly string[]).includes(world) ? (world as WorldId) : 'hell';
 }
 

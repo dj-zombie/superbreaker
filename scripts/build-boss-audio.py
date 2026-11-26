@@ -810,6 +810,182 @@ def angler_death(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return 0.5 * smash + 0.4 * glass + 0.7 * voice + 0.5 * sink
 
 
+# ---------------------------------------------------------------- the Overseer
+#
+# A machine that has watched every run: mains hum, servos, data and alarms, everything a little
+# crushed. Its one warm sound is the daylight through the door.
+
+# The eye's alarm: two square tones a fifth apart. Daylight: D major, open and high.
+ALARM = (660.0, 990.0)
+DAYLIGHT = (62, 66, 69, 74, 78)
+
+
+def crush(x: np.ndarray, bits: int, hold_n: int) -> np.ndarray:
+    """Old wiring: each sample held for `hold_n`, then rounded to `bits` bits."""
+    held = np.repeat(x[..., ::hold_n], hold_n, axis=-1)[..., : x.shape[-1]]
+    steps = 2 ** (bits - 1)
+    return np.round(held * steps) / steps
+
+
+def data(rng: np.random.Generator, t: np.ndarray, times: np.ndarray, low: float, high: float,
+         length: float = 0.025) -> np.ndarray:
+    """Bits going by: one short square blip at each of `times`, on one of a few pitches."""
+    out = np.zeros((2, len(t)))
+    steps = (low, (low * high) ** 0.5, high)
+    for at in np.sort(times):
+        b = clock(length)
+        f = steps[rng.integers(len(steps))] * (1, 1.5, 2)[rng.integers(3)]
+        put(out, at, spread(pulse(f, b, 0.5) * hold(b, 0.001, 0.006), rng.uniform(-0.5, 0.5)),
+            rng.uniform(0.4, 1.0))
+    return out
+
+
+def siren(t: np.ndarray, period: float) -> np.ndarray:
+    """The alarm, swapping between its two tones every `period` s."""
+    f = np.where(np.floor(t / period) % 2 == 0, ALARM[0], ALARM[1])
+    return lowpass(pulse(f, t, 0.5), 3000)
+
+
+def mains(t: np.ndarray, base) -> np.ndarray:
+    """Mains hum on `base` Hz: the fundamental and the buzz of its odd harmonics."""
+    return sum(level * sine(base * k, t) for k, level in ((1, 1.0), (2, 0.4), (3, 0.35), (5, 0.18), (7, 0.1)))
+
+
+def ov_hum(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The Overseer present: mains hum and server fans, and the eye pinging as it looks round."""
+    fans = lowpass(hiss(rng, t, 100, 4000), 1400) * (0.8 + 0.2 * wander(rng, t, 0.7))
+    pings = sum(sine(1760, t) * strike(t, 0.06, at) for at in (0.7, 1.5, 1.62))
+    return (0.5 * mains(t, 60) + 0.25 * fans + 0.3 * pings) * hold(t, 0.4, 0.6)
+
+
+def ov_scan(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The eye focuses: a servo whining up, the lens clicking home, two red pips."""
+    whine = sine(glide(400, 2400, t), t) * swell(t, 0.8)
+    servo = bandpass(noise(rng, t), 600, 3000) * (0.5 + 0.5 * sine(glide(20, 60, t), t)) * swell(t, 0.6)
+    end = t[-1]
+    click = hiss(rng, t, 2000, 12000) * strike(t, 0.005, end - 0.3)
+    pips = sum(sine(1320, t) * strike(t, 0.05, at) for at in (end - 0.26, end - 0.14))
+    return 0.35 * whine + 0.35 * full(servo) + 0.5 * click + 0.5 * pips
+
+
+def ov_packet(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The Mirror fires: a burst of bits and a crushed spit of noise."""
+    bits_ = data(rng, t, rng.uniform(0, 0.45, 18), 700, 2800)
+    burst = crush(hiss(rng, t, 500, 8000) * strike(t, 0.08), 4, 6)
+    return bits_ + 0.4 * burst
+
+
+def ov_glitch(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A glitch: the first sliver of a tone stuttering, chopped and crushed, and gone."""
+    tone = 0.5 * pulse(glide(900, 300, t), t, 0.3) + 0.3 * hiss(rng, t, 300, 6000)[0]
+    chunk = samples(0.04)
+    stutter = np.tile(tone[:chunk], len(t) // chunk + 1)[: len(t)]
+    gate = (np.floor(t / 0.035) % 3 != 2).astype(float)
+    return spread(crush(stutter * gate, 5, 4) * decay(t, 0.25), 0.0)
+
+
+def ov_rewind(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A recall: the record rewinding, chirping down fast, then the clunk of playback."""
+    chirp = sine(glide(3000, 200, t) * (1 + 0.3 * sine(30, t)), t) * swell(t, 0.05) * decay(t, 0.6)
+    tape = sweep_lowpass(noise(rng, t), glide(8000, 500, t)) * decay(t, 0.5)
+    since = np.maximum(t - 0.9, 0)
+    clunk = sine(settle(200, 60, since, 0.03), t) * strike(t, 0.12, 0.9)
+    return 0.5 * chirp + 0.3 * full(tape) + 0.7 * clunk
+
+
+def ov_build(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Overwrite: a row of a past level written back, bleeping down, and set with a thunk."""
+    arp = np.zeros((2, len(t)))
+    for i, note in enumerate((84, 79, 76, 72, 67)):
+        b = clock(0.12)
+        put(arp, 0.02 + i * 0.08, spread(pulse(hz(note), b, 0.25) * hold(b, 0.002, 0.04), 0.4 - 0.2 * i))
+    since = np.maximum(t - 0.45, 0)
+    thunk = sine(settle(160, 70, since, 0.03), t) * strike(t, 0.15, 0.45)
+    knock = lowpass(hiss(rng, t, 200, 3000), 1800) * strike(t, 0.02, 0.45)
+    return 0.45 * arp + 0.8 * thunk + 0.3 * knock
+
+
+def ov_purge(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Purge: the alarm sounding, a wall of noise rising behind it, the floor dropping out."""
+    sweep = sweep_lowpass(noise(rng, t), glide(300, 9000, t)) * swell(t, 1.5)
+    sub = sine(glide(50, 35, t), t) * hold(t, 0.2, 0.3)
+    return (0.3 * siren(t, 0.25) + 0.4 * full(sweep) + 0.5 * sub) * hold(t, 0.02, 0.3)
+
+
+def ov_shutter(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The shutter opens: its leaves ratcheting back, a servo and a sigh of air."""
+    clicks = sum(hiss(rng, t, 2000, 10000) * strike(t, 0.006, 0.02 + i * 0.045) for i in range(8))
+    servo = sine(glide(300, 700, t), t) * hold(t, 0.05, 0.2)
+    air = sweep_lowpass(noise(rng, t), glide(400, 3000, t)) * decay(t, 0.3)
+    return 0.5 * clicks + 0.2 * servo + 0.35 * full(air)
+
+
+def ov_freeze(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The Mirror freezes over: ice crackling across it, a glassy chord, its hum sinking."""
+    ice = crackle(rng, t, 200 * decay(t, 0.3))
+    glass = chime(rng, t, [(f, 0.6, 0.5) for f in (2093.0, 2637.0, 3136.0, 4186.0)])
+    sink = sine(glide(1200, 300, t), t) * strike(t, 0.3)
+    return 0.6 * ice + 0.4 * glass + 0.3 * sink
+
+
+def ov_hurt(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The eye struck: glass crunching, a zap, and a beep dropping in pitch."""
+    crunch = bandpass(noise(rng, t), 800, 9000) * strike(t, 0.05)
+    zap = pulse(glide(2000, 200, t), t, 0.2) * strike(t, 0.12)
+    beep = sine(settle(1200, 400, t, 0.08), t) * strike(t, 0.25)
+    return 0.6 * crunch + 0.4 * zap + 0.4 * beep
+
+
+def ov_recompile(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The eye recompiles: data pouring through faster and faster, and a cold chord as it locks."""
+    lock_at = t[-1] - 0.6
+    stream = data(rng, t, lock_at * np.sqrt(rng.uniform(0, 1, 90)), 500, 3000, 0.02)
+    k = np.clip(t / lock_at, 0, 1)
+    riser = sweep_lowpass(noise(rng, t), 300 + 8000 * k**2) * k**2
+    chord = sum(sine(hz(n), t) for n in (57, 64, 69, 76)) * strike(t, 0.8, lock_at)
+    return stream + 0.35 * full(riser) + 0.3 * chord
+
+
+def ov_split(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The housing breaks open: metal tearing, a surge of power, one tone pulling apart into two."""
+    tear = bandpass(noise(rng, t), 300, 6000) * (0.5 + 0.5 * wander(rng, t, 40)) * swell(t, 0.05) * decay(t, 0.6)
+    surge_ = sine(glide(40, 120, t), t) * hold(t, 0.3, 0.6)
+    pair = (sine(440 * glide(1, 0.94, t), t) + sine(440 * glide(1, 1.06, t), t)) * hold(t, 0.4, 0.8)
+    return 0.5 * full(tear) + 0.6 * surge_ + 0.25 * pair + 0.4 * clang(rng, t, 300, 0.6)
+
+
+def ov_total(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Total recall: the alarm racing, and the bosses before it roaring back through old wiring."""
+    roar_ = bellow(rng, t, glide(120, 80, t)) * swell(t, 0.1) * decay(t, 1.0)
+    return 0.3 * siren(t, 0.15) * hold(t, 0.02, 0.4) + 0.5 * crush(roar_, 6, 3)
+
+
+def ov_decoy(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A false light: cold glass, played back through crushed bits."""
+    partials = [(f, 0.5, 1 / (1 + i * 0.4)) for i, f in enumerate((1760.0, 1865.0, 2637.0, 3520.0))]
+    return crush(chime(rng, t, partials), 6, 2)
+
+
+def ov_death(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """It dies: the lens cracks, the hum winds down to nothing, the fans spin down, one last beep."""
+    crack = hiss(rng, t, 1200, 14000) * strike(t, 0.06) + crackle(rng, t, 260 * decay(t, 0.4))
+    hum_ = mains(t, glide(60, 12, t)) * swell(t[-1] - t, 1.0)
+    fans = sweep_lowpass(noise(rng, t), glide(3000, 100, t)) * swell(t[-1] - t, 1.2)
+    beep = sine(880, t) * strike(t, 0.4, t[-1] - 0.9)
+    return 0.5 * crack + 0.45 * hum_ + 0.3 * full(fans) + 0.3 * beep
+
+
+def ov_door(t: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The door opens onto daylight: a warm, wide chord rising out of the air, and a breeze."""
+    chord = sum(
+        sine(hz(n) * (1 + 0.002 * wander(rng, t, 0.5)), t, rng.random()) * level
+        for n, level in zip(DAYLIGHT, (1.0, 0.7, 0.7, 0.5, 0.35))
+    )
+    shimmer = sum(sine(hz(n + 12), t) for n in DAYLIGHT[2:]) * 0.15 * (0.5 + 0.5 * sine(0.7, t))
+    breeze = lowpass(noise(rng, t), 1800) * (0.6 + 0.4 * wander(rng, t, 0.8))
+    return (0.5 * chord + shimmer + 0.12 * full(breeze)) * hold(t, 1.5, 1.2)
+
+
 # File name, length (s), fade-out (s), synth. The fade-out is also the release of a held sound.
 EFFECTS = (
     ("stomp", 0.9, 0.1, stomp),
@@ -858,6 +1034,22 @@ EFFECTS = (
     ("angler/pod-crack", 0.6, 0.15, pod_crack),
     ("angler/pod-burst", 1.4, 0.35, pod_burst),
     ("angler/death", 3.4, 0.6, angler_death),
+    ("overseer/hum", 2.6, 0.6, ov_hum),
+    ("overseer/scan", 1.2, 0.1, ov_scan),
+    ("overseer/packet", 0.7, 0.15, ov_packet),
+    ("overseer/glitch", 0.5, 0.1, ov_glitch),
+    ("overseer/rewind", 1.3, 0.2, ov_rewind),
+    ("overseer/build", 1.0, 0.2, ov_build),
+    ("overseer/purge", 1.8, 0.3, ov_purge),
+    ("overseer/shutter", 0.7, 0.15, ov_shutter),
+    ("overseer/freeze", 0.9, 0.2, ov_freeze),
+    ("overseer/hurt", 0.6, 0.12, ov_hurt),
+    ("overseer/recompile", 2.4, 0.3, ov_recompile),
+    ("overseer/split", 2.4, 0.4, ov_split),
+    ("overseer/total", 2.0, 0.3, ov_total),
+    ("overseer/decoy", 0.9, 0.25, ov_decoy),
+    ("overseer/death", 3.6, 0.5, ov_death),
+    ("overseer/door", 4.0, 1.2, ov_door),
 )
 
 

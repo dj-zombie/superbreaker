@@ -1,7 +1,6 @@
 import { worldForLevel } from '../art/backdrops';
 import { HEIGHT, SAFE_BOTTOM, SCENES, STAGE_W, WIDTH } from '../config';
 import { actionsFor } from '../core/KeyLayout';
-import { randomSeed } from '../core/Rng';
 import { runCarry } from '../core/Session';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
@@ -75,10 +74,7 @@ export class Pause extends Overlay {
       return b;
     };
     add('Resume', () => this.close(), 'primary', 'play');
-    add(run ? 'New run' : 'Restart', () => {
-      const data = run ? { run: { ...run, seed: randomSeed() } } : play.campaignStep;
-      transitionTo(this, SCENES.play, data);
-    }, 'secondary', 'retry');
+    add(run ? 'New run' : 'Restart', () => transitionTo(this, SCENES.play, play.replayData), 'secondary', 'retry');
     add('Armory', () => this.openChild(SCENES.upgrades), 'secondary', 'armory');
     add('Settings', () => this.openChild(SCENES.settings), 'secondary', 'gear');
     add(run ? 'Quit to arcade' : 'Quit to map', () => {

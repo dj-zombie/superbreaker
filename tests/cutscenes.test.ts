@@ -103,7 +103,8 @@ describe.each(Object.values(CUTSCENES))('cutscene $id', (def) => {
       if (!sheet) continue;
       const frames = sheetFrames(sheet.path, sheet.frameWidth, sheet.frameHeight);
       for (const [name, anim] of Object.entries(actor.anims ?? {})) {
-        for (const frame of anim.frames) expect(frames.has(String(frame)), `${id} ${name}: ${frame}`).toBe(true);
+        for (const frame of anim.frames)
+          expect(frames.has(String(frame)), `${id} ${name}: ${frame}`).toBe(true);
       }
     }
   });
@@ -162,7 +163,9 @@ describe('cutscenes in levels/index.json', () => {
   it('opens the game with Chapter I, before Level 1', () => {
     const scenes = validScenes(index.scenes);
     expect(sceneBetween(undefined, { index: 1 }, scenes, () => false)).toBe('chapter-1');
-    expect(sceneBetween(undefined, { index: 1 }, scenes, (id) => id === 'chapter-1')).toBeUndefined();
+    expect(
+      sceneBetween(undefined, { index: 1 }, scenes, (id) => id === 'chapter-1'),
+    ).toBeUndefined();
   });
 
   it('plays Chapter II between the Warden and Level 11', () => {
@@ -270,7 +273,17 @@ describe('chapter-3', () => {
   });
 
   it('has a label for every beat, in order', () => {
-    const beats = ['open', 'souls', 'ark', 'wake', 'fall', 'threshold', 'arrival', 'card', 'handoff'];
+    const beats = [
+      'open',
+      'souls',
+      'ark',
+      'wake',
+      'fall',
+      'threshold',
+      'arrival',
+      'card',
+      'handoff',
+    ];
     const at = beats.map((b) => tl.labels.get(b));
     expect(at.every((t) => t !== undefined)).toBe(true);
     expect([...at].sort((x, y) => x! - y!)).toEqual(at);
@@ -278,6 +291,91 @@ describe('chapter-3', () => {
 
   it('gives the Mainframe its recorded voice', () => {
     const voiced = tl.cues.filter((c) => c.kind === 'voice').map((c) => c.step.key);
-    expect(voiced).toEqual(['vo_mainframe_01', 'vo_mainframe_02', 'vo_mainframe_03', 'vo_mainframe_04']);
+    expect(voiced).toEqual([
+      'vo_mainframe_01',
+      'vo_mainframe_02',
+      'vo_mainframe_03',
+      'vo_mainframe_04',
+    ]);
+  });
+});
+
+describe('the-door', () => {
+  const tl = compile(CUTSCENES['the-door']!);
+
+  it('plays on the way into the Overseer, after level 30', () => {
+    const index = JSON.parse(readFileSync(join(ASSETS, 'levels', 'index.json'), 'utf8')) as {
+      scenes?: unknown;
+    };
+    const scenes = validScenes(index.scenes);
+    expect(sceneBetween({ index: 30 }, { index: 30, stop: 'boss' }, scenes, () => false)).toBe(
+      'the-door',
+    );
+  });
+
+  it('drops from the Mainframe into the chamber the fight is in', () => {
+    expect(tl.scenery.map((m) => m.value.id)).toEqual(['kernel']);
+    expect(CUTSCENES['the-door']!.closes.scenery).toBe(BOSSES.overseer.scenery);
+  });
+
+  it('has a label for every beat, in order', () => {
+    const beats = ['open', 'descent', 'door', 'watch', 'handoff'];
+    const at = beats.map((b) => tl.labels.get(b));
+    expect(at.every((t) => t !== undefined)).toBe(true);
+    expect([...at].sort((x, y) => x! - y!)).toEqual(at);
+  });
+});
+
+describe('ending', () => {
+  const tl = compile(CUTSCENES['ending']!);
+
+  it('plays after the Overseer, the last step of the campaign', () => {
+    const index = JSON.parse(readFileSync(join(ASSETS, 'levels', 'index.json'), 'utf8')) as {
+      scenes?: unknown;
+    };
+    const scenes = validScenes(index.scenes);
+    expect(sceneBetween({ index: 30, stop: 'boss' }, undefined, scenes, () => false)).toBe(
+      'ending',
+    );
+  });
+
+  it('has a label for every beat, in order', () => {
+    const beats = [
+      'open',
+      'light',
+      'door',
+      'montage',
+      'surface',
+      'celebrate',
+      'card',
+      'handoff',
+    ];
+    const at = beats.map((b) => tl.labels.get(b));
+    expect(at.every((t) => t !== undefined)).toBe(true);
+    expect([...at].sort((x, y) => x! - y!)).toEqual(at);
+  });
+
+  it('climbs back up through the worlds the bosses fell in, and ends over the Mainframe', () => {
+    expect(tl.scenery.map((m) => m.value.id)).toEqual(['kernel', 'abyss', 'hell', 'hell', 'mainframe']);
+    expect(CUTSCENES['ending']!.closes.scenery).toBe('mainframe');
+  });
+
+  it('shows all four trophies in the montage, one card each', () => {
+    const montage = tl.labels.get('montage')!;
+    const surface = tl.labels.get('surface')!;
+    const titles = tl.cards.filter((c) => c.at >= montage && c.at < surface).map((c) => c.title);
+    expect(titles).toEqual(['The Overseer', 'The Angler', 'The Warden', 'The Crucible']);
+  });
+
+  it('keeps the fireworks sky over the stage until the end card is gone', () => {
+    const sky = tl.plates.find((p) => p.image === 'cs_plate_victory')!;
+    const card = tl.cards[tl.cards.length - 1]!;
+    expect(sky.behind).toBe(true);
+    expect(sky.at + sky.ms).toBeGreaterThanOrEqual(card.at + card.ms);
+  });
+
+  it("gives Vesper every one of her lines in her own voice", () => {
+    const voiced = tl.cues.filter((c) => c.kind === 'voice').map((c) => c.step.key);
+    expect(voiced).toEqual([1, 2, 3, 4, 5, 6].map((n) => `vo_vesper_end_0${n}`));
   });
 });

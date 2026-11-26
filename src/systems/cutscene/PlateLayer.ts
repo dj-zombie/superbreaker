@@ -13,7 +13,7 @@ export class PlateLayer {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly cam: Phaser.Cameras.Scene2D.Camera,
-    private readonly depth: () => number,
+    private readonly depth: (plate: CompiledPlate) => number,
   ) {}
 
   objects(): Phaser.GameObjects.GameObject[] {
@@ -29,7 +29,7 @@ export class PlateLayer {
         if (!this.scene.textures.exists(f.plate.image)) continue;
         img = this.scene.add
           .image(0, 0, f.plate.image)
-          .setDepth(this.depth() + this.shown.size * 0.01);
+          .setDepth(this.depth(f.plate) + this.shown.size * 0.01);
         this.shown.set(f.plate, img);
       }
       // The whole picture at the scene's own zoom, whatever the cutscene camera is doing.

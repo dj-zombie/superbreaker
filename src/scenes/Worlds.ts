@@ -158,7 +158,7 @@ export class Worlds extends BaseScene {
   private worldCard(world: WorldId, i: number, y: number): WorldCard {
     const wt = themeFor(world);
     const { first } = worldLevels(world);
-    const locked = save.state.unlocked < first;
+    const locked = !save.state.allUnlocked && save.state.unlocked < first;
     const card = new Card(this, WIDTH / 2, y, this.cw, this.ch, {
       t: wt,
       onClick: () => {

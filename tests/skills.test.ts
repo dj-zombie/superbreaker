@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { powerupStats } from '../src/core/Economy';
 import { laserClearCeiling } from '../src/core/Laser';
-import { GUN_BUDGET, SKILLS, SkillCharge, gunBudget } from '../src/core/Skills';
+import { GUN_BUDGET, SKILLS, SKILL_IDS, SkillCharge, gunBudget } from '../src/core/Skills';
 
 const def = { label: 'Test', color: 0, cooldownMs: 10_000, perBreakMs: 500, durationMs: 2_000 };
 
@@ -78,8 +78,11 @@ describe('SkillCharge', () => {
 });
 
 describe('skill tuning', () => {
-  it('readies the gun more often than bullet time', () => {
-    expect(SKILLS.gun.cooldownMs).toBeLessThan(SKILLS.slowmo.cooldownMs);
+  it('brings both skills back every few seconds, but not before they finish', () => {
+    for (const id of SKILL_IDS) {
+      expect(SKILLS[id].cooldownMs).toBeLessThanOrEqual(6_000);
+      expect(SKILLS[id].cooldownMs).toBeGreaterThan(SKILLS[id].durationMs);
+    }
   });
 
   it('grows the gun budget with the Armory laser tier', () => {

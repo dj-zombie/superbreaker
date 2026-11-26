@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { WORLD_IDS, type WorldId } from '../art/backdrops';
 import { HEIGHT, IS_TOUCH, SAFE_BOTTOM, SCENES, WIDTH } from '../config';
-import { stepKey, type CampaignStep, type StopKind } from '../core/Campaign';
+import { stepKey, stepState, type CampaignStep, type StopKind } from '../core/Campaign';
 import { levelId } from '../core/SaveStore';
 import { save } from '../services';
 import { audio } from '../systems/AudioSystem';
@@ -113,19 +113,7 @@ export class WorldPath extends BaseScene {
   }
 
   private nodeState(index: number, stop: StopKind | undefined): NodeState {
-    if (save.state.levels[stepKey({ index, stop })]) return 'cleared';
-    // A boss stop opens with its level's clear, and its bonus stage with the boss beaten, or with
-    // the level's clear when there is no boss. Either is open when the path already is past it, as
-    // unlocking every level leaves it.
-    const past = save.state.unlocked > index;
-    const cleared = !!save.state.levels[levelId(index)];
-    const open =
-      stop === 'boss'
-        ? cleared || past
-        : stop === 'bonus'
-          ? (this.stopAfter(index)?.level ? save.bossBeaten(index) : cleared) || past
-          : index <= save.state.unlocked;
-    return open ? 'open' : 'locked';
+    return stepState({ index, stop }, save.state, !!this.stopAfter(index)?.level);
   }
 
   /** Dotted trail between two nodes; cleared stretches carry flowing light. */

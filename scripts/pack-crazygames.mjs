@@ -6,7 +6,7 @@
  * They want a zip with index.html at the root, no absolute paths, at most 1500 files and 250MB
  * total. The initial download, which is everything fetched before the first gameplay-start event,
  * has to stay under 50MB, and under 20MB to be eligible for the mobile home page. This game
- * preloads every asset before the title screen, so its initial download is the whole bundle.
+ * preloads most assets before the title screen, so its initial download is most of the bundle.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
@@ -36,6 +36,13 @@ const DROP_PATHS = new Set([
  * initial download. Wide screens get the 16:9 set, phones the smaller one.
  */
 const DEFERRED = /^assets\/images\/backdrops(-hd)?\//;
+
+/**
+ * Loaded by the Play scene as a fight or a bonus stage starts, which is never before the first
+ * level: the bosses' sheets and rigs, and their tracks and the gallery's. The Crucible's folder
+ * stays in the count, since Chapter I plays before level 1 and borrows its pieces.
+ */
+const LATER = /^assets\/(images\/bosses\/(?!crucible\/)|audio\/music\/(boss|gallery)-)/;
 
 /**
  * Served compressed, so these cost far less than their size on disk. Audio, images and fonts are
@@ -80,6 +87,7 @@ function initialSize(entries, field) {
   const worlds = new Map();
   for (const entry of entries) {
     const size = entry[field];
+    if (LATER.test(entry.rel)) continue;
     if (!DEFERRED.test(entry.rel)) {
       base += size;
       continue;
@@ -123,7 +131,7 @@ function main() {
   console.log(`\n${OUT}  (${mb(zipped)} compressed)`);
   console.log(`  files        ${entries.length} / ${MAX_FILES}`);
   console.log(`  total        ${mb(total)} / ${mb(MAX_TOTAL)}`);
-  console.log(`  preloaded    ${mb(initial.base)}  (everything but the backdrop art)`);
+  console.log(`  preloaded    ${mb(initial.base)}  (everything but the backdrops and the bosses)`);
   console.log(
     `  initial      ${mb(initial.desktop)} desktop, ${mb(initial.mobile)} mobile` +
       ` / ${mb(MAX_INITIAL)}  (preload plus the heaviest world)`,

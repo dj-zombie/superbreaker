@@ -3,6 +3,11 @@ import type { WorldId } from '../art/backdrops';
 import { fgAnimTexture, playFgAnim } from '../art/foreground';
 
 export const BALL_SIZE = 22;
+/**
+ * Over the pickups (6) and every particle channel (FxEngine's top is 12), so no burst can hide
+ * the ball; under pop text and cards (19 and up).
+ */
+export const BALL_DEPTH = 12.5;
 
 export type BallMode = 'normal' | 'fireball' | 'pierce';
 
@@ -45,7 +50,7 @@ export class Ball extends Phaser.Physics.Arcade.Sprite {
     this.body.setBounce(1, 1);
     this.body.setCollideWorldBounds(true);
     this.body.onWorldBounds = true;
-    this.setDepth(5);
+    this.setDepth(BALL_DEPTH);
   }
 
   get attached(): boolean {

@@ -33,6 +33,8 @@ import { PlateLayer } from './PlateLayer';
 export const UI_DEPTH = 1000;
 /** Over the actors (ACTOR_DEPTH) and under the front ambient fields. */
 const PLATE_DEPTH = 10;
+/** A plate set `behind`: over the backdrop's layers, under the actors and every effect channel. */
+const BEHIND_PLATE_DEPTH = -50;
 /** A spoken line's hold lets go this long after the clip ends, so the next line doesn't crowd it. */
 const VOICE_TAIL_MS = 250;
 /** Letters per typing blip. */
@@ -108,7 +110,7 @@ export class CutsceneDirector {
     });
     this.stage = new ActorStage(scene, def.cast ?? {}, { world: () => backdrop.current });
     // A story plate covers the stage; front fields still drift over it.
-    this.plates = new PlateLayer(scene, world, () => PLATE_DEPTH);
+    this.plates = new PlateLayer(scene, world, (p) => (p.behind ? BEHIND_PLATE_DEPTH : PLATE_DEPTH));
     this.fields = new AmbientFields(fx, world, (b) => backdrop.bandDepth(b));
     this.letterbox = new LetterboxView(scene, ui, UI_DEPTH + 1);
     this.card = new CardView(scene, () => this.worldTheme(), UI_DEPTH + 20);

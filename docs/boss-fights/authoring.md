@@ -4,7 +4,10 @@ Written from the code. Every signature here is copied from `src/core/Boss.ts` or
 `src/systems/BossDirector.ts`. The Warden (`src/bosses/warden.ts`) is the example throughout.
 The Lantern Angler (`src/bosses/angler.ts`, World 2's finale) is the example for a body drawn by a
 rig instead of a sprite sheet (`src/bosses/anglerRig.ts`), attacks timed to its own track
-(`beatLock`, `music`), hazards in its own art (`hazards`), and a scenery it drives.
+(`beatLock`, `music`), hazards in its own art (`hazards`), and a scenery it drives. The
+Overseer (`src/bosses/overseer.ts`, World 3's finale and the campaign's last stop) is the example
+for a part steered live every frame (`tick`, `s.steer`), attacks that read the player's habits
+(`habits`) and build bricks (`bricks`), and a boss after the last level.
 
 ## 1. What a boss is here
 
@@ -31,7 +34,11 @@ with one property, and a boss level ends when the boss does.
    `export const BOSSES: Record<BossId, BossDef> = { warden };`
 5. **Make a map.** Copy `public/assets/levels/bosslab.tmj` and set the map's custom property
    `boss` (a string) to the id. Bricks in the map are the arena. Leave rows 0 to 10 or so clear
-   for the body. Do not add the map to `index.json`: play it with `?map=<file>.tmj`.
+   for the body. Do not add the map to `index.json`: play it with `?map=<file>.tmj`. To ship
+   it, add a stop to `bosses` in `index.json` (`{ "after": 30, "map": "boss30.tmj" }`). A stop
+   whose `after` is the number of levels is the campaign's last step: it stays next until it is
+   beaten, and nothing follows it. A scene listed `{ "id": "ending", "after": "boss30" }` plays
+   on the way out of it.
 6. **Run** `pnpm typecheck`, `pnpm lint`, `pnpm test`. `tests/bosses.test.ts` checks every
    registered boss: parts on the grid, poses and openings that name real parts, cutscene cues
    inside their scene, every plan fair, every sound loaded, the sheet's frames.
@@ -138,6 +145,23 @@ export interface PhaseDef {
   skipped, and `&phase=N` starts past it. The Warden's second phase spawns a wall
   (`s.spawn(wall())`) and gives the paddle its width back (`s.paddle.resetSize()`); its third
   retires the guard (`s.retire('guard')`).
+- **Steering.** A part can be moved live instead of by a pose. `tick` runs every frame from the
+  entrance on, with `dt` in ms of the fight clock, while play is frozen too:
+
+  ```ts
+  tick?(s: BossStage, dt: number): void;
+  ```
+
+  From it, and only from it, a boss calls
+  `s.steer(partId, offset: { dx, dy } | null, speed)`: the part heads for `offset` px from its
+  place at rest at `speed` px/s on Normal, in place of its pose, until steered again or handed
+  back with `null`. A new phase hands every part back. `speed` is scaled by
+  `BOSS_TUNING[difficulty].steer` (0.85 / 1 / 1.12). A `tick` may read `s.balls()` (balls in
+  flight, read and dropped), `s.habits` (as an attack's plan sees them, below) and
+  `s.sinceReturn(partId)`, the ms since caught slag last struck that part (`Infinity` if none
+  has). The Overseer's Mirror stands where the paddle would in a mirror, then where the ball will
+  come down, and holds still for `STUN_MS` after its own slag strikes it.
+
 - `intensity` is `'low' | 'mid' | 'high'`: the mood the phase asks the boss track for. The
   placeholder track (`src/art/bossMusic.ts`) is one song with the same playlist under every mood,
   so today the three sound alike.
@@ -186,11 +210,14 @@ export interface Shot {
 }
 ```
 
-A cue **may not**: change state (`pose`, `retire`, `spawn`, anything on `paddle`, `bricks` or
+A cue **may not**: change state (`retire`, `spawn`, `steer`, anything on `paddle`, `bricks` or
 `powerups`: that is `setup`'s job); call `juice.flash` (whole-screen flashes go through `impact`
 and `glimpse`, which the photosensitivity limiter can refuse); use timers, `Math.random`,
 `Date.now` or a tween's callbacks for anything but looks; play a sound key that is not in
-`AUDIO_ASSETS` (Phaser throws); sit at an `at` past `lengthMs`.
+`AUDIO_ASSETS` (Phaser throws); sit at an `at` past `lengthMs`. `s.pose(id)` is the one
+exception the bosses use: a scene may move the parts to the pose its phase holds anyway, so they
+are in place on screen when the scene shows them (the director holds no pose through the
+entrance). Skipped, the phase's own pose puts them in the same place.
 
 What the framework does around your scenes, so do not do it yourself: fades to black and stops
 the music (`HUSH_MS`), closes and opens the letterbox, shows the title card (`epithet` over
@@ -228,6 +255,12 @@ export interface AttackDef {
   plan(v: BossView): AttackPlan;
 }
 
+export interface AttackPlan {
+  hazards: HazardSpec[];
+  /** Ordinary bricks the attack builds as it goes live, placed as a level places them. */
+  bricks?: Array<Omit<BrickSpec, 'id'>>;
+}
+
 export type HazardSpec =
   | {
       kind: 'shot';
@@ -253,8 +286,15 @@ export type PaddleEffect =
 `plan` runs once as the wind-up starts and returns everything the attack will do; the warnings
 on the paddle line are drawn from it. It may read only its `BossView`: `rng` (never
 `Math.random`), `phaseProgress` (0 at a full pool, 1 at an empty one), `paddle: { x, width }`,
-`balls`, `parts`. `x` is where a hazard lands on the paddle line; `at` is ms after the live
-window opens.
+`balls`, `parts`, `habits`. `habits` is where the paddle has tended to stand this fight, one
+share per `HABIT_BIN` (100 px) of the line, summing to 1; it is counted only while a ball is in
+play, so it says where the player defends, not where they wait. `x` is where a hazard lands on
+the paddle line; `at` is ms after the live window opens.
+
+`bricks` are ordinary bricks: they break, score and drop like any other, and stay. One that would
+go up over a ball in flight, or over a brick or part already there, is left out. The Overseer's
+`overwrite` builds a row of a level already cleared between the Mirror and the paddle, with the
+middle left open.
 
 **Fairness rules** (`planProblems` checks them: the tests run it over many paddle positions and
 seeds, and a dev build logs `[boss] <id> <attack>: <problem>` for a plan that breaks one):
@@ -295,7 +335,7 @@ Dev builds only (`pnpm dev`):
 | Tool | What it does |
 | --- | --- |
 | `?map=bosslab.tmj` | Plays the boss lab (any map file under `public/assets/levels`). |
-| `?stop=20` | Plays the campaign's boss stop after that level (here the Angler), as the campaign does. |
+| `?stop=20` | Plays the campaign's boss stop after that level (here the Angler; `?stop=30` is the Overseer), as the campaign does. |
 | `&phase=2` | Starts the fight in that phase (counted from 1), with every earlier `setup` run and no intro. |
 | `&attack=volley` | Makes every phase's deck that one attack. |
 | `&debug` | Draws the parts' hit zones and the performance overlay. |

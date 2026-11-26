@@ -67,7 +67,7 @@ const DECOY_SIZE = 32;
 const COLUMN_DEPTH = 4.2;
 /** Warnings on the paddle line draw over the columns. */
 const MARK_DEPTH = 4.4;
-/** Shots and skulls draw over the warnings and under the ball (5), which nothing here may hide. */
+/** Shots and skulls draw over the warnings and under the ball, which nothing here may hide. */
 const HAZARD_DEPTH = 4.6;
 /** A shot on screen, in px: its length down the flight. Across, it is as wide as it hits. */
 const SHOT_LENGTH = 30;

@@ -1,0 +1,249 @@
+{
+ "class": "LevelLighting",
+ "compressionlevel": -1,
+ "height": 50,
+ "infinite": false,
+ "layers": [
+  {
+   "draworder": "topdown",
+   "id": 1,
+   "name": "Bricks",
+   "objects": [
+    {
+     "gid": 12,
+     "height": 16,
+     "id": 1,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 30,
+     "y": 240
+    },
+    {
+     "gid": 12,
+     "height": 16,
+     "id": 2,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 60,
+     "y": 240,
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff3ce7ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
+    },
+    {
+     "gid": 12,
+     "height": 16,
+     "id": 3,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 90,
+     "y": 240
+    },
+    {
+     "gid": 2,
+     "height": 16,
+     "id": 4,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 30,
+     "y": 256
+    },
+    {
+     "gid": 2,
+     "height": 16,
+     "id": 5,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 60,
+     "y": 256
+    },
+    {
+     "gid": 2,
+     "height": 16,
+     "id": 6,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 90,
+     "y": 256
+    },
+    {
+     "gid": 12,
+     "height": 16,
+     "id": 7,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 480,
+     "y": 240
+    },
+    {
+     "gid": 12,
+     "height": 16,
+     "id": 8,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 510,
+     "y": 240,
+     "properties": [
+      {
+       "name": "light",
+       "type": "color",
+       "value": "#ff3ce7ff"
+      },
+      {
+       "name": "lightRadius",
+       "type": "float",
+       "value": 110.0
+      },
+      {
+       "name": "lightIntensity",
+       "type": "float",
+       "value": 0.6
+      }
+     ]
+    },
+    {
+     "gid": 12,
+     "height": 16,
+     "id": 9,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 540,
+     "y": 240
+    },
+    {
+     "gid": 2,
+     "height": 16,
+     "id": 10,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 480,
+     "y": 256
+    },
+    {
+     "gid": 2,
+     "height": 16,
+     "id": 11,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 510,
+     "y": 256
+    },
+    {
+     "gid": 2,
+     "height": 16,
+     "id": 12,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 30,
+     "x": 540,
+     "y": 256
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "nextlayerid": 2,
+ "nextobjectid": 13,
+ "orientation": "orthogonal",
+ "properties": [
+  {
+   "name": "boss",
+   "propertytype": "Boss",
+   "type": "string",
+   "value": "overseer"
+  },
+  {
+   "name": "darkness",
+   "type": "float",
+   "value": 0.25
+  },
+  {
+   "name": "lightsOut",
+   "type": "bool",
+   "value": true
+  },
+  {
+   "name": "title",
+   "type": "string",
+   "value": "The Overseer"
+  }
+ ],
+ "renderorder": "right-down",
+ "tiledversion": "1.12.2",
+ "tileheight": 16,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "../tilesets/bricks.tsj"
+  }
+ ],
+ "tilewidth": 30,
+ "type": "map",
+ "version": "1.10",
+ "width": 20
+}
